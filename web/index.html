@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>WebSSH</title>
+  <link rel="stylesheet" href="vendor/xterm/xterm.css" />
+  <style>
+    :root { color-scheme: dark; }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+      background: #14161a; color: #e6e6e6;
+    }
+    header {
+      display: flex; align-items: center; gap: 16px;
+      padding: 10px 20px; background: #1c1f26; border-bottom: 1px solid #2a2e37;
+    }
+    header h1 { font-size: 16px; margin: 0; font-weight: 600; }
+    nav { display: flex; gap: 4px; }
+    nav a {
+      color: #9aa0aa; text-decoration: none; padding: 6px 12px; border-radius: 6px; font-size: 14px;
+    }
+    nav a:hover { color: #e6e6e6; background: #262a33; }
+    nav a.active { color: #fff; background: #2f6fed; }
+    main { padding: 20px; }
+    .placeholder { color: #6b7280; font-size: 14px; padding: 40px 0; text-align: center; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>WebSSH</h1>
+    <nav id="nav">
+      <a href="#/terminal" data-page="terminal">终端</a>
+      <a href="#/hosts" data-page="hosts">主机</a>
+      <a href="#/audit" data-page="audit">审计</a>
+      <a href="#/tokens" data-page="tokens">令牌</a>
+    </nav>
+  </header>
+  <main id="app"><div class="placeholder">加载中…</div></main>
+  <script type="module" src="src/app.js"></script>
+</body>
+</html>

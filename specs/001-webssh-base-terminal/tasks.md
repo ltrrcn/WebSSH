@@ -44,32 +44,32 @@
 
 ### Tests for Foundation（先写，必须失败）
 
-- [ ] T007 [P] `tests/unit/runtime-profile.test.js`：`detectMode()` 两分支（`TRIM_APPNAME` 非空 → `fnos`，否则 `standalone`）、`resolveRuntime()` 返回 `paths`/`listen`/`authSource`/`mode`
-- [ ] T008 [P] `tests/unit/secret-crypto.test.js`：AES-256-GCM 加解密往返、authTag 篡改必须失败、主密钥文件权限 0700、解密失败不得回退明文
-- [ ] T009 [P] `tests/unit/atomic-write.test.js`：原子写（.tmp → fsync → rename）、并发写串行化、一代 `.bak`、文件损坏时回退 `.bak` 启动
-- [ ] T010 [P] `tests/unit/host-authorization.test.js`：主机不在授权清单 / 不属当前使用者 → 拒绝（FR-001 / FR-009 / FR-020）
-- [ ] T011 [P] `tests/unit/path-policy.test.js`：路径规范化、`..` 穿越拒绝、系统敏感路径恒定拒绝、最长前缀匹配、符号链接按真实路径判定（FR-036/037/038/039）
-- [ ] T012 [P] `tests/unit/redact.test.js`：疑似口令与私钥片段被占位符替换，其余内容保留（FR-042）
-- [ ] T013 [P] `tests/contract/runtime-api.test.js`：`GET /api/runtime` 返回 mode 与监听形态，且不含具体路径
+- [X] T007 [P] `tests/unit/runtime-profile.test.js`：`detectMode()` 两分支（`TRIM_APPNAME` 非空 → `fnos`，否则 `standalone`）、`resolveRuntime()` 返回 `paths`/`listen`/`authSource`/`mode`
+- [X] T008 [P] `tests/unit/secret-crypto.test.js`：AES-256-GCM 加解密往返、authTag 篡改必须失败、主密钥文件权限 0700、解密失败不得回退明文
+- [X] T009 [P] `tests/unit/atomic-write.test.js`：原子写（.tmp → fsync → rename）、并发写串行化、一代 `.bak`、文件损坏时回退 `.bak` 启动
+- [X] T010 [P] `tests/unit/host-authorization.test.js`：主机不在授权清单 / 不属当前使用者 → 拒绝（FR-001 / FR-009 / FR-020）
+- [X] T011 [P] `tests/unit/path-policy.test.js`：路径规范化、`..` 穿越拒绝、系统敏感路径恒定拒绝、最长前缀匹配、符号链接按真实路径判定（FR-036/037/038/039）
+- [X] T012 [P] `tests/unit/redact.test.js`：疑似口令与私钥片段被占位符替换，其余内容保留（FR-042）
+- [X] T013 [P] `tests/contract/runtime-api.test.js`：`GET /api/runtime` 返回 mode 与监听形态，且不含具体路径
 
 ### Implementation for Foundation
 
-- [ ] T014 `src/runtime/profile.js`：`detectMode()` + `resolveRuntime()`，**唯一**允许读取 `TRIM_*` 的入口（宪法第 VII 条）
-- [ ] T015 `src/runtime/paths.js`：fnOS（`TRIM_PKGETC`/`TRIM_PKGVAR`/`TRIM_PKGTMP`/`TRIM_APPDEST`/`TRIM_PKGVAR/log`）与 standalone（`${WEBSSH_HOME}/{etc,var,tmp,var/log}`）映射为 `paths.config/data/tmp/log/program`；启动时校验并在缺失时创建，配置目录权限 0700
-- [ ] T016 [P] `src/crypto/master-key.js`：首次启动生成 32 字节随机主密钥写入 `paths.config/master.key`（0700），后续加载复用
-- [ ] T017 `src/crypto/secret.js`：AES-256-GCM 加解密（`alg`/`iv`/`tag`/`data`），强制校验 authTag
-- [ ] T018 [P] `src/crypto/redact.js`：凭据与私钥片段检出并替换为占位符，输出摘要超长截断标记
-- [ ] T019 `src/store/atomic.js`：写 `.tmp` → `fsync` → `rename`；进程内 Promise 链串行化；覆盖前保留一代 `.bak`；读取失败时回退 `.bak` 并告警（FR-017）
-- [ ] T020 `src/store/store.js`：存储接口定义（hosts / tokens / audit 三组操作），接口稳定以便高级版替换为 SQLite 实现（宪法第 VIII 条）
-- [ ] T021 `src/store/file-store.js`：基于 `store.js` 的文件实现——`hosts.json` / `tokens.json` 读写、顶层 `version`、迁移钩子、`ownerId` 归属过滤、损坏回退
-- [ ] T022 `src/config/defaults.js` + `src/config/loader.js`：默认配置（limits / audit / security / defaultPermissions / standalone），加载时与用户配置合并并校验，按 `version` 迁移
-- [ ] T023 `src/audit/logger.js`：JSONL 追加写入、按天与按大小滚动、`retentionDays` 清理、写入前过 `redact.js`；字段严格遵循 AuditEvent schema（version=1）
-- [ ] T024 `src/ssh/policy.js`（路径部分）：路径规范化、穿越拒绝、系统敏感路径内置清单恒定拒绝、目录矩阵最长前缀匹配、符号链接真实路径复核
-- [ ] T025 [P] `src/net/router.js`：`/api/*` 路由分发 + `web/` 静态文件服务（含路径穿越防护与扩展名 MIME）+ 实现 `GET /api/runtime`（返回当前 mode 与监听形态，不含具体路径——T013 契约测试的实现落点）
-- [ ] T026 `src/net/server.js`：单一 `node:http` 服务；fnOS 监听 `${TRIM_APPDEST}/app.sock`，standalone 监听 `127.0.0.1:<port>`；绑定非回环且未启用 TLS 时输出启动告警
-- [ ] T027 `src/net/auth.js`：身份来源适配——fnOS 取 `X-Trim-Userid`/`Username`/`Isadmin`，standalone 取应用登录会话；**禁止**信任请求体自带的用户 ID
-- [ ] T028 `src/index.js`：启动引导（探测模式 → 解析路径 → 加载配置 → 建服务 → 输出模式与监听形态日志）、优雅退出（关闭所有会话后再退出）
-- [ ] T029 [P] `web/index.html` + `web/src/app.js`：页面外壳与导航（终端 / 主机 / 审计 / 令牌），静态资源在网关前缀下可正确加载
+- [X] T014 `src/runtime/profile.js`：`detectMode()` + `resolveRuntime()`，**唯一**允许读取 `TRIM_*` 的入口（宪法第 VII 条）
+- [X] T015 `src/runtime/paths.js`：fnOS（`TRIM_PKGETC`/`TRIM_PKGVAR`/`TRIM_PKGTMP`/`TRIM_APPDEST`/`TRIM_PKGVAR/log`）与 standalone（`${WEBSSH_HOME}/{etc,var,tmp,var/log}`）映射为 `paths.config/data/tmp/log/program`；启动时校验并在缺失时创建，配置目录权限 0700
+- [X] T016 [P] `src/crypto/master-key.js`：首次启动生成 32 字节随机主密钥写入 `paths.config/master.key`（0700），后续加载复用
+- [X] T017 `src/crypto/secret.js`：AES-256-GCM 加解密（`alg`/`iv`/`tag`/`data`），强制校验 authTag
+- [X] T018 [P] `src/crypto/redact.js`：凭据与私钥片段检出并替换为占位符，输出摘要超长截断标记
+- [X] T019 `src/store/atomic.js`：写 `.tmp` → `fsync` → `rename`；进程内 Promise 链串行化；覆盖前保留一代 `.bak`；读取失败时回退 `.bak` 并告警（FR-017）
+- [X] T020 `src/store/store.js`：存储接口定义（hosts / tokens / audit 三组操作），接口稳定以便高级版替换为 SQLite 实现（宪法第 VIII 条）
+- [X] T021 `src/store/file-store.js`：基于 `store.js` 的文件实现——`hosts.json` / `tokens.json` 读写、顶层 `version`、迁移钩子、`ownerId` 归属过滤、损坏回退
+- [X] T022 `src/config/defaults.js` + `src/config/loader.js`：默认配置（limits / audit / security / defaultPermissions / standalone），加载时与用户配置合并并校验，按 `version` 迁移
+- [X] T023 `src/audit/logger.js`：JSONL 追加写入、按天与按大小滚动、`retentionDays` 清理、写入前过 `redact.js`；字段严格遵循 AuditEvent schema（version=1）
+- [X] T024 `src/ssh/policy.js`（路径部分）：路径规范化、穿越拒绝、系统敏感路径内置清单恒定拒绝、目录矩阵最长前缀匹配、符号链接真实路径复核
+- [X] T025 [P] `src/net/router.js`：`/api/*` 路由分发 + `web/` 静态文件服务（含路径穿越防护与扩展名 MIME）+ 实现 `GET /api/runtime`（返回当前 mode 与监听形态，不含具体路径——T013 契约测试的实现落点）
+- [X] T026 `src/net/server.js`：单一 `node:http` 服务；fnOS 监听 `${TRIM_APPDEST}/app.sock`，standalone 监听 `127.0.0.1:<port>`；绑定非回环且未启用 TLS 时输出启动告警
+- [X] T027 `src/net/auth.js`：身份来源适配——fnOS 取 `X-Trim-Userid`/`Username`/`Isadmin`，standalone 取应用登录会话；**禁止**信任请求体自带的用户 ID
+- [X] T028 `src/index.js`：启动引导（探测模式 → 解析路径 → 加载配置 → 建服务 → 输出模式与监听形态日志）、优雅退出（关闭所有会话后再退出）
+- [X] T029 [P] `web/index.html` + `web/src/app.js`：页面外壳与导航（终端 / 主机 / 审计 / 令牌），静态资源在网关前缀下可正确加载
 
 **Checkpoint**: 基础就绪——可启动服务、数据目录自动创建、加密与原子写可用、审计可写。用户故事可开始。
 
