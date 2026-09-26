@@ -6,79 +6,213 @@
   <title>WebSSH</title>
   <link rel="stylesheet" href="vendor/xterm/xterm.css" />
   <style>
+    /* ===== 主题变量（FR-048）：黑色为默认，浅色覆盖；导入配色 = 替换变量集 ===== */
+    :root, [data-theme="dark"] {
+      --bg: #14161a;
+      --bg-panel: #1c1f26;
+      --bg-hover: #262a33;
+      --bg-active: #2f6fed;
+      --bg-input: #14161a;
+      --term-bg: #0d0f12;
+      --border: #2a2e37;
+      --text: #e6e6e6;
+      --text-dim: #8b929e;
+      --text-faint: #6b7280;
+      --accent: #2f6fed;
+      --accent-text: #ffffff;
+      --ok: #34d399;
+      --warn: #fbbf24;
+      --danger: #f87171;
+      --tag-bg: #262a33;
+    }
+    [data-theme="light"] {
+      --bg: #f5f6f8;
+      --bg-panel: #ffffff;
+      --bg-hover: #e9ecf1;
+      --bg-active: #2f6fed;
+      --bg-input: #ffffff;
+      --term-bg: #ffffff;
+      --border: #d8dde5;
+      --text: #1f2328;
+      --text-dim: #57606a;
+      --text-faint: #8b949e;
+      --accent: #2f6fed;
+      --accent-text: #ffffff;
+      --ok: #057d55;
+      --warn: #b45309;
+      --danger: #d1242f;
+      --tag-bg: #e9ecf1;
+    }
+
     :root { color-scheme: dark; }
+    [data-theme="light"] { color-scheme: light; }
     * { box-sizing: border-box; }
+    html, body { height: 100%; }
     body {
       margin: 0; font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
-      background: #14161a; color: #e6e6e6;
+      background: var(--bg); color: var(--text); overflow: hidden;
     }
-    header {
-      display: flex; align-items: center; gap: 16px;
-      padding: 10px 20px; background: #1c1f26; border-bottom: 1px solid #2a2e37;
+    button { font-family: inherit; }
+
+    #app { display: flex; height: 100vh; }
+
+    /* ===== 左侧边栏（FR-044） ===== */
+    #sidebar {
+      width: 260px; min-width: 260px; display: flex; flex-direction: column;
+      background: var(--bg-panel); border-right: 1px solid var(--border);
     }
-    header h1 { font-size: 16px; margin: 0; font-weight: 600; }
-    nav { display: flex; gap: 4px; }
-    nav a {
-      color: #9aa0aa; text-decoration: none; padding: 6px 12px; border-radius: 6px; font-size: 14px;
+    .sidebar-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 14px 16px 10px; font-weight: 600; font-size: 15px;
     }
-    nav a:hover { color: #e6e6e6; background: #262a33; }
-    nav a.active { color: #fff; background: #2f6fed; }
-    main { padding: 20px; }
-    .placeholder { color: #6b7280; font-size: 14px; padding: 40px 0; text-align: center; }
-    /* 主机选择 */
-    .host-picker { display: flex; flex-wrap: wrap; gap: 24px; }
-    .host-group-title { color: #8b929e; font-size: 12px; margin-bottom: 8px; text-transform: uppercase; letter-spacing: .05em; }
-    .host-item { display: flex; flex-direction: column; gap: 2px; width: 240px; text-align: left;
-      background: #1c2027; border: 1px solid #2a2e37; border-radius: 8px; padding: 10px 14px; cursor: pointer; color: #e6e6e6; }
-    .host-item:hover { border-color: #2f6fed; }
-    .host-name { font-size: 14px; font-weight: 600; }
-    .host-meta { font-size: 12px; color: #8b929e; font-family: Menlo, monospace; }
-    .host-warn { font-size: 11px; color: #d97706; margin-top: 2px; }
-    /* 终端 */
-    .term-wrap { display: flex; flex-direction: column; height: calc(100vh - 110px); }
-    .term-bar { display: flex; justify-content: space-between; align-items: center; padding: 6px 0 10px; }
-    .term-title { font-size: 13px; color: #9aa0aa; font-family: Menlo, monospace; }
-    .term-actions button, .host-item { font-size: 12px; }
-    .term-actions button { background: #262a33; color: #cdd3dc; border: 1px solid #2a2e37; border-radius: 6px; padding: 4px 10px; margin-left: 6px; cursor: pointer; }
-    .term-actions button:hover { background: #303543; }
-    #term-container { flex: 1; background: #0d0f12; border-radius: 8px; padding: 8px; min-height: 0; }
-    .term-status { min-height: 20px; font-size: 12px; color: #6b7280; padding-top: 6px; }
-    .term-status.err { color: #ef4444; }
-    /* 主机管理 */
-    .hosts-toolbar { display: flex; justify-content: space-between; align-items: center; padding-bottom: 12px; }
-    .hosts-toolbar span { color: #8b929e; font-size: 13px; }
-    .host-row { display: flex; justify-content: space-between; align-items: center; gap: 12px;
-      background: #1c2027; border: 1px solid #2a2e37; border-radius: 8px; padding: 10px 14px; margin-bottom: 8px; }
-    .host-row-main { display: flex; flex-direction: column; gap: 2px; }
-    .host-row-actions { display: flex; gap: 6px; align-items: center; }
-    .host-row-actions button { background: #262a33; color: #cdd3dc; border: 1px solid #2a2e37; border-radius: 6px; padding: 4px 10px; cursor: pointer; font-size: 12px; }
-    .host-row-actions button:hover { background: #303543; }
-    .host-row-actions button.danger { color: #f87171; }
-    button.primary { background: #2f6fed !important; color: #fff !important; border-color: #2f6fed !important; }
-    .tag { font-size: 11px; padding: 2px 8px; border-radius: 10px; background: #262a33; color: #8b929e; }
-    .tag.ok { color: #34d399; } .tag.warn { color: #fbbf24; }
-    .host-form { background: #1c2027; border: 1px solid #2a2e37; border-radius: 10px; padding: 16px 20px; margin-top: 16px; max-width: 480px; }
-    .host-form h3 { margin: 0 0 12px; font-size: 14px; }
-    .host-form label { display: block; font-size: 12px; color: #9aa0aa; margin-bottom: 10px; }
-    .host-form input, .host-form select, .host-form textarea { display: block; width: 100%; margin-top: 4px;
-      background: #14161a; color: #e6e6e6; border: 1px solid #2a2e37; border-radius: 6px; padding: 7px 10px; font-size: 13px; }
-    .host-form textarea { font-family: Menlo, monospace; font-size: 11px; }
-    .form-actions { display: flex; gap: 8px; }
-    .form-actions button { background: #262a33; color: #cdd3dc; border: 1px solid #2a2e37; border-radius: 6px; padding: 6px 16px; cursor: pointer; font-size: 13px; }
-    .form-note { font-size: 11px; color: #6b7280; margin: 4px 0 12px; }
+    .sidebar-header .count { font-size: 11px; color: var(--text-faint); font-weight: 400; }
+    #host-list { flex: 1; overflow-y: auto; padding: 4px 8px; }
+    .sidebar-group-title {
+      color: var(--text-faint); font-size: 11px; margin: 10px 6px 4px;
+      text-transform: uppercase; letter-spacing: .05em;
+    }
+    .host-item {
+      display: flex; align-items: center; gap: 8px; width: 100%;
+      padding: 8px 10px; margin-bottom: 2px; border-radius: 7px; border: none;
+      background: transparent; color: var(--text); cursor: pointer; text-align: left;
+      font-size: 13px;
+    }
+    .host-item:hover { background: var(--bg-hover); }
+    .host-item.connected { background: var(--bg-hover); box-shadow: inset 2px 0 0 var(--accent); }
+    .host-item .host-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+    .host-item .host-name { font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .host-item .host-meta { font-size: 11px; color: var(--text-dim); font-family: Menlo, monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .host-item .host-actions { display: none; gap: 2px; }
+    .host-item:hover .host-actions { display: flex; }
+    .icon-btn {
+      border: none; background: transparent; color: var(--text-dim); cursor: pointer;
+      padding: 3px 5px; border-radius: 5px; font-size: 12px; line-height: 1;
+    }
+    .icon-btn:hover { background: var(--bg-panel); color: var(--text); }
+    .icon-btn.danger:hover { color: var(--danger); }
+    .tag { font-size: 10px; padding: 1px 6px; border-radius: 8px; background: var(--tag-bg); color: var(--text-dim); }
+    .tag.ok { color: var(--ok); } .tag.warn { color: var(--warn); }
+    .sidebar-empty { color: var(--text-faint); font-size: 12px; text-align: center; padding: 32px 12px; }
+    .sidebar-footer { padding: 10px; border-top: 1px solid var(--border); }
+    #btn-settings {
+      display: flex; align-items: center; gap: 8px; width: 100%;
+      padding: 9px 12px; border-radius: 7px; border: none; cursor: pointer;
+      background: transparent; color: var(--text-dim); font-size: 13px;
+    }
+    #btn-settings:hover { background: var(--bg-hover); color: var(--text); }
+
+    /* ===== 右侧终端区（FR-044/045） ===== */
+    #main { flex: 1; display: flex; flex-direction: column; min-width: 0; position: relative; }
+    #tabbar {
+      display: flex; align-items: stretch; height: 38px; min-height: 38px;
+      background: var(--bg-panel); border-bottom: 1px solid var(--border);
+      overflow-x: auto;
+    }
+    .tab {
+      display: flex; align-items: center; gap: 8px; padding: 0 12px;
+      border-right: 1px solid var(--border); cursor: pointer; font-size: 13px;
+      color: var(--text-dim); position: relative; white-space: nowrap; user-select: none;
+    }
+    .tab:hover { color: var(--text); }
+    .tab.active { color: var(--text); background: var(--bg); }
+    .tab.active::after {
+      content: ''; position: absolute; left: 0; right: 0; top: 0; height: 2px; background: var(--accent);
+    }
+    .tab .tab-status { width: 7px; height: 7px; border-radius: 50%; background: var(--warn); }
+    .tab .tab-status.open { background: var(--ok); }
+    .tab .tab-close { border: none; background: transparent; color: var(--text-faint); cursor: pointer; padding: 2px 4px; border-radius: 4px; font-size: 13px; }
+    .tab .tab-close:hover { background: var(--bg-hover); color: var(--danger); }
+    #terminals { flex: 1; position: relative; background: var(--term-bg); }
+    .term-instance { position: absolute; inset: 0; display: none; flex-direction: column; }
+    .term-instance.active { display: flex; }
+    .term-instance .term-container { flex: 1; padding: 6px; min-height: 0; }
+    .term-instance .term-status {
+      min-height: 22px; font-size: 12px; color: var(--text-faint);
+      padding: 2px 10px 6px; display: none;
+    }
+    .term-instance .term-status.show { display: block; }
+    .term-instance .term-status.err { color: var(--danger); }
+    #empty-state {
+      position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+      color: var(--text-faint); font-size: 14px; flex-direction: column; gap: 8px;
+    }
+    #empty-state .big { font-size: 34px; opacity: .5; }
+
+    /* ===== 弹窗 ===== */
+    #modal-root { position: fixed; inset: 0; z-index: 100; display: none; }
+    #modal-root.show { display: block; }
+    .modal-mask { position: absolute; inset: 0; background: rgba(0,0,0,.5); }
+    .modal {
+      position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+      background: var(--bg-panel); border: 1px solid var(--border); border-radius: 12px;
+      min-width: 420px; max-width: 720px; max-height: 85vh; overflow-y: auto;
+      box-shadow: 0 12px 40px rgba(0,0,0,.4);
+    }
+    .modal-head {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 14px 18px 0; font-size: 15px; font-weight: 600;
+    }
+    .modal-body { padding: 12px 18px 18px; }
+
+    /* 表单 */
+    form.host-form label { display: block; font-size: 12px; color: var(--text-dim); margin-bottom: 10px; }
+    form.host-form input, form.host-form select, form.host-form textarea {
+      display: block; width: 100%; margin-top: 4px;
+      background: var(--bg-input); color: var(--text);
+      border: 1px solid var(--border); border-radius: 6px; padding: 7px 10px; font-size: 13px;
+    }
+    form.host-form textarea { font-family: Menlo, monospace; font-size: 11px; }
+    .form-actions { display: flex; gap: 8px; margin-top: 14px; }
+    .btn { background: var(--bg-hover); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 6px 16px; cursor: pointer; font-size: 13px; }
+    .btn:hover { filter: brightness(1.1); }
+    .btn.primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+    .btn.danger-text { color: var(--danger); }
+    .form-note { font-size: 11px; color: var(--text-faint); margin: 2px 0 0; }
+
+    /* 设置弹窗 */
+    .settings-nav { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin-bottom: 14px; }
+    .settings-nav button {
+      border: none; background: transparent; color: var(--text-dim); cursor: pointer;
+      padding: 8px 14px; font-size: 13px; border-bottom: 2px solid transparent; margin-bottom: -1px;
+    }
+    .settings-nav button.active { color: var(--text); border-bottom-color: var(--accent); }
+    .theme-row { display: flex; gap: 10px; }
+    .theme-option {
+      flex: 1; border: 2px solid var(--border); border-radius: 10px; padding: 12px; cursor: pointer; text-align: center; font-size: 13px;
+    }
+    .theme-option.selected { border-color: var(--accent); }
+    .theme-option .swatch { height: 44px; border-radius: 6px; margin-bottom: 8px; border: 1px solid var(--border); }
+    .swatch.dark { background: linear-gradient(135deg, #14161a 50%, #1c1f26 50%); }
+    .swatch.light { background: linear-gradient(135deg, #f5f6f8 50%, #ffffff 50%); }
+    .placeholder-box { color: var(--text-faint); font-size: 13px; text-align: center; padding: 36px 0; }
+
+    ::-webkit-scrollbar { width: 8px; height: 8px; }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+    ::-webkit-scrollbar-track { background: transparent; }
   </style>
 </head>
 <body>
-  <header>
-    <h1>WebSSH</h1>
-    <nav id="nav">
-      <a href="#/terminal" data-page="terminal">终端</a>
-      <a href="#/hosts" data-page="hosts">主机</a>
-      <a href="#/audit" data-page="audit">审计</a>
-      <a href="#/tokens" data-page="tokens">令牌</a>
-    </nav>
-  </header>
-  <main id="app"><div class="placeholder">加载中…</div></main>
+  <div id="app">
+    <aside id="sidebar">
+      <div class="sidebar-header">
+        <span>WebSSH</span>
+        <span class="count" id="host-count"></span>
+      </div>
+      <div id="host-list"></div>
+      <div class="sidebar-footer">
+        <button id="btn-settings" title="设置">⚙ 设置</button>
+      </div>
+    </aside>
+    <main id="main">
+      <div id="tabbar"></div>
+      <div id="terminals"></div>
+      <div id="empty-state">
+        <div class="big">⌨</div>
+        <div>在左侧选择主机开始连接</div>
+      </div>
+    </main>
+  </div>
+  <div id="modal-root"><div class="modal-mask"></div><div class="modal"></div></div>
   <script src="vendor/xterm/xterm.js"></script>
   <script src="vendor/xterm/xterm-addon-fit.js"></script>
   <script type="module" src="src/app.js"></script>

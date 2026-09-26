@@ -243,6 +243,20 @@
 
 ---
 
+## Phase 10: UI 重构（用户设计构想）
+
+**Purpose**: 按 2026-09-26 UI 设计澄清重构前端形态（FR-044 ~ FR-048）
+
+- [X] T095 重构 `web/index.html`：左侧边栏（主机列表 + 新增 + 左下角设置入口）+ 右侧终端区（顶部 tab 栏），移除顶部导航；配色全部改为 CSS 变量
+- [X] T096 [P] `web/src/theme.js`：黑色/白色双主题管理——CSS 变量切换、localStorage 持久化、xterm 主题映射、终端配色导入扩展点（注册表结构，不实现导入解析）
+- [X] T097 `web/src/app.js`：新外壳——侧栏渲染、设置弹窗（主题切换 + 审计/令牌入口）、beforeunload 活动会话提示
+- [X] T098 `web/src/terminal.js`：重写为多会话 tab 管理器——每 tab 独立 xterm 实例与 WS、切换保持连接（display 隔离 + 重新 fit）、关闭 tab 前活动会话确认
+- [X] T099 `web/src/hosts.js`：主机列表改造为侧栏形态（紧凑条目 + 连接/编辑/删除/指纹确认），表单改弹窗
+- [X] T100 bsk 浏览器验收：新增主机 → 连接 → 多 tab 切换 → 关 tab 确认 → 主题切换 → 关页提示
+- [X] T101 单元/契约回归：`npm run test:unit` + `test:contract` 全绿（后端无改动，应保持）
+
+---
+
 ## Dependencies & Execution Order
 
 ### Phase Dependencies

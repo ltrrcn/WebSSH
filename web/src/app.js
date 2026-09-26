@@ -1,38 +1,51 @@
-// 前端外壳：hash 路由 + 页面懒加载
-// terminal（US1 已实现）｜hosts（US2）｜audit（US4）｜tokens（US6）
+// 应用外壳（FR-044）：左侧主机栏 + 右侧多 tab 终端区 + 左下角设置 + beforeunload 会话保护
+import { initTheme } from './theme.js';
+import { renderHostList, openHostFormModal } from './hosts.js';
+import { openSettingsModal } from './settings.js';
+import * as terminal from './terminal.js';
 
-const PLACEHOLDER = {
-  audit: '审计页在此加载（US4：连接行为留痕与导出）',
-  tokens: '令牌管理页在此加载（US6：MCP 令牌）',
-};
+initTheme();
 
-let cleanup = null;
+const hostList = document.getElementById('host-list');
+const tabbar = document.getElementById('tabbar');
+const terminals = document.getElementById('terminals');
+const emptyState = document.getElementById('empty-state');
 
-async function render() {
-  const hash = location.hash.replace(/^#\//, '');
-  const page = ['terminal', 'hosts', 'audit', 'tokens'].includes(hash) ? hash : 'terminal';
-  const app = document.getElementById('app');
+terminal.mountTerminalArea({ tabbar, terminals, emptyState });
 
-  if (cleanup) {
-    cleanup();
-    cleanup = null;
-  }
-  for (const a of document.querySelectorAll('#nav a')) {
-    a.classList.toggle('active', a.dataset.page === page);
-  }
+// 会话状态变化 → 刷新侧栏「已连接」标记
+terminal.onTabsChange(() => refreshHostList());
 
-  if (page === 'terminal') {
-    const mod = await import('./terminal.js');
-    await mod.render(app);
-    // 切换页面时释放终端资源
-    cleanup = () => mod.disposeActive?.();
-  } else if (page === 'hosts') {
-    const mod = await import('./hosts.js');
-    await mod.render(app);
-  } else {
-    app.innerHTML = `<div class="placeholder">${PLACEHOLDER[page]}</div>`;
-  }
+function refreshHostList() {
+  renderHostList(hostList, {
+    onConnect: (host) => terminal.connectHost(host),
+    connectedIds: terminal.connectedHostIds(),
+    onChanged: refreshHostList,
+  });
 }
+refreshHostList();
 
-window.addEventListener('hashchange', render);
-render();
+// 设置入口（FR-047）
+document.getElementById('btn-settings').addEventListener('click', () => {
+  openSettingsModal({
+    // US4/US6 交付后在此注入：renderAudit / renderTokens
+  });
+});
+
+// 新增主机入口：侧栏头部
+const addBtn = document.createElement('button');
+addBtn.className = 'icon-btn';
+addBtn.title = '新增主机';
+addBtn.textContent = '＋';
+addBtn.style.fontSize = '16px';
+document.querySelector('.sidebar-header').appendChild(addBtn);
+addBtn.addEventListener('click', () => openHostFormModal(null, refreshHostList));
+
+// 关闭页面前检查活动会话（FR-046）
+window.addEventListener('beforeunload', (e) => {
+  if (terminal.hasActiveSessions()) {
+    e.preventDefault();
+    e.returnValue = '仍有终端会话在进行，关闭页面将断开连接。';
+    return e.returnValue;
+  }
+});
