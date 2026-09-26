@@ -135,15 +135,15 @@
 
 ### Tests for User Story 3（先写，必须失败）
 
-- [ ] T050 [P] [US3] `tests/integration/session-cleanup.test.js`：WS 关闭后 sshd 侧会话终止、服务端无残留连接（SC-005）
-- [ ] T051 [P] [US3] `tests/integration/session-limits.test.js`：多会话互不影响；达到上限后新连接被拒并给出 `session_limit`
+- [X] T050 [P] [US3] `tests/integration/session-cleanup.test.js`：WS 关闭后 sshd 侧会话终止、服务端无残留连接（SC-005）
+- [X] T051 [P] [US3] `tests/integration/session-limits.test.js`：多会话互不影响；达到上限后新连接被拒并给出 `session_limit`
 
 ### Implementation for User Story 3
 
-- [ ] T052 [US3] `src/session/manager.js`：关闭链路——`ws close` / `ws error` / 网络断开 / 进程退出均触发 SSH 终止与资源释放，写入 `endReason`
-- [ ] T053 [US3] `src/session/manager.js`：空闲超时计时（`idleTimeoutMs`）→ 关闭码 `4010`，前端显示断开原因
-- [ ] T054 [US3] `src/session/manager.js`：并发上限校验 → 关闭码 `4004`（FR-019）
-- [ ] T055 [US3] `src/api/sessions.js`：`GET /api/sessions`（当前用户活动会话）与 `DELETE /api/sessions/{id}`（终止并释放）
+- [X] T052 [US3] `src/session/manager.js`：关闭链路——`ws close` / `ws error` / 网络断开 / 进程退出均触发 SSH 终止与资源释放，写入 `endReason`
+- [X] T053 [US3] `src/session/manager.js`：空闲超时计时（`idleTimeoutMs`）→ 关闭码 `4010`，前端显示断开原因
+- [X] T054 [US3] `src/session/manager.js`：并发上限校验 → 关闭码 `4004`（FR-019）
+- [X] T055 [US3] `src/api/sessions.js`：`GET /api/sessions`（当前用户活动会话）与 `DELETE /api/sessions/{id}`（终止并释放）
 
 **Checkpoint**: 会话生命周期闭环，无资源泄漏。
 

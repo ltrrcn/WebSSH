@@ -50,6 +50,20 @@ export function createSessionManager({ config, store, audit, masterKey, runtime 
    * 创建会话：审计 connect-attempt → SSH 连接 → 桥接；失败审计 connect-failure。
    */
   async function createSession({ ws, host, identity }) {
+    // 升级预检与创建之间存在异步窗口，此处二次校验并发上限（FR-019）
+    if (!canCreate(identity.id)) {
+      audit.log({
+        actor: identity.id,
+        actorType: 'user',
+        hostId: host.id,
+        event: 'connect-attempt',
+        result: 'denied',
+        reason: 'session_limit',
+      });
+      ws.close(4004, 'session_limit');
+      return null;
+    }
+
     const now = new Date().toISOString();
     const session = {
       id: `s_${randomUUID().replace(/-/g, '').slice(0, 12)}`,
@@ -69,6 +83,13 @@ export function createSessionManager({ config, store, audit, masterKey, runtime 
 
     let conn;
     let stream;
+    // 竞态防护：ws 可能在 SSH 建连期间断开（桥接尚未挂接，close 事件会被错过）
+    let wsClosedEarly = false;
+    const onEarlyClose = () => {
+      wsClosedEarly = true;
+    };
+    ws.once('close', onEarlyClose);
+    ws.once('error', onEarlyClose);
     try {
       const secret = decryptSecret(masterKey, host.secret);
       const connected = await connectShell({
@@ -101,6 +122,15 @@ export function createSessionManager({ config, store, audit, masterKey, runtime 
       audit.log(auditBase(session, { event: 'connect-failure', result: 'error', reason }));
       ws.close(4006, reason);
       return session;
+    } finally {
+      ws.removeListener('close', onEarlyClose);
+      ws.removeListener('error', onEarlyClose);
+    }
+
+    // 建连期间客户端已断开：立即回收，避免会话与远程连接泄漏
+    if (wsClosedEarly) {
+      closeSession(session, 'network', 1006);
+      return session;
     }
 
     bridgeSession({
@@ -130,6 +160,18 @@ export function createSessionManager({ config, store, audit, masterKey, runtime 
       session.conn?.end();
     } catch {
       /* 忽略 */
+    }
+    // 兜底：DISCONNECT 若因对端半开而发不出去，强拆底层 socket 防止 sshd 侧残留
+    const conn = session.conn;
+    if (conn) {
+      const t = setTimeout(() => {
+        try {
+          conn._sock?.destroy?.();
+        } catch {
+          /* 忽略 */
+        }
+      }, 500);
+      t.unref?.();
     }
 
     session.state = 'closed';
@@ -162,7 +204,14 @@ export function createSessionManager({ config, store, audit, masterKey, runtime 
     return true;
   }
 
-  return { sessions, canCreate, countByOwner, listSessions, createSession, killSession };
+  /** 优雅退出：终止全部会话并释放资源（httpServer.close 前必须调用） */
+  function killAll() {
+    for (const s of [...sessions.values()]) {
+      closeSession(s, 'shutdown', 1001);
+    }
+  }
+
+  return { sessions, canCreate, countByOwner, listSessions, createSession, killSession, killAll };
 }
 
 /** 失败原因白名单（错误信息不得包含凭据，SC-010） */

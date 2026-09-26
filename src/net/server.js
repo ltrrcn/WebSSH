@@ -16,6 +16,7 @@ import { loadOrCreateMasterKey } from '../crypto/master-key.js';
 import { createAuditLogger } from '../audit/logger.js';
 import { createSessionManager } from '../session/manager.js';
 import { hostsRoutes } from '../api/hosts.js';
+import { sessionsRoutes } from '../api/sessions.js';
 
 const WEB_DIR = join(fileURLToPath(new URL('../../web', import.meta.url)));
 
@@ -76,6 +77,7 @@ export async function startApp(opts = {}) {
       handler: (req, res) => sendJson(res, 200, { mode: runtime.mode, listen: runtime.listen.type }),
     },
     ...hostsRoutes(deps),
+    ...sessionsRoutes(deps),
   ];
 
   const router = createRouter({ webDir: opts.webDir ?? WEB_DIR, apiRoutes });
@@ -121,7 +123,10 @@ export async function startApp(opts = {}) {
   );
 
   const close = async () => {
+    // 优雅退出：先终止全部会话（否则存活的 WS 连接会阻塞 httpServer.close）
+    deps.sessionManager.killAll();
     await new Promise((resolve) => httpServer.close(resolve));
+    httpServer.closeIdleConnections?.();
     if (runtime.listen.type === 'unix') {
       try {
         await unlink(runtime.listen.socketPath);
