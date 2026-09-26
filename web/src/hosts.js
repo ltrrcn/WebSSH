@@ -90,7 +90,14 @@ export async function renderHostList(container, { onConnect, connectedIds = [], 
         meta: `${host.name}`,
         items: [
           { label: '连接', onClick: () => onConnect(host) },
-          { label: '新建会话连接', onClick: () => openHostFormModal(null, onChanged) },
+          {
+            label: '复制会话',
+            onClick: async () => {
+              // FR-056：服务端复制完整记录（含凭据密文）
+              await fetch(`/api/hosts/${host.id}/duplicate`, { method: 'POST' });
+              onChanged();
+            },
+          },
           { label: '编辑', onClick: () => openHostFormModal(host, onChanged) },
           'sep',
           {

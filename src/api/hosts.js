@@ -265,6 +265,31 @@ export function hostsRoutes(deps) {
     },
     {
       method: 'POST',
+      path: '/api/hosts/{id}/duplicate',
+      handler: async (req, res, ctx) => {
+        const identity = resolveIdentity(req, runtime);
+        if (!identity) return sendError(res, 401, 'unauthorized', '未认证');
+        const id = ctx.params.id;
+        const { host, forbidden } = await requireHost(id, identity.id);
+        if (forbidden) return sendError(res, 403, 'forbidden', '无权访问该资源');
+        if (!host) return sendError(res, 404, 'not_found', '主机不存在');
+
+        const now = new Date().toISOString();
+        // FR-056：加密凭据密文原样复制（无需解密），副本为完全独立条目
+        const copy = {
+          ...host,
+          id: `h_${randomUUID().replace(/-/g, '').slice(0, 12)}`,
+          name: `${host.name} 副本`,
+          createdAt: now,
+          updatedAt: now,
+          lastUsedAt: null,
+        };
+        await store.upsertHost(copy);
+        sendJson(res, 200, publicView(copy));
+      },
+    },
+    {
+      method: 'POST',
       path: '/api/hosts/{id}/verify-hostkey',
       handler: async (req, res, ctx) => {
         const identity = resolveIdentity(req, runtime);

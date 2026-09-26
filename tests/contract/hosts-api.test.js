@@ -213,6 +213,51 @@ test('越权访问他人主机 → 403，不暴露存在性与凭据（FR-009）
   }
 });
 
+test('POST /api/hosts/{id}/duplicate：复制连接（含凭据密文），生成独立「副本」（FR-056）', async () => {
+  const { app, cleanup, base } = await setup();
+  try {
+    const created = await (await fetch(`${base}/api/hosts`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(createBody()),
+    })).json();
+
+    const res = await fetch(`${base}/api/hosts/${created.id}/duplicate`, { method: 'POST' });
+    assert.equal(res.status, 200);
+    const copy = await res.json();
+    assert.notEqual(copy.id, created.id, '副本必须是独立条目');
+    assert.equal(copy.name, '测试主机 副本');
+    assert.equal(copy.hasSecret, true);
+    assert.ok(!JSON.stringify(copy).includes(SECRET_PW), '副本响应不含明文');
+
+    // 凭据密文原样复制，解密可用
+    const src = await app.deps.store.getHost(created.id, 'local');
+    const dup = await app.deps.store.getHost(copy.id, 'local');
+    assert.deepEqual(dup.secret, src.secret);
+    // 删除原条目不影响副本（独立性）
+    await fetch(`${base}/api/hosts/${created.id}`, { method: 'DELETE' });
+    const stillThere = await app.deps.store.getHost(copy.id, 'local');
+    assert.ok(stillThere, '副本独立于原条目存在');
+  } finally {
+    await app.close();
+    await cleanup();
+  }
+});
+
+test('duplicate 越权/不存在：他人条目 403，不存在 404（FR-056）', async () => {
+  const { app, cleanup, base } = await setup();
+  try {
+    const dir = app.runtime.paths.config;
+    const other = await seedHost({ configDir: dir, id: 'h_other2', ownerId: 'someone-else', password: 'x' });
+    const r1 = await fetch(`${base}/api/hosts/${other.id}/duplicate`, { method: 'POST' });
+    assert.equal(r1.status, 403);
+    const r2 = await fetch(`${base}/api/hosts/h_nonexistent/duplicate`, { method: 'POST' });
+    assert.equal(r2.status, 404);
+  } finally {
+    await app.close();
+    await cleanup();
+  }
+});
+
 test('verify-hostkey：确认指纹后可连接前的状态翻转（FR-007）', async () => {
   const { app, cleanup, base } = await setup();
   try {

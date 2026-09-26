@@ -20,6 +20,7 @@
 | `PUT` | `/api/hosts/{id}` | 更新主机；不传凭据表示保持不变 |
 | `DELETE` | `/api/hosts/{id}` | 删除主机及其凭据 |
 | `POST` | `/api/hosts/{id}/verify-hostkey` | 确认主机指纹；请求体含 `fingerprint` |
+| `POST` | `/api/hosts/{id}/duplicate` | 复制该连接的完整记录（含加密凭据密文原样复制），生成独立新条目「原名 副本」（FR-056） |
 
 **校验**：`host` 禁止包含分隔符与空白；`port` 1–65535；`authType` 为 `password` 或 `privateKey`。
 

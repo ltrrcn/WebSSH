@@ -261,6 +261,7 @@
 - [X] T106 `web/src/terminal.js`：复制会话后立即进入改名态；tab 栏「＋新建会话」弹出主机选择；改名冲突检查（FR-052/053）
 - [X] T107 `web/src/hosts.js`：分组标题点击展开/折叠 + 折叠状态 localStorage 持久化（FR-054）
 - [X] T108 右键上下文菜单共享组件 `web/src/contextmenu.js`（抽出 terminal.js 的实现）；`web/src/hosts.js`：侧栏会话连接右键菜单（连接/编辑/删除/新建会话连接）+ 空白处右键新建（FR-055）
+- [X] T109 会话复制：`POST /api/hosts/{id}/duplicate`（服务端复制含凭据密文，「原名 副本」）+ 契约测试 + 前端右键菜单项改为「复制会话」（FR-056）
 
 ---
 
