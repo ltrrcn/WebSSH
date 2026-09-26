@@ -122,6 +122,25 @@
     .tab .tab-status.open { background: var(--ok); }
     .tab .tab-close { border: none; background: transparent; color: var(--text-faint); cursor: pointer; padding: 2px 4px; border-radius: 4px; font-size: 13px; }
     .tab .tab-close:hover { background: var(--bg-hover); color: var(--danger); }
+    .tab-rename {
+      background: var(--bg-input); color: var(--text); border: 1px solid var(--accent);
+      border-radius: 4px; font-size: 13px; padding: 1px 6px; width: 130px; outline: none;
+    }
+    /* 会话右键菜单（FR-049） */
+    .ctx-menu {
+      position: fixed; z-index: 300; display: none; min-width: 160px;
+      background: var(--bg-panel); border: 1px solid var(--border); border-radius: 8px;
+      padding: 4px; box-shadow: 0 8px 24px rgba(0,0,0,.35);
+    }
+    .ctx-menu.show { display: block; }
+    .ctx-menu .ctx-meta { font-size: 10px; color: var(--text-faint); padding: 5px 12px 4px; font-family: Menlo, monospace; }
+    .ctx-menu .ctx-item {
+      display: block; width: 100%; text-align: left; padding: 7px 12px; border: none;
+      background: transparent; color: var(--text); font-size: 13px; border-radius: 6px; cursor: pointer;
+    }
+    .ctx-menu .ctx-item:hover { background: var(--bg-hover); }
+    .ctx-menu .ctx-item.danger { color: var(--danger); }
+    .ctx-menu .ctx-sep { height: 1px; background: var(--border); margin: 4px 6px; }
     #terminals { flex: 1; position: relative; background: var(--term-bg); }
     .term-instance { position: absolute; inset: 0; display: none; flex-direction: column; }
     .term-instance.active { display: flex; }

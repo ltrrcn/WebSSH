@@ -42,7 +42,7 @@ export async function renderHostList(container, { onConnect, connectedIds = [], 
               (h) => `<div class="host-item ${connected.has(h.id) ? 'connected' : ''}" data-id="${escapeHtml(h.id)}">
               <div class="host-main">
                 <span class="host-name">${escapeHtml(h.name)}</span>
-                <span class="host-meta">${escapeHtml(h.username)}@${escapeHtml(h.host)}:${h.port}</span>
+                <span class="host-meta">${escapeHtml(h.username)}@${escapeHtml(h.host)}:${h.port} · ${h.authType === 'password' ? '密码' : '密钥'}</span>
               </div>
               <span class="host-actions">
                 ${hostBadge(h)}
@@ -120,13 +120,13 @@ export function openHostFormModal(host, onSaved) {
       <label>分组 <input name="group" placeholder="可选" value="${isEdit ? escapeHtml(host.group ?? '') : ''}" /></label>
       <label>认证方式
         <select name="authType">
-          <option value="password" ${isEdit && host.authType === 'password' ? 'selected' : ''}>口令</option>
-          <option value="privateKey" ${isEdit && host.authType === 'privateKey' ? 'selected' : ''}>私钥</option>
+          <option value="password" ${isEdit && host.authType === 'password' ? 'selected' : ''}>密码</option>
+          <option value="privateKey" ${isEdit && host.authType === 'privateKey' ? 'selected' : ''}>密钥</option>
         </select>
       </label>
-      <label data-cred="password">口令 <input name="password" type="password" autocomplete="new-password" placeholder="${isEdit ? '留空保持不变' : ''}" /></label>
-      <label data-cred="privateKey" hidden>私钥（PEM） <textarea name="privateKey" rows="4" placeholder="${isEdit ? '留空保持不变' : '-----BEGIN OPENSSH PRIVATE KEY-----'}"></textarea></label>
-      <label data-cred="privateKey" hidden>私钥口令（可选） <input name="passphrase" type="password" autocomplete="new-password" /></label>
+      <label data-cred="password">密码 <input name="password" type="password" autocomplete="new-password" placeholder="${isEdit ? '留空保持不变' : ''}" /></label>
+      <label data-cred="privateKey" hidden>密钥（PEM） <textarea name="privateKey" rows="4" placeholder="${isEdit ? '留空保持不变' : '-----BEGIN OPENSSH PRIVATE KEY-----'}"></textarea></label>
+      <label data-cred="privateKey" hidden>密钥口令（可选） <input name="passphrase" type="password" autocomplete="new-password" /></label>
       <p class="form-note">${isEdit ? '凭据留空表示保持原凭据不变。' : '凭据将以 AES-256-GCM 加密保存，不会明文显示。'}</p>
       <div class="form-actions">
         <button type="submit" class="btn primary">${isEdit ? '保存' : '创建'}</button>
@@ -138,14 +138,12 @@ export function openHostFormModal(host, onSaved) {
 
   const form = m.root.querySelector('#host-form');
   const authSelect = form.querySelector('[name=authType]');
+  // FR-050：认证方式切换时仅显示对应凭据框
   const syncCred = () => {
     form.querySelector('[data-cred=password]').hidden = authSelect.value !== 'password';
-    form.querySelector('[data-cred=privateKey]').hidden = authSelect.value !== 'privateKey';
-    form.querySelector('[data-cred=privateKey]').hidden =
-      form.querySelector('[data-cred=privateKey]').hidden || false;
-    // 第二个 privateKey 标签（口令）跟随
-    const labels = form.querySelectorAll('[data-cred=privateKey]');
-    labels.forEach((l) => (l.hidden = authSelect.value !== 'privateKey'));
+    form.querySelectorAll('[data-cred=privateKey]').forEach(
+      (l) => (l.hidden = authSelect.value !== 'privateKey')
+    );
   };
   authSelect.addEventListener('change', syncCred);
   syncCred();

@@ -254,6 +254,9 @@
 - [X] T099 `web/src/hosts.js`：主机列表改造为侧栏形态（紧凑条目 + 连接/编辑/删除/指纹确认），表单改弹窗
 - [X] T100 bsk 浏览器验收：新增主机 → 连接 → 多 tab 切换 → 关 tab 确认 → 主题切换 → 关页提示
 - [X] T101 单元/契约回归：`npm run test:unit` + `test:contract` 全绿（后端无改动，应保持）
+- [X] T102 `web/src/terminal.js`：tab 右键上下文菜单——「复制会话」（同主机强制新建独立会话）与「关闭会话」（FR-049）
+- [X] T103 `web/src/hosts.js`：表单术语统一为「密码」「密钥」；认证切换时仅显示对应凭据框（FR-050）
+- [X] T104 `web/src/terminal.js`：会话临时 ID + 双击会话卡改名，按会话 ID 存 localStorage（FR-051）
 
 ---
 

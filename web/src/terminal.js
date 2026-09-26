@@ -38,14 +38,16 @@ export function mountTerminalArea(refs) {
   });
 }
 
-/** 连接主机：已有该主机的活动 tab 则直接激活（当前策略：每主机一个 tab） */
-export function connectHost(host) {
-  const existing = [...tabs.values()].find(
-    (t) =>
-      t.host.id === host.id &&
-      (t.ws?.readyState === WebSocket.OPEN || t.ws?.readyState === WebSocket.CONNECTING)
-  );
-  if (existing) return activateTab(existing.id);
+/** 连接主机：默认已有活动 tab 则激活；右键「复制会话」时 forceNew 强制新建（FR-049） */
+export function connectHost(host, { forceNew = false } = {}) {
+  if (!forceNew) {
+    const existing = [...tabs.values()].find(
+      (t) =>
+        t.host.id === host.id &&
+        (t.ws?.readyState === WebSocket.OPEN || t.ws?.readyState === WebSocket.CONNECTING)
+    );
+    if (existing) return activateTab(existing.id);
+  }
   createTab(host);
 }
 
@@ -66,6 +68,8 @@ export function connectedHostIds() {
 
 function createTab(host) {
   const id = `tab_${++seq}`;
+  // 会话临时 ID（FR-051）：备注名按此 ID 存储于 localStorage，与主机数据无关
+  const sessionKey = `sess_${Math.random().toString(36).slice(2, 8)}${Date.now().toString(36).slice(-4)}`;
   const instance = document.createElement('div');
   instance.className = 'term-instance';
   instance.innerHTML = `
@@ -86,7 +90,7 @@ function createTab(host) {
   }
   term.open(instance.querySelector('.term-container'));
 
-  const tab = { id, host, term, fitAddon, el: instance, ws: null, queue: [], scheduled: false };
+  const tab = { id, host, sessionKey, label: null, term, fitAddon, el: instance, ws: null, queue: [], scheduled: false };
   tabs.set(id, tab);
 
   const statusEl = instance.querySelector('.term-status');
@@ -234,19 +238,108 @@ function renderTabbar() {
   for (const t of tabs.values()) {
     const el = document.createElement('div');
     el.className = 'tab' + (t.id === activeTabId ? ' active' : '');
+    el.dataset.tabId = t.id;
     const isOpen = t.ws?.readyState === WebSocket.OPEN;
     el.innerHTML = `
       <span class="tab-status ${isOpen ? 'open' : ''}" title="${isOpen ? '已连接' : '连接中/已断开'}"></span>
-      <span class="tab-label"></span>
+      <span class="tab-label" title="双击修改备注名&#10;会话 ID: ${t.sessionKey}"></span>
       <button class="tab-close" title="关闭终端">✕</button>`;
-    el.querySelector('.tab-label').textContent = t.host.name;
+    el.querySelector('.tab-label').textContent = t.label ?? t.host.name;
     el.addEventListener('click', (e) => {
       if (e.target.closest('.tab-close')) return;
       activateTab(t.id);
     });
+    // 双击会话卡 → 修改备注名（FR-051）
+    el.querySelector('.tab-label').addEventListener('dblclick', () => startRename(t));
+    // 右键 → 会话菜单（FR-049）
+    el.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      activateTab(t.id);
+      showSessionMenu(t, e.clientX, e.clientY);
+    });
     el.querySelector('.tab-close').addEventListener('click', () => closeTab(t.id));
     bar.appendChild(el);
   }
+}
+
+/** 双击会话卡修改备注名：本地存储，按会话临时 ID 关联（FR-051） */
+function startRename(tab) {
+  const labelEl = ui.tabbar.querySelector(`.tab[data-tab-id="${tab.id}"] .tab-label`);
+  if (!labelEl) return;
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.maxLength = 64;
+  input.value = tab.label ?? tab.host.name;
+  input.className = 'tab-rename';
+  labelEl.replaceWith(input);
+  input.focus();
+  input.select();
+  let done = false;
+  const finish = (save) => {
+    if (done) return;
+    done = true;
+    if (save) {
+      const v = input.value.trim();
+      tab.label = v || null;
+      if (v) localStorage.setItem(`webssh-tab-label:${tab.sessionKey}`, v);
+      else localStorage.removeItem(`webssh-tab-label:${tab.sessionKey}`);
+    }
+    renderTabbar();
+  };
+  input.addEventListener('keydown', (e) => {
+    e.stopPropagation();
+    if (e.key === 'Enter') finish(true);
+    if (e.key === 'Escape') finish(false);
+  });
+  input.addEventListener('blur', () => finish(true));
+  input.addEventListener('click', (e) => e.stopPropagation());
+}
+
+/** 会话右键菜单（FR-049）：复制会话 / 关闭会话 */
+let ctxMenu = null;
+function ensureCtxMenu() {
+  if (ctxMenu) return ctxMenu;
+  ctxMenu = document.createElement('div');
+  ctxMenu.className = 'ctx-menu';
+  ctxMenu.innerHTML = `
+    <div class="ctx-meta"></div>
+    <button class="ctx-item" data-act="duplicate">复制会话</button>
+    <button class="ctx-item" data-act="rename">重命名</button>
+    <div class="ctx-sep"></div>
+    <button class="ctx-item danger" data-act="close">关闭会话</button>`;
+  document.body.appendChild(ctxMenu);
+  ctxMenu.addEventListener('contextmenu', (e) => e.preventDefault());
+  document.addEventListener('click', () => hideSessionMenu(), true);
+  window.addEventListener('blur', hideSessionMenu);
+  window.addEventListener('resize', hideSessionMenu);
+  return ctxMenu;
+}
+
+function showSessionMenu(tab, x, y) {
+  const menu = ensureCtxMenu();
+  menu.querySelector('.ctx-meta').textContent = `会话 ${tab.sessionKey}`;
+  menu.querySelector('[data-act=duplicate]').onclick = () => {
+    hideSessionMenu();
+    connectHost(tab.host, { forceNew: true });
+  };
+  menu.querySelector('[data-act=rename]').onclick = () => {
+    hideSessionMenu();
+    startRename(tab);
+  };
+  menu.querySelector('[data-act=close]').onclick = () => {
+    hideSessionMenu();
+    closeTab(tab.id);
+  };
+  menu.classList.add('show');
+  const mw = menu.offsetWidth || 160;
+  const mh = menu.offsetHeight || 130;
+  menu.style.left = `${Math.min(x, window.innerWidth - mw - 8)}px`;
+  menu.style.top = `${Math.min(y, window.innerHeight - mh - 8)}px`;
+}
+
+function hideSessionMenu() {
+  if (ctxMenu) ctxMenu.classList.remove('show');
 }
 
 /** 页面卸载前清理（beforeunload 提示在 app.js 中注册） */
