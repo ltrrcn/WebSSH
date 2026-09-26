@@ -1,50 +1,186 @@
-# [PROJECT_NAME] Constitution
-<!-- Example: Spec Constitution, TaskFlow Constitution, etc. -->
+<!--
+Sync Impact Report
+- Version change: 1.0.0 -> 1.1.0
+- Modified principles:
+  - II. 零外部依赖运行时 -> II. 零外部依赖运行时（基础版约束，明确高级版为例外需修宪）
+  - III. 单一进程、单一入口 -> 保留，监听形态差异下放至原则 VII
+- Added principles: VII. 运行模式无关（FnOS / 通用 Linux 双轨）、VIII. 分阶段交付：基础版优先
+- Added sections: 运行模式与路径解析、交付分层与演进路线
+- Expanded sections: 技术栈与强制约束（运行时适配层、审计 JSONL、TLS 要求）、
+  开发工作流与质量门禁（双模式冒烟、越界功能门禁、阶段 DoD）
+- Removed sections: 无
+- Deferred TODOs: TODO(ADVANCED_SPEC_REF) - 高级版（SQLite 堡垒机能力）需独立 spec 与宪法
+  MINOR 修订后启用，本版仅定义其边界与扩展点，不实现
+- Current stage: Base（基础版）
+-->
+
+# WebSSH Constitution
 
 ## Core Principles
 
-### [PRINCIPLE_1_NAME]
-<!-- Example: I. Library-First -->
-[PRINCIPLE_1_DESCRIPTION]
-<!-- Example: Every feature starts as a standalone library; Libraries must be self-contained, independently testable, documented; Clear purpose required - no organizational-only libraries -->
+### I. 安全优先（不可协商）
 
-### [PRINCIPLE_2_NAME]
-<!-- Example: II. CLI Interface -->
-[PRINCIPLE_2_DESCRIPTION]
-<!-- Example: Every library exposes functionality via CLI; Text in/out protocol: stdin/args → stdout, errors → stderr; Support JSON + human-readable formats -->
+WebSSH 本质是「浏览器到生产主机」的跳板，任何便利性都不得削弱安全性。
 
-### [PRINCIPLE_3_NAME]
-<!-- Example: III. Test-First (NON-NEGOTIABLE) -->
-[PRINCIPLE_3_DESCRIPTION]
-<!-- Example: TDD mandatory: Tests written → User approved → Tests fail → Then implement; Red-Green-Refactor cycle strictly enforced -->
+- 凭据（密码、私钥、passphrase）**必须**以 AES-256-GCM 加密落盘，**禁止**明文写入任何文件、日志或错误消息。
+- WebSocket 握手**必须**校验 `Origin`，拒绝非法来源连接。
+- 目标主机**必须**来自服务端已授权清单，**禁止**接受客户端任意指定的 host/port（否则构成 SSRF 与开放跳板）。
+- SSH HostKey **禁止**默认使用 `InsecureIgnoreHostKey`，**必须**实现 known_hosts 校验并可配置。
+- 所有来自客户端的输入（路径、用户 ID、命令、窗口尺寸）**一律视为不可信**；涉及文件访问**必须**拒绝 `..` 目录穿越。
+- 会话**必须**与登录用户强绑定，用户只能访问自己保存的主机与自己的会话。
+- fnOS 模式下身份只信 `X-Trim-*` Header；standalone 模式下身份只信应用自身登录会话。**禁止**信任客户端消息体中自带的用户 ID。
 
-### [PRINCIPLE_4_NAME]
-<!-- Example: IV. Integration Testing -->
-[PRINCIPLE_4_DESCRIPTION]
-<!-- Example: Focus areas requiring integration tests: New library contract tests, Contract changes, Inter-service communication, Shared schemas -->
+理由：该类应用一旦出现漏洞，等价于把内网主机的 root shell 暴露给公网。
 
-### [PRINCIPLE_5_NAME]
-<!-- Example: V. Observability, VI. Versioning & Breaking Changes, VII. Simplicity -->
-[PRINCIPLE_5_DESCRIPTION]
-<!-- Example: Text I/O ensures debuggability; Structured logging required; Or: MAJOR.MINOR.BUILD format; Or: Start simple, YAGNI principles -->
+### II. 零外部依赖运行时（基础版约束）
 
-## [SECTION_2_NAME]
-<!-- Example: Additional Constraints, Security Requirements, Performance Standards, etc. -->
+- **禁止**引入外部数据库、Redis、消息队列或任何需独立部署的中间件。
+- 会话状态存**进程内存**；基础版持久化数据只落**文件系统**（JSON 配置 + JSONL 审计日志），做到单文件可备份、可迁移。
+- 所有 npm 依赖**必须**为纯 JavaScript；**禁止**引入需 node-gyp 编译的原生模块（如 `node-pty`）。依赖**必须**能通过 `npm install --omit=dev --no-optional` 安装成功。
+- 内嵌式数据库（`node:sqlite` 等）**仅在高级版启用后**允许引入，且**必须**先完成宪法 MINOR 修订与数据迁移工具。基础版**禁止**引入。
 
-[SECTION_2_CONTENT]
-<!-- Example: Technology stack requirements, compliance standards, deployment policies, etc. -->
+理由：目标是「拷一个包就能跑」，任何外部服务都会把单文件部署变成搭环境。
 
-## [SECTION_3_NAME]
-<!-- Example: Development Workflow, Review Process, Quality Gates, etc. -->
+### III. 单一进程、单一入口
 
-[SECTION_3_CONTENT]
-<!-- Example: Code review requirements, testing gates, deployment approval process, etc. -->
+- 对外**只暴露一个** HTTP/WebSocket 入口（具体监听形态由原则 VII 决定）。
+- 不做分布式假设：不做多实例、不做跨进程共享会话；确有需要时使用 `worker_threads` 并显式说明。
+- 应用**必须**能在无外网、无域名、无外部反向代理的条件下独立运行。
+
+### IV. 协议契约先行
+
+- WebSocket 消息格式（二进制终端帧 / 控制帧）、REST 接口、持久化文件 schema、审计事件 schema **必须**先书面定义再实现，前后端**共享**同一份类型定义。
+- 持久化 schema 与审计事件 schema **必须**携带 `version` 字段并提供迁移路径。
+- 破坏性协议变更**必须**体现在主版本号上，并保留兼容过渡期。
+
+### V. 测试先行（不可协商）
+
+- 先写测试 → 确认失败 → 再实现；严格执行 Red-Green-Refactor。
+- **必须**有单元测试覆盖：控制帧解析、凭据加解密、路径穿越防护、主机授权校验、运行模式探测与路径解析。
+- SSH 相关逻辑**必须**有集成测试：启动本地 sshd（容器或回环）完成真实连接、执行、resize、断开。
+- 第 I 条的每条安全规则**必须**有对应测试，测试名直接引用条款编号。
+- 两种运行模式（fnos / standalone）**必须**各有冒烟测试，禁止只测其一。
+
+### VI. 简洁优先（YAGNI）
+
+- 不为假想规模设计：基础版先满足单机、单用户、数十台主机。
+- 新增依赖、新增抽象层、新增配置项**必须**写明「被放弃的简单方案及其为何不足」。
+- 允许为后续阶段**预留**扩展点（接口、版本字段、稳定 schema），**禁止预建**尚未交付的功能实现、表结构或配置项。
+
+### VII. 运行模式无关（FnOS / 通用 Linux 双轨）
+
+- 应用**必须**同时支持两种运行模式：
+  - `fnos`：以飞牛 fnOS 应用包（`.fpk`）形态运行；
+  - `standalone`：在通用 Linux 及其他 POSIX 系统中以裸进程 / systemd / 容器方式运行。
+- **运行时适配层是唯一**允许读取 `TRIM_*` 环境变量、探测运行模式、解析路径的模块；业务代码**必须**通过注入的 `Runtime`（含 `paths`、`listen`、`authSource`、`mode`）访问，**禁止**在业务模块中直接读 `TRIM_*` 或硬编码任何绝对路径。
+- 模式探测规则：`TRIM_APPNAME` 存在且非空 → `fnos`；否则 → `standalone`。探测结果**必须**写启动日志。
+- 差异**必须**收敛在适配层内，业务层不得出现 `if (isFnos)` 之类的分支散落。
+- 任何新功能**必须**在两种模式下均可运行；确实只能支持单一模式的，**必须**在代码、启动日志与文档中显式标注，并经审查同意。
+
+### VIII. 分阶段交付：基础版优先
+
+- 当前交付目标为**基础版（Base）**：连接管理 + 终端 + 凭据存储 + 基础审计日志。**禁止**提前实现高级版功能。
+- **高级版（Advanced）**为后置阶段，定位为堡垒机能力：SQLite 审计检索、会话录像与回放、命令拦截、审批流、用户/主机授权矩阵。启用前**必须**有独立 spec 与宪法 MINOR 修订。
+- 基础版**必须**为高级版预留不破坏契约的扩展点：
+  - 审计事件**必须**使用稳定的结构化 schema（JSONL，一行一条），后期可直接导入 SQLite；
+  - 存储访问**必须**封装在 `store` 接口之后，实现可在「文件 ↔ SQLite」间替换；
+  - 所有持久化 schema 与 WS 握手参数**必须**携带 `version` 字段。
+- 允许"预留"，**禁止"预建"**：不得为尚未交付的高级版功能提前引入依赖、建表或加配置项。
+
+## 技术栈与强制约束
+
+**选定栈（变更需走宪法修订）**
+
+| 层 | 选型 |
+|---|---|
+| 运行时 | Node.js 22+，ESM |
+| SSH 客户端 | `ssh2` |
+| WebSocket | `ws` |
+| HTTP | 原生 `node:http`（引入 Web 框架需按第 VI 条论证） |
+| 终端前端 | `xterm.js` + `xterm-addon-fit` |
+| 持久化（基础版） | JSON 文件（AES-256-GCM 加密凭据）+ JSONL 审计日志 |
+| 持久化（高级版，后置） | 追加内嵌 `node:sqlite` |
+| 测试 | `node:test` + `node:assert` |
+
+**强制约束**
+
+- **路径**：fnOS 模式**必须**通过 `TRIM_PKGETC` / `TRIM_PKGVAR` / `TRIM_PKGTMP` / `TRIM_APPDEST` 获取，**禁止**硬编码 `/var/apps/...`；standalone 模式使用 `WEBSSH_HOME`（默认 `~/.webssh`）。两者统一由适配层映射为 `paths.config` / `paths.data` / `paths.tmp` / `paths.log`。
+- **文件写入**：**必须**原子化（写 `.tmp` → `fsync` → `rename`）并串行化，**必须**保留一代 `.bak`。
+- **审计日志（基础版）**：**必须**为 JSONL，按天或按大小滚动并保留 N 天；**必须**只记录事件元数据（谁、何时、目标主机、认证方式、连接结果、断开原因、时长），**禁止**记录凭据、私钥内容与终端输出全文。
+- **日志**：**禁止**记录凭据、私钥内容或命令行参数中的敏感值。
+- **监听**：fnOS 模式**必须**监听 `${TRIM_APPDEST}/app.sock` 走统一网关（`gatewayPrefix=/app/webssh`、`gatewaySocket=app.sock`），不额外开放端口；standalone 模式默认绑定 `127.0.0.1`，绑定非回环地址**必须**同时启用 TLS 与应用层认证，并在启动日志输出警告。
+- **依赖**：升级**必须**验证仍能纯 JS 安装且跨平台打包成功。
+
+## 运行模式与路径解析
+
+| 用途 | `fnos` 模式 | `standalone` 模式 |
+|---|---|---|
+| 配置目录 | `$TRIM_PKGETC` | `${WEBSSH_HOME}/etc` |
+| 运行数据 | `$TRIM_PKGVAR` | `${WEBSSH_HOME}/var` |
+| 临时目录 | `$TRIM_PKGTMP` | `${WEBSSH_HOME}/tmp` |
+| 程序目录 | `$TRIM_APPDEST` | 可执行文件所在目录 |
+| 日志目录 | `$TRIM_PKGVAR/log` | `${WEBSSH_HOME}/var/log` |
+| 监听形态 | `${TRIM_APPDEST}/app.sock`（Unix Socket，统一网关） | `127.0.0.1:<port>`（TCP，可选 TLS） |
+| 身份来源 | `X-Trim-Userid` / `X-Trim-Username` / `X-Trim-Isadmin` | 应用自身登录会话 |
+| 进程管理 | fnOS 应用中心 + `cmd/main` | systemd / 容器 / 前台进程 |
+
+- 适配层**必须**在启动时校验目录存在且可写，缺失**必须**自动创建并设置 `0700`（配置含凭据）。
+- 适配层**必须**提供 `detectMode()` 与 `resolveRuntime()`，并有覆盖各分支的单元测试。
+
+## 交付分层与演进路线
+
+| 能力 | 基础版（当前阶段） | 高级版（后置阶段） |
+|---|---|---|
+| SSH 连接 / 终端 / resize | ✅ | ✅ |
+| 主机与凭据管理 | ✅ JSON + AES-256-GCM | ✅ |
+| 审计 | ✅ 结构化 JSONL（写入 + 轮转，无检索界面） | ✅ SQLite 存储 + 检索 / 过滤 / 导出 |
+| 会话录像与回放 | ❌ | ✅ |
+| 命令拦截 / 高危命令阻断 | ❌ | ✅ |
+| 审批流 | ❌ | ✅ |
+| 用户 / 主机授权矩阵 | ❌ | ✅ |
+| 外部依赖 | 无（纯 JS） | 追加内嵌 `node:sqlite` |
+
+**演进约束**
+
+1. 启用高级版的前置条件（全部满足）：
+   - 基础版验收通过；
+   - 存在独立的高级版 spec；
+   - 完成宪法 MINOR 修订；
+   - 已完成 JSONL → SQLite 导入工具及其测试。
+2. 高级版**不得**破坏基础版的文件 schema；升级路径**必须**保留 JSONL 原始数据以便回滚。
+3. 高级版依赖**必须**仍是内嵌式，**禁止**引入需独立部署的数据库服务。
+4. 两个阶段共用同一套协议契约与 `store` 接口，高级版为替换实现而非另起一套。
+
+## 开发工作流与质量门禁
+
+- 严格遵循 Spec Kit 流程：`/speckit.constitution` → `/speckit.specify` → `/speckit.clarify` → `/speckit.plan` → `/speckit.tasks` → `/speckit.implement`。
+- 每个阶段产物**必须**对应 Git 提交；功能分支由 `/speckit.git.feature` 创建。
+
+**质量门禁**（未通过不得进入下一阶段）
+
+1. 全部测试通过；
+2. 无新增依赖，或新增依赖已按第 VI 条完成论证；
+3. 无硬编码路径、无业务模块直读 `TRIM_*`、无明文凭据、无被跳过的 HostKey 校验；
+4. 持久化 schema 与审计 schema 的 `version` 与迁移已同步更新；
+5. 两种运行模式（fnos / standalone）**均**通过冒烟验证；
+6. 无越界功能：不包含未在当前阶段 spec 中定义的高级版能力。
+
+**阶段门禁**
+
+- **阶段 1（基础版）DoD**：连接建立/断开、终端双向输入输出、窗口 resize、主机增删改查、凭据加密存取、JSONL 审计写入、双模式启动与冒烟测试、fnOS 打包产物可安装。
+- **阶段 2（高级版）启动条件**：满足「演进约束」第 1 条全部前置条件后方可进入；在此之前任何高级版代码**必须**被拒绝合入。
+
+- 安全相关改动**必须**在提交信息中标注 `[security]` 并说明验证方式。
 
 ## Governance
-<!-- Example: Constitution supersedes all other practices; Amendments require documentation, approval, migration plan -->
 
-[GOVERNANCE_RULES]
-<!-- Example: All PRs/reviews must verify compliance; Complexity must be justified; Use [GUIDANCE_FILE] for runtime development guidance -->
+- 本宪法**优先于**项目内其他任何实践、约定与临时决定；冲突时以本文件为准，或先行修订本文件。
+- 修订**必须**记录变更内容、理由、受影响的既有条款，并同步更新版本号、修订日期与文件顶部的 Sync Impact Report。
+- 版本策略（语义化）：
+  - MAJOR：删除或重定义既有原则，或放宽第 I、II 条约束；
+  - MINOR：新增原则、新增交付阶段、实质性扩充约束（如启用高级版）；
+  - PATCH：措辞澄清、错别字、非语义调整。
+- 所有 PR 与代码审查**必须**显式核对第 I、II、V、VII、VIII 条的合规性；不符合的**必须**先修订宪法或修正实现，不得默许例外。
+- 运行时开发指引以 `.specify/memory/constitution.md` 为唯一真相源；口头约定不构成约束。
 
-**Version**: [CONSTITUTION_VERSION] | **Ratified**: [RATIFICATION_DATE] | **Last Amended**: [LAST_AMENDED_DATE]
-<!-- Example: Version: 2.1.1 | Ratified: 2025-06-13 | Last Amended: 2025-07-16 -->
+**Version**: 1.1.0 | **Ratified**: 2026-09-26 | **Last Amended**: 2026-09-26 | **Current Stage**: Base
