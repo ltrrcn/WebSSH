@@ -11,14 +11,14 @@ test('0x00 数据帧：任意二进制字节原样透传', () => {
   assert.equal(frame[0], FrameType.DATA);
   const parsed = parseClientFrame(frame);
   assert.equal(parsed.type, 'data');
-  assert.ok(parsed.payload.equals(payload));
+  assert.ok(Buffer.from(parsed.payload).equals(payload));
 });
 
 test('0x00 数据帧：多字节 UTF-8 与控制字符完整保留', () => {
   const text = '中文测试\r\n\x1b[31mred\x1b[0m';
   const frame = encodeDataFrame(Buffer.from(text, 'utf8'));
   const parsed = parseClientFrame(frame);
-  assert.equal(parsed.payload.toString('utf8'), text);
+  assert.equal(Buffer.from(parsed.payload).toString('utf8'), text);
 });
 
 test('0x01 resize 帧：合法 cols/rows 解析', () => {
