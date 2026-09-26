@@ -1,0 +1,23 @@
+{
+  "name": "webssh",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "WebSSH 基础版：网页端 SSH 终端，同时支持飞牛 fnOS 应用形态与通用 Linux 部署，零外部数据库",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node src/index.js",
+    "test": "npm run test:unit && npm run test:contract && npm run test:integration",
+    "test:unit": "node --test \"tests/unit/*.test.js\"",
+    "test:contract": "node --test \"tests/contract/*.test.js\"",
+    "test:integration": "node --test \"tests/integration/*.test.js\"",
+    "pack:fnos": "bash scripts/build-fnos.sh"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "ssh2": "^1.16.0",
+    "ws": "^8.18.0"
+  }
+}

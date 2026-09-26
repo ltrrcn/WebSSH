@@ -1,4 +1,5 @@
 // 审计页（US4 / FR-012）：渲染在「设置 → 审计」页签中
+import { apiUrl } from './base.js';
 // 时间顺序列表 + result/hostId 过滤 + 分页 + 导出
 const EVENT_LABEL = {
   'connect-attempt': '连接尝试',
@@ -35,7 +36,7 @@ export async function renderAudit(el) {
 
   // 主机过滤选项
   try {
-    const hosts = await (await fetch('/api/hosts')).json();
+    const hosts = await (await fetch(apiUrl('hosts'))).json();
     const sel = el.querySelector('#audit-host');
     for (const h of hosts) {
       const o = document.createElement('option');
@@ -59,7 +60,7 @@ export async function renderAudit(el) {
   });
   el.querySelector('#audit-refresh').addEventListener('click', () => load(el));
   el.querySelector('#audit-export').addEventListener('click', () => {
-    window.open('/api/audit/export', '_blank');
+    window.open(apiUrl('audit/export'), '_blank');
   });
   el.querySelector('#audit-prev').addEventListener('click', () => {
     state.offset = Math.max(0, state.offset - state.limit);
@@ -83,7 +84,7 @@ async function load(el) {
 
   let body;
   try {
-    const res = await fetch(`/api/audit?${params}`);
+    const res = await fetch(`${apiUrl('audit')}?${params}`);
     body = await res.json();
   } catch {
     list.innerHTML = '<div class="placeholder-box">加载失败</div>';

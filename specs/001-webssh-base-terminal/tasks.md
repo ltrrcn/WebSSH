@@ -179,17 +179,17 @@
 
 ### Tests for User Story 5（先写，必须失败）
 
-- [ ] T062 [P] [US5] `tests/integration/smoke-standalone.test.js`：注入 `WEBSSH_HOME` 启动，走完核心用例
-- [ ] T063 [P] [US5] `tests/integration/smoke-fnos.test.js`：注入 `TRIM_APPNAME`/`TRIM_APPDEST`/`TRIM_PKGETC`/`TRIM_PKGVAR`/`TRIM_PKGTMP` 启动，验证监听 Unix Socket 且核心用例一致
+- [X] T062 [P] [US5] `tests/integration/smoke-standalone.test.js`：注入 `WEBSSH_HOME` 启动，走完核心用例
+- [X] T063 [P] [US5] `tests/integration/smoke-fnos.test.js`：注入 `TRIM_APPNAME`/`TRIM_APPDEST`/`TRIM_PKGETC`/`TRIM_PKGVAR`/`TRIM_PKGTMP` 启动，验证监听 Unix Socket 且核心用例一致
 
 ### Implementation for User Story 5
 
-- [ ] T064 [P] [US5] `packaging/fnos/manifest`：`appname=webssh`、`source=thirdparty`、声明 `install_dep_apps=nodejs_v22`、`ctl_stop=true`、`os_min_version` 按目标系统填写、**不写** `service_port`（走统一网关）
-- [ ] T065 [P] [US5] `packaging/fnos/cmd/main`：`start` / `stop` / `status`，退出码 0/1/3，路径全部取自 `TRIM_*`，后台进程 PID 写入 `$TRIM_PKGVAR`
-- [ ] T066 [P] [US5] `packaging/fnos/config/privilege`（`run-as=package`、`username`/`groupname`）与 `config/resource`
-- [ ] T067 [P] [US5] `packaging/fnos/app/ui/config`：桌面入口 `type=iframe`、`gatewayPrefix=/app/webssh`、`gatewaySocket=app.sock`、`allUsers=true`，以及 `ICON.PNG` / `ICON_256.PNG` / `app/ui/images/icon_{64,256}.png`
-- [ ] T068 [US5] `scripts/build-fnos.sh`：将 `src/`（含 `npm install --omit=dev --no-optional` 后的 `node_modules`）与 `web/` 同步进应用包目录并调用 `fnpack build`；**必须在 fnpack 打包前通过纯 JS 依赖校验**
-- [ ] T069 [US5] `src/net/router.js` 与前端资源在统一网关前缀下的路径适配（相对引用，避免硬编码根路径）
+- [X] T064 [P] [US5] `packaging/fnos/manifest`：`appname=webssh`、`source=thirdparty`、声明 `install_dep_apps=nodejs_v22`、`ctl_stop=true`、`os_min_version` 按目标系统填写、**不写** `service_port`（走统一网关）
+- [X] T065 [P] [US5] `packaging/fnos/cmd/main`：`start` / `stop` / `status`，退出码 0/1/3，路径全部取自 `TRIM_*`，后台进程 PID 写入 `$TRIM_PKGVAR`
+- [X] T066 [P] [US5] `packaging/fnos/config/privilege`（`run-as=package`、`username`/`groupname`）与 `config/resource`
+- [X] T067 [P] [US5] `packaging/fnos/app/ui/config`：桌面入口 `type=iframe`、`gatewayPrefix=/app/webssh`、`gatewaySocket=app.sock`、`allUsers=true`，以及 `ICON.PNG` / `ICON_256.PNG` / `app/ui/images/icon_{64,256}.png`
+- [X] T068 [US5] `scripts/build-fnos.sh`：将 `src/`（含 `npm install --omit=dev --no-optional` 后的 `node_modules`）与 `web/` 同步进应用包目录并调用 `fnpack build`；**必须在 fnpack 打包前通过纯 JS 依赖校验**
+- [X] T069 [US5] `src/net/router.js` 与前端资源在统一网关前缀下的路径适配（相对引用，避免硬编码根路径）
 - [ ] T070 [US5] `README.md`：standalone 启动方式（`WEBSSH_HOME`、`npm start`）、systemd 单元样例、fnOS 安装步骤
 
 **Checkpoint**: 两种形态均可启动并完成核心用例（SC-007）。

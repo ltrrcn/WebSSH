@@ -4,6 +4,7 @@
 import { WebSocketServer } from 'ws';
 import { resolveIdentity } from './auth.js';
 import { captureFingerprint } from '../ssh/client.js';
+import { stripGatewayPrefix } from './router.js';
 import { PROTOCOL_VERSION } from '../../web/src/protocol/frames.js';
 
 /**
@@ -45,7 +46,9 @@ export function attachUpgrade(httpServer, deps) {
     } catch {
       return rejectHandshake(socket, 400, 'Bad Request');
     }
-    if (url.pathname !== '/ws/terminal') {
+    // 统一网关前缀剥离（fnOS 模式下转发路径携带 /app/webssh 前缀）
+    const wsPath = stripGatewayPrefix(url.pathname);
+    if (wsPath !== '/ws/terminal') {
       return rejectHandshake(socket, 404, 'Not Found');
     }
 

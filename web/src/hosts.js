@@ -1,10 +1,11 @@
 // 左侧会话连接列表 + 表单弹窗（FR-044/055：左栏展示已保存的会话连接；表单走弹窗）
 import { openModal } from './modal.js';
 import { showContextMenu } from './contextmenu.js';
+import { apiUrl } from './base.js';
 
 export async function fetchHosts() {
   try {
-    const res = await fetch('/api/hosts');
+    const res = await fetch(apiUrl('hosts'));
     if (res.ok) return await res.json();
   } catch {
     /* 网络异常 */
@@ -94,7 +95,7 @@ export async function renderHostList(container, { onConnect, connectedIds = [], 
             label: '复制会话',
             onClick: async () => {
               // FR-056：服务端复制完整记录（含凭据密文）
-              await fetch(`/api/hosts/${host.id}/duplicate`, { method: 'POST' });
+              await fetch(apiUrl(`hosts/${host.id}/duplicate`), { method: 'POST' });
               onChanged();
             },
           },
@@ -105,7 +106,7 @@ export async function renderHostList(container, { onConnect, connectedIds = [], 
             danger: true,
             onClick: async () => {
               if (!confirm(`确定删除「${host.name}」？其凭据将一并删除。`)) return;
-              await fetch(`/api/hosts/${host.id}`, { method: 'DELETE' });
+              await fetch(apiUrl(`hosts/${host.id}`), { method: 'DELETE' });
               onChanged();
             },
           },
@@ -119,7 +120,7 @@ export async function renderHostList(container, { onConnect, connectedIds = [], 
     item.querySelector('.act-delete').addEventListener('click', async (e) => {
       e.stopPropagation();
       if (!confirm(`确定删除「${host.name}」？其凭据将一并删除。`)) return;
-      await fetch(`/api/hosts/${host.id}`, { method: 'DELETE' });
+      await fetch(apiUrl(`hosts/${host.id}`), { method: 'DELETE' });
       onChanged();
     });
     const cf = item.querySelector('.act-confirm-fp');
@@ -172,7 +173,7 @@ async function confirmFingerprint(host, onChanged) {
     )
   )
     return;
-  const res = await fetch(`/api/hosts/${host.id}/verify-hostkey`, {
+  const res = await fetch(apiUrl(`hosts/${host.id}/verify-hostkey`), {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ fingerprint: host.pendingFingerprint }),
@@ -251,7 +252,7 @@ export function openHostFormModal(host, onSaved) {
       if (fd.get('passphrase')) body.passphrase = fd.get('passphrase');
     }
 
-    const res = await fetch(isEdit ? `/api/hosts/${host.id}` : '/api/hosts', {
+    const res = await fetch(isEdit ? apiUrl(`hosts/${host.id}`) : apiUrl('hosts'), {
       method: isEdit ? 'PUT' : 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(body),

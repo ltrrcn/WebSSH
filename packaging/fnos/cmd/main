@@ -1,0 +1,63 @@
+#!/bin/bash
+# WebSSH 生命周期脚本：start / stop / status
+# 全部路径取自 TRIM_* 环境变量（宪法 VII：禁止硬编码）
+# 退出码：0 成功/运行中，1 失败，3 未运行
+
+PID_FILE="$TRIM_PKGVAR/app.pid"
+LOG_FILE="$TRIM_PKGVAR/app.log"
+
+case "$1" in
+  start)
+    if [ -f "$PID_FILE" ] && kill -0 "$(cat "$PID_FILE")" 2>/dev/null; then
+      echo "webssh 已在运行 (pid $(cat "$PID_FILE"))"
+      exit 0
+    fi
+    export PATH="/var/apps/nodejs_v22/target/bin:$PATH"
+    cd "$TRIM_APPDEST" || exit 1
+    # 诊断：入口缺失时把目录清单写入日志（便于排查包结构问题）
+    if [ ! -f src/index.js ]; then
+      { echo "ERROR: $TRIM_APPDEST/src/index.js 不存在"; echo "--- TRIM_APPDEST=$TRIM_APPDEST ---"; ls -la "$TRIM_APPDEST"; } >> "$LOG_FILE"
+      echo "webssh 入口文件缺失，详见 $LOG_FILE" > "$TRIM_TEMP_LOGFILE"
+      exit 1
+    fi
+    nohup node src/index.js >> "$LOG_FILE" 2>&1 &
+    echo $! > "$PID_FILE"
+    sleep 1
+    if kill -0 "$(cat "$PID_FILE")" 2>/dev/null; then
+      echo "webssh 启动成功 (pid $(cat "$PID_FILE"))"
+      exit 0
+    fi
+    echo "webssh 启动失败，日志见 $LOG_FILE" > "$TRIM_TEMP_LOGFILE"
+    exit 1
+    ;;
+  stop)
+    if [ ! -f "$PID_FILE" ]; then
+      echo "webssh 未运行"
+      exit 0
+    fi
+    PID=$(cat "$PID_FILE")
+    kill -TERM "$PID" 2>/dev/null || true
+    for i in $(seq 1 20); do
+      kill -0 "$PID" 2>/dev/null || break
+      sleep 0.5
+    done
+    if kill -0 "$PID" 2>/dev/null; then
+      kill -KILL "$PID" 2>/dev/null || true
+    fi
+    rm -f "$PID_FILE"
+    echo "webssh 已停止"
+    exit 0
+    ;;
+  status)
+    if [ -f "$PID_FILE" ] && kill -0 "$(cat "$PID_FILE")" 2>/dev/null; then
+      echo "running"
+      exit 0
+    fi
+    echo "stopped"
+    exit 3
+    ;;
+  *)
+    echo "usage: $0 {start|stop|status}" > "$TRIM_TEMP_LOGFILE"
+    exit 1
+    ;;
+esac

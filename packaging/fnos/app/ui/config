@@ -1,0 +1,14 @@
+{
+  ".url": {
+    "webssh.Application": {
+      "title": "WebSSH",
+      "icon": "images/icon_{0}.png",
+      "type": "iframe",
+      "protocol": "",
+      "gatewayPrefix": "/app/webssh",
+      "gatewaySocket": "app.sock",
+      "url": "/app/webssh",
+      "allUsers": true
+    }
+  }
+}

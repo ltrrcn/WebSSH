@@ -5,6 +5,7 @@ import { xtermTheme, onThemeChange } from './theme.js';
 import { fetchHosts } from './hosts.js';
 import { openModal } from './modal.js';
 import { showContextMenu } from './contextmenu.js';
+import { wsUrl } from './base.js';
 
 const { Terminal } = window;
 const FitAddonCtor = window.FitAddon?.FitAddon ?? window.FitAddon;
@@ -105,11 +106,10 @@ function createTab(host) {
   tab.setStatus = setStatus;
   setStatus('连接中…');
 
-  // —— WS 连接 ——
+  // —— WS 连接（前缀感知：fnOS 统一网关下携带 /app/webssh/ 基址）——
   const url =
-    (location.protocol === 'https:' ? 'wss://' : 'ws://') +
-    location.host +
-    `/ws/terminal?hostId=${encodeURIComponent(host.id)}&version=${PROTOCOL_VERSION}`;
+    wsUrl('ws/terminal') +
+    `?hostId=${encodeURIComponent(host.id)}&version=${PROTOCOL_VERSION}`;
   const ws = new WebSocket(url);
   ws.binaryType = 'arraybuffer';
   tab.ws = ws;

@@ -61,6 +61,15 @@ export function readJsonBody(req, limit = 1024 * 1024) {
 }
 
 /**
+ * 统一网关前缀剥离（fnOS gatewayPrefix=/app/webssh 转发时路径携带前缀）。
+ * standalone 无此前缀，天然不受影响。WebSocket 升级路径同样使用本函数。
+ */
+export function stripGatewayPrefix(path) {
+  const stripped = path.replace(/^\/app\/[\w.-]+(?=\/|$)/, '');
+  return stripped === '' ? '/' : stripped;
+}
+
+/**
  * 创建 HTTP 请求处理器。支持 `{param}` 路径占位（如 /api/hosts/{id}）。
  * @param {{webDir: string, apiRoutes: Array<{method:string, path:string, handler:(req,res,ctx)=>Promise<void>}>}} opts
  */
@@ -96,7 +105,7 @@ export function createRouter({ webDir, apiRoutes = [] }) {
 
   return async function handle(req, res, ctx = {}) {
     const url = new URL(req.url, 'http://localhost');
-    const path = url.pathname;
+    const path = stripGatewayPrefix(url.pathname);
 
     if (path.startsWith('/api/')) {
       const m = matchRoute(req.method, path);
