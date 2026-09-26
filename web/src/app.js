@@ -32,14 +32,10 @@ document.getElementById('btn-settings').addEventListener('click', () => {
   });
 });
 
-// 新增主机入口：侧栏头部
-const addBtn = document.createElement('button');
-addBtn.className = 'icon-btn';
-addBtn.title = '新增主机';
-addBtn.textContent = '＋';
-addBtn.style.fontSize = '16px';
-document.querySelector('.sidebar-header').appendChild(addBtn);
-addBtn.addEventListener('click', () => openHostFormModal(null, refreshHostList));
+// 新增主机入口：侧栏头部（按钮在 index.html 中）
+document
+  .getElementById('btn-add-host')
+  .addEventListener('click', () => openHostFormModal(null, refreshHostList));
 
 // 关闭页面前检查活动会话（FR-046）
 window.addEventListener('beforeunload', (e) => {

@@ -8,40 +8,64 @@
   <style>
     /* ===== 主题变量（FR-048）：黑色为默认，浅色覆盖；导入配色 = 替换变量集 ===== */
     :root, [data-theme="dark"] {
-      --bg: #14161a;
-      --bg-panel: #1c1f26;
-      --bg-hover: #262a33;
-      --bg-active: #2f6fed;
-      --bg-input: #14161a;
-      --term-bg: #0d0f12;
-      --border: #2a2e37;
-      --text: #e6e6e6;
-      --text-dim: #8b929e;
-      --text-faint: #6b7280;
-      --accent: #2f6fed;
+      --bg: #0e1116;
+      --bg-panel: #151922;
+      --bg-elevated: #1b2029;
+      --bg-hover: #20262f;
+      --bg-active: #2a3140;
+      --bg-input: #0e1116;
+      --term-bg: #0a0c10;
+      --border: #262c38;
+      --border-strong: #343c4c;
+      --text: #e8eaf0;
+      --text-dim: #9aa3b2;
+      --text-faint: #626c7d;
+      --accent: #4f8dff;
+      --accent-soft: rgba(79, 141, 255, .14);
       --accent-text: #ffffff;
-      --ok: #34d399;
-      --warn: #fbbf24;
+      --ok: #3ecf8e;
+      --ok-soft: rgba(62, 207, 142, .12);
+      --warn: #f2b04d;
+      --warn-soft: rgba(242, 176, 77, .12);
       --danger: #f87171;
-      --tag-bg: #262a33;
+      --danger-soft: rgba(248, 113, 113, .12);
+      --tag-bg: #20262f;
+      --shadow-sm: 0 1px 2px rgba(0,0,0,.3);
+      --shadow-md: 0 4px 16px rgba(0,0,0,.35);
+      --shadow-lg: 0 16px 48px rgba(0,0,0,.5);
+      --radius-sm: 6px;
+      --radius-md: 8px;
+      --radius-lg: 12px;
     }
     [data-theme="light"] {
-      --bg: #f5f6f8;
+      --bg: #f4f6f9;
       --bg-panel: #ffffff;
-      --bg-hover: #e9ecf1;
-      --bg-active: #2f6fed;
+      --bg-elevated: #ffffff;
+      --bg-hover: #eef1f6;
+      --bg-active: #e3e9f5;
       --bg-input: #ffffff;
-      --term-bg: #ffffff;
-      --border: #d8dde5;
-      --text: #1f2328;
-      --text-dim: #57606a;
-      --text-faint: #8b949e;
+      --term-bg: #fcfdff;
+      --border: #e3e7ed;
+      --border-strong: #ccd3dd;
+      --text: #22272f;
+      --text-dim: #57606f;
+      --text-faint: #8a94a4;
       --accent: #2f6fed;
+      --accent-soft: rgba(47, 111, 237, .10);
       --accent-text: #ffffff;
-      --ok: #057d55;
-      --warn: #b45309;
+      --ok: #0a8a5f;
+      --ok-soft: rgba(10, 138, 95, .10);
+      --warn: #b26b00;
+      --warn-soft: rgba(178, 107, 0, .10);
       --danger: #d1242f;
-      --tag-bg: #e9ecf1;
+      --danger-soft: rgba(209, 36, 47, .08);
+      --tag-bg: #eef1f6;
+      --shadow-sm: 0 1px 2px rgba(31,42,66,.06);
+      --shadow-md: 0 4px 16px rgba(31,42,66,.08);
+      --shadow-lg: 0 16px 48px rgba(31,42,66,.14);
+      --radius-sm: 6px;
+      --radius-md: 8px;
+      --radius-lg: 12px;
     }
 
     :root { color-scheme: dark; }
@@ -49,54 +73,85 @@
     * { box-sizing: border-box; }
     html, body { height: 100%; }
     body {
-      margin: 0; font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Segoe UI", sans-serif;
+      font-size: 13px;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
       background: var(--bg); color: var(--text); overflow: hidden;
     }
     button { font-family: inherit; }
+    :focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+    button, .host-item, .tab, input, select, textarea, .theme-option, .ctx-item, .seg-btn {
+      transition: background-color .15s ease, color .15s ease, border-color .15s ease,
+                  box-shadow .15s ease, transform .1s ease;
+    }
+    button:active { transform: scale(.97); }
 
     #app { display: flex; height: 100vh; }
 
     /* ===== 左侧边栏（FR-044） ===== */
     #sidebar {
-      width: 260px; min-width: 260px; display: flex; flex-direction: column;
+      width: 264px; min-width: 264px; display: flex; flex-direction: column;
       background: var(--bg-panel); border-right: 1px solid var(--border);
     }
     .sidebar-header {
       display: flex; align-items: center; justify-content: space-between;
-      padding: 14px 16px 10px; font-weight: 600; font-size: 15px;
+      padding: 16px 14px 12px; font-weight: 600; font-size: 14px; letter-spacing: .02em;
+    }
+    .sidebar-header .brand { display: flex; align-items: center; gap: 8px; }
+    .sidebar-header .brand::before {
+      content: ''; width: 8px; height: 8px; border-radius: 2px;
+      background: var(--accent); box-shadow: 0 0 8px var(--accent-soft), 0 0 2px var(--accent);
     }
     .sidebar-header .count { font-size: 11px; color: var(--text-faint); font-weight: 400; }
-    #host-list { flex: 1; overflow-y: auto; padding: 4px 8px; }
+    .sidebar-header-right { display: flex; align-items: center; gap: 6px; }
+    #host-list { flex: 1; overflow-y: auto; padding: 2px 10px 10px; }
     .sidebar-group-title {
-      color: var(--text-faint); font-size: 11px; margin: 10px 6px 4px;
-      text-transform: uppercase; letter-spacing: .05em;
+      color: var(--text-faint); font-size: 11px; margin: 12px 8px 6px;
+      font-weight: 600; letter-spacing: .08em;
     }
     .host-item {
-      display: flex; align-items: center; gap: 8px; width: 100%;
-      padding: 8px 10px; margin-bottom: 2px; border-radius: 7px; border: none;
+      display: flex; align-items: center; gap: 10px; width: 100%;
+      padding: 9px 10px; margin-bottom: 2px; border-radius: var(--radius-md); border: none;
       background: transparent; color: var(--text); cursor: pointer; text-align: left;
-      font-size: 13px;
+      font-size: 13px; position: relative;
     }
+    .host-item::before {
+      content: ''; position: absolute; left: 0; top: 50%; transform: translateY(-50%);
+      width: 3px; height: 0; border-radius: 2px; background: var(--ok);
+      transition: height .2s ease;
+    }
+    .host-item.connected::before { height: 60%; }
     .host-item:hover { background: var(--bg-hover); }
-    .host-item.connected { background: var(--bg-hover); box-shadow: inset 2px 0 0 var(--accent); }
-    .host-item .host-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+    .host-item .host-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
     .host-item .host-name { font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .host-item .host-meta { font-size: 11px; color: var(--text-dim); font-family: Menlo, monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .host-item .host-meta {
+      font-size: 11px; color: var(--text-dim); font-family: Menlo, monospace;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
     .host-item .host-actions { display: none; gap: 2px; }
     .host-item:hover .host-actions { display: flex; }
     .icon-btn {
       border: none; background: transparent; color: var(--text-dim); cursor: pointer;
-      padding: 3px 5px; border-radius: 5px; font-size: 12px; line-height: 1;
+      padding: 4px 6px; border-radius: var(--radius-sm); font-size: 12px; line-height: 1;
     }
-    .icon-btn:hover { background: var(--bg-panel); color: var(--text); }
-    .icon-btn.danger:hover { color: var(--danger); }
-    .tag { font-size: 10px; padding: 1px 6px; border-radius: 8px; background: var(--tag-bg); color: var(--text-dim); }
-    .tag.ok { color: var(--ok); } .tag.warn { color: var(--warn); }
-    .sidebar-empty { color: var(--text-faint); font-size: 12px; text-align: center; padding: 32px 12px; }
+    .icon-btn:hover { background: var(--bg-elevated); color: var(--text); box-shadow: var(--shadow-sm); }
+    .icon-btn.danger:hover { color: var(--danger); background: var(--danger-soft); }
+    .tag {
+      font-size: 10px; padding: 2px 8px; border-radius: 10px;
+      background: var(--tag-bg); color: var(--text-dim);
+    }
+    .tag.ok { color: var(--ok); background: var(--ok-soft); }
+    .tag.warn { color: var(--warn); background: var(--warn-soft); }
+    .sidebar-empty {
+      color: var(--text-faint); font-size: 12px; text-align: center;
+      padding: 40px 16px; line-height: 1.8;
+    }
     .sidebar-footer { padding: 10px; border-top: 1px solid var(--border); }
     #btn-settings {
       display: flex; align-items: center; gap: 8px; width: 100%;
-      padding: 9px 12px; border-radius: 7px; border: none; cursor: pointer;
+      padding: 9px 12px; border-radius: var(--radius-md); border: none; cursor: pointer;
       background: transparent; color: var(--text-dim); font-size: 13px;
     }
     #btn-settings:hover { background: var(--bg-hover); color: var(--text); }
@@ -104,109 +159,178 @@
     /* ===== 右侧终端区（FR-044/045） ===== */
     #main { flex: 1; display: flex; flex-direction: column; min-width: 0; position: relative; }
     #tabbar {
-      display: flex; align-items: stretch; height: 38px; min-height: 38px;
+      display: flex; align-items: stretch; height: 40px; min-height: 40px;
       background: var(--bg-panel); border-bottom: 1px solid var(--border);
-      overflow-x: auto;
+      overflow-x: auto; padding: 0 4px;
     }
     .tab {
-      display: flex; align-items: center; gap: 8px; padding: 0 12px;
-      border-right: 1px solid var(--border); cursor: pointer; font-size: 13px;
+      display: flex; align-items: center; gap: 8px; padding: 0 6px 0 12px; margin: 6px 2px 0;
+      border-radius: var(--radius-md) var(--radius-md) 0 0; cursor: pointer; font-size: 13px;
       color: var(--text-dim); position: relative; white-space: nowrap; user-select: none;
+      border: 1px solid transparent; border-bottom: none;
     }
-    .tab:hover { color: var(--text); }
-    .tab.active { color: var(--text); background: var(--bg); }
+    .tab:hover { color: var(--text); background: var(--bg-hover); }
+    .tab.active {
+      color: var(--text); background: var(--term-bg);
+      border-color: var(--border);
+    }
     .tab.active::after {
-      content: ''; position: absolute; left: 0; right: 0; top: 0; height: 2px; background: var(--accent);
+      content: ''; position: absolute; left: 8px; right: 8px; top: -1px; height: 2px;
+      border-radius: 2px; background: var(--accent);
     }
-    .tab .tab-status { width: 7px; height: 7px; border-radius: 50%; background: var(--warn); }
+    .tab .tab-status {
+      width: 7px; height: 7px; border-radius: 50%;
+      background: var(--warn);
+    }
     .tab .tab-status.open { background: var(--ok); }
-    .tab .tab-close { border: none; background: transparent; color: var(--text-faint); cursor: pointer; padding: 2px 4px; border-radius: 4px; font-size: 13px; }
-    .tab .tab-close:hover { background: var(--bg-hover); color: var(--danger); }
+    .tab:not(.active) .tab-status:not(.open) {
+      animation: pulse 1.4s ease-in-out infinite;
+    }
+    @keyframes pulse { 50% { opacity: .35; } }
+    .tab .tab-label { max-width: 160px; overflow: hidden; text-overflow: ellipsis; }
+    .tab .tab-close {
+      border: none; background: transparent; color: var(--text-faint); cursor: pointer;
+      padding: 3px 5px; border-radius: var(--radius-sm); font-size: 12px; line-height: 1;
+    }
+    .tab .tab-close:hover { background: var(--danger-soft); color: var(--danger); }
     .tab-rename {
       background: var(--bg-input); color: var(--text); border: 1px solid var(--accent);
-      border-radius: 4px; font-size: 13px; padding: 1px 6px; width: 130px; outline: none;
+      border-radius: var(--radius-sm); font-size: 13px; padding: 2px 8px; width: 130px;
+      outline: none; box-shadow: 0 0 0 3px var(--accent-soft);
     }
-    /* 会话右键菜单（FR-049） */
-    .ctx-menu {
-      position: fixed; z-index: 300; display: none; min-width: 160px;
-      background: var(--bg-panel); border: 1px solid var(--border); border-radius: 8px;
-      padding: 4px; box-shadow: 0 8px 24px rgba(0,0,0,.35);
-    }
-    .ctx-menu.show { display: block; }
-    .ctx-menu .ctx-meta { font-size: 10px; color: var(--text-faint); padding: 5px 12px 4px; font-family: Menlo, monospace; }
-    .ctx-menu .ctx-item {
-      display: block; width: 100%; text-align: left; padding: 7px 12px; border: none;
-      background: transparent; color: var(--text); font-size: 13px; border-radius: 6px; cursor: pointer;
-    }
-    .ctx-menu .ctx-item:hover { background: var(--bg-hover); }
-    .ctx-menu .ctx-item.danger { color: var(--danger); }
-    .ctx-menu .ctx-sep { height: 1px; background: var(--border); margin: 4px 6px; }
     #terminals { flex: 1; position: relative; background: var(--term-bg); }
     .term-instance { position: absolute; inset: 0; display: none; flex-direction: column; }
     .term-instance.active { display: flex; }
-    .term-instance .term-container { flex: 1; padding: 6px; min-height: 0; }
+    .term-instance .term-container { flex: 1; padding: 8px 6px 4px 8px; min-height: 0; }
     .term-instance .term-status {
-      min-height: 22px; font-size: 12px; color: var(--text-faint);
-      padding: 2px 10px 6px; display: none;
+      min-height: 24px; font-size: 12px; color: var(--text-faint);
+      padding: 2px 12px 8px; display: none;
     }
     .term-instance .term-status.show { display: block; }
     .term-instance .term-status.err { color: var(--danger); }
     #empty-state {
       position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
-      color: var(--text-faint); font-size: 14px; flex-direction: column; gap: 8px;
+      color: var(--text-faint); font-size: 14px; flex-direction: column; gap: 14px;
+      animation: fadeIn .3s ease;
     }
-    #empty-state .big { font-size: 34px; opacity: .5; }
+    #empty-state .big {
+      font-size: 30px; width: 64px; height: 64px; display: flex; align-items: center; justify-content: center;
+      border-radius: 50%; background: var(--bg-panel); border: 1px solid var(--border);
+      box-shadow: var(--shadow-sm);
+    }
+    @keyframes fadeIn { from { opacity: 0; } }
 
-    /* ===== 弹窗 ===== */
+    /* ===== 弹窗（入场动画 + 毛玻璃） ===== */
     #modal-root { position: fixed; inset: 0; z-index: 100; display: none; }
     #modal-root.show { display: block; }
-    .modal-mask { position: absolute; inset: 0; background: rgba(0,0,0,.5); }
+    .modal-mask {
+      position: absolute; inset: 0; background: rgba(6,8,12,.55);
+      backdrop-filter: blur(5px); -webkit-backdrop-filter: blur(5px);
+      animation: fadeIn .15s ease;
+    }
     .modal {
       position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
-      background: var(--bg-panel); border: 1px solid var(--border); border-radius: 12px;
-      min-width: 420px; max-width: 720px; max-height: 85vh; overflow-y: auto;
-      box-shadow: 0 12px 40px rgba(0,0,0,.4);
+      background: var(--bg-panel); border: 1px solid var(--border); border-radius: 14px;
+      min-width: 440px; max-width: 740px; max-height: 85vh; overflow-y: auto;
+      box-shadow: var(--shadow-lg);
+      animation: modalIn .18s cubic-bezier(.2, .9, .3, 1.2);
     }
+    @keyframes modalIn { from { opacity: 0; transform: translate(-50%, -48%) scale(.96); } }
     .modal-head {
       display: flex; justify-content: space-between; align-items: center;
-      padding: 14px 18px 0; font-size: 15px; font-weight: 600;
+      padding: 16px 20px 2px; font-size: 15px; font-weight: 600; letter-spacing: .01em;
     }
-    .modal-body { padding: 12px 18px 18px; }
+    .modal-head .icon-btn { font-size: 14px; padding: 5px 8px; }
+    .modal-body { padding: 12px 20px 20px; }
 
     /* 表单 */
-    form.host-form label { display: block; font-size: 12px; color: var(--text-dim); margin-bottom: 10px; }
+    form.host-form label { display: block; font-size: 12px; color: var(--text-dim); margin-bottom: 12px; font-weight: 500; }
+    /* hidden 属性优先级必须高于 display:block（FR-050 凭据框条件显示） */
+    form.host-form [hidden], .hidden { display: none !important; }
     form.host-form input, form.host-form select, form.host-form textarea {
-      display: block; width: 100%; margin-top: 4px;
+      display: block; width: 100%; margin-top: 6px;
       background: var(--bg-input); color: var(--text);
-      border: 1px solid var(--border); border-radius: 6px; padding: 7px 10px; font-size: 13px;
+      border: 1px solid var(--border); border-radius: var(--radius-md); padding: 8px 12px; font-size: 13px;
     }
-    form.host-form textarea { font-family: Menlo, monospace; font-size: 11px; }
-    .form-actions { display: flex; gap: 8px; margin-top: 14px; }
-    .btn { background: var(--bg-hover); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 6px 16px; cursor: pointer; font-size: 13px; }
-    .btn:hover { filter: brightness(1.1); }
+    form.host-form input:focus, form.host-form textarea:focus {
+      border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); outline: none;
+    }
+    form.host-form input::placeholder, form.host-form textarea::placeholder { color: var(--text-faint); }
+    form.host-form textarea { font-family: Menlo, monospace; font-size: 11px; resize: vertical; }
+    .form-actions { display: flex; gap: 8px; margin-top: 16px; }
+    .btn {
+      background: var(--bg-elevated); color: var(--text);
+      border: 1px solid var(--border); border-radius: var(--radius-md);
+      padding: 7px 18px; cursor: pointer; font-size: 13px; font-weight: 500;
+      box-shadow: var(--shadow-sm);
+    }
+    .btn:hover { background: var(--bg-hover); border-color: var(--border-strong); }
     .btn.primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+    .btn.primary:hover { filter: brightness(1.08); box-shadow: 0 4px 14px var(--accent-soft); }
     .btn.danger-text { color: var(--danger); }
     .form-note { font-size: 11px; color: var(--text-faint); margin: 2px 0 0; }
 
+    /* 分段选择器（认证方式，FR-050 美化） */
+    .seg {
+      display: flex; margin-top: 6px; background: var(--bg-input);
+      border: 1px solid var(--border); border-radius: var(--radius-md); padding: 3px; gap: 3px;
+    }
+    .seg-btn {
+      flex: 1; border: none; background: transparent; color: var(--text-dim);
+      padding: 6px 0; border-radius: 6px; cursor: pointer; font-size: 13px;
+      display: flex; align-items: center; justify-content: center; gap: 6px;
+    }
+    .seg-btn:hover { color: var(--text); }
+    .seg-btn.selected {
+      background: var(--accent); color: var(--accent-text); font-weight: 500;
+      box-shadow: var(--shadow-sm);
+    }
+
     /* 设置弹窗 */
-    .settings-nav { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin-bottom: 14px; }
+    .settings-nav { display: flex; gap: 2px; border-bottom: 1px solid var(--border); margin-bottom: 16px; }
     .settings-nav button {
       border: none; background: transparent; color: var(--text-dim); cursor: pointer;
-      padding: 8px 14px; font-size: 13px; border-bottom: 2px solid transparent; margin-bottom: -1px;
+      padding: 9px 16px; font-size: 13px; border-bottom: 2px solid transparent; margin-bottom: -1px;
     }
-    .settings-nav button.active { color: var(--text); border-bottom-color: var(--accent); }
-    .theme-row { display: flex; gap: 10px; }
+    .settings-nav button:hover { color: var(--text); }
+    .settings-nav button.active { color: var(--text); border-bottom-color: var(--accent); font-weight: 500; }
+    .theme-row { display: flex; gap: 12px; }
     .theme-option {
-      flex: 1; border: 2px solid var(--border); border-radius: 10px; padding: 12px; cursor: pointer; text-align: center; font-size: 13px;
+      flex: 1; border: 2px solid var(--border); border-radius: 12px; padding: 14px;
+      cursor: pointer; text-align: center; font-size: 13px; color: var(--text-dim);
     }
-    .theme-option.selected { border-color: var(--accent); }
-    .theme-option .swatch { height: 44px; border-radius: 6px; margin-bottom: 8px; border: 1px solid var(--border); }
-    .swatch.dark { background: linear-gradient(135deg, #14161a 50%, #1c1f26 50%); }
-    .swatch.light { background: linear-gradient(135deg, #f5f6f8 50%, #ffffff 50%); }
-    .placeholder-box { color: var(--text-faint); font-size: 13px; text-align: center; padding: 36px 0; }
+    .theme-option:hover { border-color: var(--border-strong); transform: translateY(-1px); }
+    .theme-option.selected { border-color: var(--accent); color: var(--text); background: var(--accent-soft); }
+    .theme-option .swatch {
+      height: 48px; border-radius: 8px; margin-bottom: 10px;
+      border: 1px solid var(--border); box-shadow: var(--shadow-sm);
+    }
+    .swatch.dark { background: linear-gradient(135deg, #0e1116 50%, #1b2029 50%); }
+    .swatch.light { background: linear-gradient(135deg, #f4f6f9 50%, #ffffff 50%); }
+    .placeholder-box { color: var(--text-faint); font-size: 13px; text-align: center; padding: 36px 0; line-height: 1.7; }
+
+    /* 会话右键菜单（FR-049） */
+    .ctx-menu {
+      position: fixed; z-index: 300; display: none; min-width: 168px;
+      background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 10px;
+      padding: 5px; box-shadow: var(--shadow-lg);
+      animation: ctxIn .12s ease;
+    }
+    @keyframes ctxIn { from { opacity: 0; transform: scale(.96) translateY(-2px); } }
+    .ctx-menu.show { display: block; }
+    .ctx-menu .ctx-meta { font-size: 10px; color: var(--text-faint); padding: 6px 12px 5px; font-family: Menlo, monospace; }
+    .ctx-menu .ctx-item {
+      display: block; width: 100%; text-align: left; padding: 8px 12px; border: none;
+      background: transparent; color: var(--text); font-size: 13px; border-radius: 7px; cursor: pointer;
+    }
+    .ctx-menu .ctx-item:hover { background: var(--bg-hover); }
+    .ctx-menu .ctx-item.danger { color: var(--danger); }
+    .ctx-menu .ctx-item.danger:hover { background: var(--danger-soft); }
+    .ctx-menu .ctx-sep { height: 1px; background: var(--border); margin: 5px 8px; }
 
     ::-webkit-scrollbar { width: 8px; height: 8px; }
     ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--border-strong); }
     ::-webkit-scrollbar-track { background: transparent; }
   </style>
 </head>
@@ -214,8 +338,11 @@
   <div id="app">
     <aside id="sidebar">
       <div class="sidebar-header">
-        <span>WebSSH</span>
-        <span class="count" id="host-count"></span>
+        <span class="brand">WebSSH</span>
+        <span class="sidebar-header-right">
+          <span class="count" id="host-count"></span>
+          <button class="icon-btn" id="btn-add-host" title="新增主机" style="font-size:15px">＋</button>
+        </span>
       </div>
       <div id="host-list"></div>
       <div class="sidebar-footer">

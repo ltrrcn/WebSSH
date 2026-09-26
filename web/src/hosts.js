@@ -119,10 +119,11 @@ export function openHostFormModal(host, onSaved) {
       <label>用户名 <input name="username" required value="${isEdit ? escapeHtml(host.username) : ''}" /></label>
       <label>分组 <input name="group" placeholder="可选" value="${isEdit ? escapeHtml(host.group ?? '') : ''}" /></label>
       <label>认证方式
-        <select name="authType">
-          <option value="password" ${isEdit && host.authType === 'password' ? 'selected' : ''}>密码</option>
-          <option value="privateKey" ${isEdit && host.authType === 'privateKey' ? 'selected' : ''}>密钥</option>
-        </select>
+        <div class="seg" role="radiogroup">
+          <button type="button" class="seg-btn ${!isEdit || host.authType === 'password' ? 'selected' : ''}" data-value="password">🔑 密码</button>
+          <button type="button" class="seg-btn ${isEdit && host.authType === 'privateKey' ? 'selected' : ''}" data-value="privateKey">🗝 密钥</button>
+        </div>
+        <input type="hidden" name="authType" value="${isEdit ? host.authType : 'password'}" />
       </label>
       <label data-cred="password">密码 <input name="password" type="password" autocomplete="new-password" placeholder="${isEdit ? '留空保持不变' : ''}" /></label>
       <label data-cred="privateKey" hidden>密钥（PEM） <textarea name="privateKey" rows="4" placeholder="${isEdit ? '留空保持不变' : '-----BEGIN OPENSSH PRIVATE KEY-----'}"></textarea></label>
@@ -137,15 +138,22 @@ export function openHostFormModal(host, onSaved) {
   m.setTitle(isEdit ? `编辑：${host.name}` : '新增主机');
 
   const form = m.root.querySelector('#host-form');
-  const authSelect = form.querySelector('[name=authType]');
-  // FR-050：认证方式切换时仅显示对应凭据框
+  const authInput = form.querySelector('[name=authType]');
+  // FR-050：认证方式切换时仅显示对应凭据框（分段选择器）
   const syncCred = () => {
-    form.querySelector('[data-cred=password]').hidden = authSelect.value !== 'password';
-    form.querySelectorAll('[data-cred=privateKey]').forEach(
-      (l) => (l.hidden = authSelect.value !== 'privateKey')
+    const v = authInput.value;
+    form.querySelector('[data-cred=password]').hidden = v !== 'password';
+    form.querySelectorAll('[data-cred=privateKey]').forEach((l) => (l.hidden = v !== 'privateKey'));
+    form.querySelectorAll('.seg-btn').forEach((b) =>
+      b.classList.toggle('selected', b.dataset.value === v)
     );
   };
-  authSelect.addEventListener('change', syncCred);
+  form.querySelectorAll('.seg-btn').forEach((btn) =>
+    btn.addEventListener('click', () => {
+      authInput.value = btn.dataset.value;
+      syncCred();
+    })
+  );
   syncCred();
 
   m.root.querySelector('#host-form-cancel').addEventListener('click', () => m.close());
