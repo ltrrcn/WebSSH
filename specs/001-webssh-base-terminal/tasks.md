@@ -260,7 +260,7 @@
 - [X] T105 页面美化：整体视觉打磨（配色系统、动效、焦点态、弹窗入场动画、空态、tab 样式）+ 新建主机表单美化（分段选择器替代下拉框）；后端零改动
 - [X] T106 `web/src/terminal.js`：复制会话后立即进入改名态；tab 栏「＋新建会话」弹出主机选择；改名冲突检查（FR-052/053）
 - [X] T107 `web/src/hosts.js`：分组标题点击展开/折叠 + 折叠状态 localStorage 持久化（FR-054）
-- [ ] T108 右键上下文菜单共享组件 `web/src/contextmenu.js`（抽出 terminal.js 的实现）；`web/src/hosts.js`：侧栏会话连接右键菜单（连接/编辑/删除/新建会话连接）+ 空白处右键新建（FR-055）
+- [X] T108 右键上下文菜单共享组件 `web/src/contextmenu.js`（抽出 terminal.js 的实现）；`web/src/hosts.js`：侧栏会话连接右键菜单（连接/编辑/删除/新建会话连接）+ 空白处右键新建（FR-055）
 
 ---
 
