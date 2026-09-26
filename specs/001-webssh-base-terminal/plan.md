@@ -98,7 +98,8 @@ src/
 │   ├── hostkey.js       # known_hosts 维护与校验
 │   └── policy.js        # 三层判定 + 目录权限矩阵
 ├── session/
-│   └── manager.js       # 会话生命周期、并发上限、超时与资源释放
+│   ├── manager.js       # 会话生命周期、并发上限、超时与资源释放
+│   └── bridge.js        # WS ↔ SSH 双向转发（0x00 数据 / 0x01 resize / 0x02 信号）
 ├── net/
 │   ├── server.js        # 单一 HTTP 服务（socket / TCP）
 │   ├── upgrade.js       # WebSocket 升级与 Origin 校验
