@@ -7,7 +7,7 @@
       "protocol": "",
       "gatewayPrefix": "/app/webssh",
       "gatewaySocket": "app.sock",
-      "url": "/app/webssh",
+      "url": "/app/webssh/",
       "allUsers": true
     }
   }

@@ -4,6 +4,16 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>WebSSH</title>
+  <script>
+    // 统一网关下文档 URL 可能为 /app/webssh（无尾斜杠），相对资源会被解析到
+    // /app/vendor/... 错误层级。此处强制归一为带尾斜杠，必须在所有相对引用之前执行。
+    (function () {
+      var p = location.pathname;
+      if (p.length > 1 && !/\/$/.test(p)) {
+        history.replaceState(null, '', p + '/' + location.search + location.hash);
+      }
+    })();
+  </script>
   <link rel="stylesheet" href="vendor/xterm/xterm.css" />
   <style>
     /* ===== 主题变量（FR-048）：黑色为默认，浅色覆盖；导入配色 = 替换变量集 ===== */
