@@ -1,23 +1,34 @@
-// 前端外壳：hash 路由 + 页面占位（各页面在 US1/US2/US4/US6 接入）
+// 前端外壳：hash 路由 + 页面懒加载
+// terminal（US1 已实现）｜hosts（US2）｜audit（US4）｜tokens（US6）
 
-const PAGES = {
-  terminal: () => '终端页在此加载（US1：点击主机打开远程终端）',
-  hosts: () => '主机管理页在此加载（US2：主机与凭据管理）',
-  audit: () => '审计页在此加载（US4：连接行为留痕与导出）',
-  tokens: () => '令牌管理页在此加载（US6：MCP 令牌）',
+const PLACEHOLDER = {
+  hosts: '主机管理页在此加载（US2：主机与凭据管理）',
+  audit: '审计页在此加载（US4：连接行为留痕与导出）',
+  tokens: '令牌管理页在此加载（US6：MCP 令牌）',
 };
 
-function currentPage() {
-  const hash = location.hash.replace(/^#\//, '');
-  return PAGES[hash] ? hash : 'terminal';
-}
+let cleanup = null;
 
-function render() {
-  const page = currentPage();
+async function render() {
+  const hash = location.hash.replace(/^#\//, '');
+  const page = hash === 'hosts' || hash === 'audit' || hash === 'tokens' ? hash : 'terminal';
   const app = document.getElementById('app');
-  app.innerHTML = `<div class="placeholder">${PAGES[page]()}</div>`;
+
+  if (cleanup) {
+    cleanup();
+    cleanup = null;
+  }
   for (const a of document.querySelectorAll('#nav a')) {
     a.classList.toggle('active', a.dataset.page === page);
+  }
+
+  if (page === 'terminal') {
+    const mod = await import('./terminal.js');
+    await mod.render(app);
+    // 切换页面时释放终端资源
+    cleanup = () => mod.disposeActive?.();
+  } else {
+    app.innerHTML = `<div class="placeholder">${PLACEHOLDER[page]}</div>`;
   }
 }
 

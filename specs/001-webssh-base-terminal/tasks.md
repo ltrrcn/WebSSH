@@ -83,21 +83,21 @@
 
 ### Tests for User Story 1（先写，必须失败）
 
-- [ ] T030 [P] [US1] `tests/contract/ws-terminal.test.js`：`/ws/terminal` 握手 Origin 校验、`version` 参数校验（缺失或不支持 → HTTP 400，宪法 VIII）、仅接受 `hostId`/`version` 参数、帧类型 `0x00`/`0x01`/`0x02` 语义、非法 `cols`/`rows` 丢弃、关闭码 4001/4003/4004/4005/4006/4010
-- [ ] T031 [P] [US1] `tests/unit/ws-frame.test.js`：帧编解码（首字节类型 + 负载）、`0x00` 负载不被当作文本解析、控制帧 JSON 校验
-- [ ] T032 [P] [US1] `tests/integration/terminal-sshd.test.js`：连真实 sshd 完成连接 → 执行 → resize → 信号中断 → 断开
-- [ ] T033 [P] [US1] `tests/helpers/seed-host.js`：直接写 `hosts.json` 种子主机（含加密凭据），使 US1 可独立于 US2 界面验证
+- [X] T030 [P] [US1] `tests/contract/ws-terminal.test.js`：`/ws/terminal` 握手 Origin 校验、`version` 参数校验（缺失或不支持 → HTTP 400，宪法 VIII）、仅接受 `hostId`/`version` 参数、帧类型 `0x00`/`0x01`/`0x02` 语义、非法 `cols`/`rows` 丢弃、关闭码 4001/4003/4004/4005/4006/4010
+- [X] T031 [P] [US1] `tests/unit/ws-frame.test.js`：帧编解码（首字节类型 + 负载）、`0x00` 负载不被当作文本解析、控制帧 JSON 校验
+- [X] T032 [P] [US1] `tests/integration/terminal-sshd.test.js`：连真实 sshd 完成连接 → 执行 → resize → 信号中断 → 断开
+- [X] T033 [P] [US1] `tests/helpers/seed-host.js`：直接写 `hosts.json` 种子主机（含加密凭据），使 US1 可独立于 US2 界面验证
 
 ### Implementation for User Story 1
 
-- [ ] T034 [US1] `src/net/upgrade.js`：WebSocket 升级处理——校验 `Origin`、校验 `version` 参数（缺失或不支持 → HTTP 400）、校验 `hostId` 归属与存在性、并发上限预检、指纹确认预检，失败按约定关闭码结束
-- [ ] T035 [US1] `src/ssh/client.js`：基于 `ssh2` 建立连接（口令 / 私钥 + passphrase）、连接超时 `connectTimeoutMs`、申请 `shell({term, cols, rows})`、`setWindow()` 变更尺寸、发送 `INT` 信号
-- [ ] T036 [US1] `src/ssh/hostkey.js`：`etc/known_hosts` 读写（OpenSSH 可读兼容格式）、`hostVerifier` 校验、指纹未确认返回待确认、指纹变化直接拒绝并告警（FR-007）
-- [ ] T037 [US1] `src/session/manager.js`：会话创建/查询/关闭、状态机（`connecting`→`ready`|`failed`→`closing`→`closed`）、并发上限 `sessionsPerUser`、空闲超时 `idleTimeoutMs`、进入 `closed` 必须释放全部资源
-- [ ] T038 [US1] `src/session/bridge.js`：WS ↔ SSH 双向转发——客户端 `0x00` → SSH stdin；SSH stdout → 客户端 `0x00`；`0x01` → `setWindow`；`0x02` → 白名单信号
-- [ ] T039 [US1] `src/api/hosts.js`（只读部分）：`GET /api/hosts` 返回当前用户主机，凭据仅回 `hasSecret: boolean`
-- [ ] T040 [US1] `web/src/terminal.js`：xterm.js 初始化、`xterm-addon-fit`、二进制收发、`term.write` 分片节流保证大输出下界面可响应且可中断（FR-021）、窗口 resize 上报、`Ctrl+C` 信号、断开原因提示；WebSocket 连接携带 `version=1` 握手参数；接入 `web/index.html`
-- [ ] T041 [US1] 会话生命周期事件写入审计：`connect-attempt` / `connect-success` / `connect-failure` / `disconnect`，含 actor、hostId、authType、result、reason、durationMs（FR-010 / FR-011）
+- [X] T034 [US1] `src/net/upgrade.js`：WebSocket 升级处理——校验 `Origin`、校验 `version` 参数（缺失或不支持 → HTTP 400）、校验 `hostId` 归属与存在性、并发上限预检、指纹确认预检，失败按约定关闭码结束
+- [X] T035 [US1] `src/ssh/client.js`：基于 `ssh2` 建立连接（口令 / 私钥 + passphrase）、连接超时 `connectTimeoutMs`、申请 `shell({term, cols, rows})`、`setWindow()` 变更尺寸、发送 `INT` 信号
+- [X] T036 [US1] `src/ssh/hostkey.js`：`etc/known_hosts` 读写（OpenSSH 可读兼容格式）、`hostVerifier` 校验、指纹未确认返回待确认、指纹变化直接拒绝并告警（FR-007）
+- [X] T037 [US1] `src/session/manager.js`：会话创建/查询/关闭、状态机（`connecting`→`ready`|`failed`→`closing`→`closed`）、并发上限 `sessionsPerUser`、空闲超时 `idleTimeoutMs`、进入 `closed` 必须释放全部资源
+- [X] T038 [US1] `src/session/bridge.js`：WS ↔ SSH 双向转发——客户端 `0x00` → SSH stdin；SSH stdout → 客户端 `0x00`；`0x01` → `setWindow`；`0x02` → 白名单信号
+- [X] T039 [US1] `src/api/hosts.js`（只读部分）：`GET /api/hosts` 返回当前用户主机，凭据仅回 `hasSecret: boolean`
+- [X] T040 [US1] `web/src/terminal.js`：xterm.js 初始化、`xterm-addon-fit`、二进制收发、`term.write` 分片节流保证大输出下界面可响应且可中断（FR-021）、窗口 resize 上报、`Ctrl+C` 信号、断开原因提示；WebSocket 连接携带 `version=1` 握手参数；接入 `web/index.html`
+- [X] T041 [US1] 会话生命周期事件写入审计：`connect-attempt` / `connect-success` / `connect-failure` / `disconnect`，含 actor、hostId、authType、result、reason、durationMs（FR-010 / FR-011）
 
 **Checkpoint**: US1 可独立验证——终端连接、双向输入输出、resize、中断均可用。
 

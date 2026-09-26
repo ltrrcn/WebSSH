@@ -7,12 +7,15 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createRouter, sendJson } from './router.js';
 import { resolveIdentity } from './auth.js';
+import { attachUpgrade } from './upgrade.js';
 import { resolveRuntime } from '../runtime/profile.js';
 import { ensureDirs } from '../runtime/paths.js';
 import { loadConfig } from '../config/loader.js';
 import { createFileStore } from '../store/file-store.js';
 import { loadOrCreateMasterKey } from '../crypto/master-key.js';
 import { createAuditLogger } from '../audit/logger.js';
+import { createSessionManager } from '../session/manager.js';
+import { hostsRoutes } from '../api/hosts.js';
 
 const WEB_DIR = join(fileURLToPath(new URL('../../web', import.meta.url)));
 
@@ -60,8 +63,11 @@ export async function startApp(opts = {}) {
   const masterKey = await loadOrCreateMasterKey(runtime.paths.config);
   const store = createFileStore({ configDir: runtime.paths.config });
   const audit = createAuditLogger({ logDir: runtime.paths.log, config });
+  const sessionManager = createSessionManager({ config, store, audit, masterKey, runtime });
 
-  // REST 路由（Phase 2：GET /api/runtime；后续故事在此扩展）
+  const deps = { runtime, config, store, audit, masterKey, sessionManager, resolveIdentity };
+
+  // REST 路由（Phase 2：/api/runtime；US1：/api/hosts 只读；后续故事在此扩展）
   const apiRoutes = [
     {
       method: 'GET',
@@ -69,12 +75,13 @@ export async function startApp(opts = {}) {
       // 契约：返回运行模式与监听形态，不含具体路径
       handler: (req, res) => sendJson(res, 200, { mode: runtime.mode, listen: runtime.listen.type }),
     },
+    ...hostsRoutes(deps),
   ];
 
   const router = createRouter({ webDir: opts.webDir ?? WEB_DIR, apiRoutes });
 
   const httpServer = createServer((req, res) => {
-    Promise.resolve(router(req, res, { runtime, config, store, audit })).catch((err) => {
+    Promise.resolve(router(req, res, deps)).catch((err) => {
       console.error('[webssh] 请求处理失败:', err.message);
       if (!res.headersSent) {
         res.writeHead(500, { 'content-type': 'application/json' });
@@ -85,7 +92,8 @@ export async function startApp(opts = {}) {
     });
   });
 
-  const deps = { runtime, config, store, audit, masterKey, resolveIdentity };
+  // WebSocket 升级（单一入口，宪法 III）
+  attachUpgrade(httpServer, deps);
 
   // 监听
   if (runtime.listen.type === 'unix') {
