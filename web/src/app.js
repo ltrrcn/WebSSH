@@ -2,7 +2,6 @@
 // terminal（US1 已实现）｜hosts（US2）｜audit（US4）｜tokens（US6）
 
 const PLACEHOLDER = {
-  hosts: '主机管理页在此加载（US2：主机与凭据管理）',
   audit: '审计页在此加载（US4：连接行为留痕与导出）',
   tokens: '令牌管理页在此加载（US6：MCP 令牌）',
 };
@@ -11,7 +10,7 @@ let cleanup = null;
 
 async function render() {
   const hash = location.hash.replace(/^#\//, '');
-  const page = hash === 'hosts' || hash === 'audit' || hash === 'tokens' ? hash : 'terminal';
+  const page = ['terminal', 'hosts', 'audit', 'tokens'].includes(hash) ? hash : 'terminal';
   const app = document.getElementById('app');
 
   if (cleanup) {
@@ -27,6 +26,9 @@ async function render() {
     await mod.render(app);
     // 切换页面时释放终端资源
     cleanup = () => mod.disposeActive?.();
+  } else if (page === 'hosts') {
+    const mod = await import('./hosts.js');
+    await mod.render(app);
   } else {
     app.innerHTML = `<div class="placeholder">${PLACEHOLDER[page]}</div>`;
   }

@@ -90,3 +90,43 @@ export function connectShell(opts) {
     });
   });
 }
+
+/**
+ * 捕获目标主机当前指纹（不建立会话）：
+ * 完成密钥交换拿到主机公钥后立即拒绝握手并断开。
+ * 用于「首次连接 + 指纹未确认」时向使用者展示待确认指纹（Edge Case：禁止静默接受）。
+ * @returns {Promise<string>} SHA256:xxx 形式指纹
+ */
+export function captureFingerprint({ host, port, connectTimeoutMs }) {
+  return new Promise((resolve, reject) => {
+    const conn = new Client();
+    let done = false;
+    const fail = (err) => {
+      if (done) return;
+      done = true;
+      try {
+        conn.end();
+      } catch {
+        /* 忽略 */
+      }
+      reject(err);
+    };
+    conn.on('error', fail);
+    conn.on('close', () => fail(new Error('connection_closed')));
+    conn.connect({
+      host,
+      port,
+      username: 'probe',
+      readyTimeout: connectTimeoutMs,
+      hostVerifier: (keyBlob) => {
+        if (!done) {
+          done = true;
+          const fp = fingerprintOfKey(keyBlob);
+          resolve(fp);
+        }
+        // 返回 false 中止握手：仅捕获指纹，不认证、不建立会话
+        return false;
+      },
+    });
+  });
+}

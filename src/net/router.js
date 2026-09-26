@@ -31,21 +31,76 @@ export function sendError(res, status, code, message) {
 }
 
 /**
- * 创建 HTTP 请求处理器。
- * @param {{runtime: object, webDir: string, apiRoutes: Array<{method:string, path:string, handler:(req,res,ctx)=>Promise<void>}>}} opts
+ * 读取并解析 JSON 请求体（带大小上限）。
+ * @returns {Promise<object>} 解析失败或超限时 reject（message: payload_too_large / invalid_json）
+ */
+export function readJsonBody(req, limit = 1024 * 1024) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    let size = 0;
+    req.on('data', (c) => {
+      size += c.length;
+      if (size > limit) {
+        reject(new Error('payload_too_large'));
+        req.destroy();
+        return;
+      }
+      chunks.push(c);
+    });
+    req.on('end', () => {
+      const text = Buffer.concat(chunks).toString('utf8');
+      if (!text) return resolve({});
+      try {
+        resolve(JSON.parse(text));
+      } catch {
+        reject(new Error('invalid_json'));
+      }
+    });
+    req.on('error', reject);
+  });
+}
+
+/**
+ * 创建 HTTP 请求处理器。支持 `{param}` 路径占位（如 /api/hosts/{id}）。
+ * @param {{webDir: string, apiRoutes: Array<{method:string, path:string, handler:(req,res,ctx)=>Promise<void>}>}} opts
  */
 export function createRouter({ webDir, apiRoutes = [] }) {
-  const routes = new Map();
-  for (const r of apiRoutes) routes.set(`${r.method} ${r.path}`, r.handler);
+  // 编译路由：静态段 + 参数段
+  const routes = apiRoutes.map((r) => {
+    const pattern = r.path.split('/').map((seg) =>
+      seg.startsWith('{') && seg.endsWith('}') ? { param: seg.slice(1, -1) } : seg
+    );
+    return { ...r, pattern };
+  });
   const webRoot = resolve(webDir);
+
+  function matchRoute(method, path) {
+    const segs = path.split('/');
+    outer: for (const r of routes) {
+      if (r.method !== method) continue;
+      if (r.pattern.length !== segs.length) continue;
+      const params = {};
+      for (let i = 0; i < segs.length; i++) {
+        const p = r.pattern[i];
+        if (typeof p === 'string') {
+          if (p !== segs[i]) continue outer;
+        } else {
+          if (!segs[i]) continue outer;
+          params[p.param] = decodeURIComponent(segs[i]);
+        }
+      }
+      return { handler: r.handler, params };
+    }
+    return null;
+  }
 
   return async function handle(req, res, ctx = {}) {
     const url = new URL(req.url, 'http://localhost');
     const path = url.pathname;
 
     if (path.startsWith('/api/')) {
-      const handler = routes.get(`${req.method} ${path}`);
-      if (handler) return handler(req, res, ctx);
+      const m = matchRoute(req.method, path);
+      if (m) return m.handler(req, res, { ...ctx, params: m.params });
       return sendError(res, 404, 'not_found', '接口不存在');
     }
 

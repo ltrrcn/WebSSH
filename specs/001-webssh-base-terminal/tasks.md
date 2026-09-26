@@ -111,17 +111,17 @@
 
 ### Tests for User Story 2（先写，必须失败）
 
-- [ ] T042 [P] [US2] `tests/contract/hosts-api.test.js`：主机 CRUD 契约、字段校验（host/port/authType）、越权返回 403 且不暴露资源存在性、响应不含明文凭据
-- [ ] T043 [P] [US2] `tests/unit/host-validation.test.js`：`host` 禁止分隔符与空白、`port` 1–65535、`authType` 枚举、名称长度
-- [ ] T044 [P] [US2] `tests/integration/host-persistence.test.js`：保存凭据 → 重启服务 → 仍可连接；删除后不可再连接
+- [X] T042 [P] [US2] `tests/contract/hosts-api.test.js`：主机 CRUD 契约、字段校验（host/port/authType）、越权返回 403 且不暴露资源存在性、响应不含明文凭据
+- [X] T043 [P] [US2] `tests/unit/host-validation.test.js`：`host` 禁止分隔符与空白、`port` 1–65535、`authType` 枚举、名称长度
+- [X] T044 [P] [US2] `tests/integration/host-persistence.test.js`：保存凭据 → 重启服务 → 仍可连接；删除后不可再连接
 
 ### Implementation for User Story 2
 
-- [ ] T045 [US2] `src/api/hosts.js`（完整 CRUD，**依赖 T039 已建只读接口后扩展同一文件**）：`POST` / `GET` / `PUT` / `DELETE` /api/hosts，全部按 `ownerId` 隔离，`PUT` 不传凭据表示保持不变，写操作走原子写与备份
-- [ ] T046 [US2] `src/api/hosts.js`：`POST /api/hosts/{id}/verify-hostkey` 确认主机指纹并写入 `known_hosts`
-- [ ] T047 [US2] `src/store/file-store.js`：主机条目字段校验、分组（`group`）维护、`lastUsedAt` 更新
-- [ ] T048 [US2] `web/src/hosts.js`：主机管理页——列表（按分组）、新增、编辑、删除
-- [ ] T049 [US2] `web/src/hosts.js`：凭据字段永不回显（仅显示"已保存"与可替换）、指纹未确认时的确认交互
+- [X] T045 [US2] `src/api/hosts.js`（完整 CRUD，**依赖 T039 已建只读接口后扩展同一文件**）：`POST` / `GET` / `PUT` / `DELETE` /api/hosts，全部按 `ownerId` 隔离，`PUT` 不传凭据表示保持不变，写操作走原子写与备份
+- [X] T046 [US2] `src/api/hosts.js`：`POST /api/hosts/{id}/verify-hostkey` 确认主机指纹并写入 `known_hosts`
+- [X] T047 [US2] `src/store/file-store.js`：主机条目字段校验、分组（`group`）维护、`lastUsedAt` 更新
+- [X] T048 [US2] `web/src/hosts.js`：主机管理页——列表（按分组）、新增、编辑、删除
+- [X] T049 [US2] `web/src/hosts.js`：凭据字段永不回显（仅显示"已保存"与可替换）、指纹未确认时的确认交互
 
 **Checkpoint**: US1 + US2 均可用，可脱离种子脚本人工录入主机。
 

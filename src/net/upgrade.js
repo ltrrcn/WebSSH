@@ -3,6 +3,7 @@
 // WS 层关闭码：4001 未授权、4003 主机不在授权范围、4004 并发上限、4005 指纹未确认
 import { WebSocketServer } from 'ws';
 import { resolveIdentity } from './auth.js';
+import { captureFingerprint } from '../ssh/client.js';
 import { PROTOCOL_VERSION } from '../../web/src/protocol/frames.js';
 
 /**
@@ -95,10 +96,23 @@ async function handleTerminal(ws, identity, url, deps) {
     return ws.close(4003, 'host_not_allowed');
   }
 
-  // 指纹未确认：显式要求使用者确认，禁止静默接受（FR-007）
+  // 指纹未确认：捕获当前指纹供使用者显式确认，禁止静默接受（FR-007）
   if (!host.fingerprint) {
+    let pending = host.pendingFingerprint ?? null;
+    if (!pending) {
+      try {
+        pending = await captureFingerprint({
+          host: host.host,
+          port: host.port,
+          connectTimeoutMs: deps.config?.limits?.connectTimeoutMs ?? 10000,
+        });
+        await deps.store.touchHost(host.id, { pendingFingerprint: pending });
+      } catch {
+        /* 捕获失败（不可达等）：仍以未确认关闭，不区分原因以免泄漏 */
+      }
+    }
     auditDenied(audit, identity, hostId, 'fingerprint_unconfirmed');
-    return ws.close(4005, 'fingerprint_unconfirmed');
+    return ws.close(4005, pending ? `fingerprint_unconfirmed:${pending}` : 'fingerprint_unconfirmed');
   }
 
   // 并发会话上限（FR-019）
