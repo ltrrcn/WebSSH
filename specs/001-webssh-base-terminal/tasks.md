@@ -27,12 +27,12 @@
 
 **Purpose**: 项目初始化与依赖落地
 
-- [ ] T001 创建 `package.json`（`"type": "module"`、Node 22 engines、依赖 `ssh2` / `ws` / `@modelcontextprotocol/sdk`、scripts: `start` / `test` / `test:unit` / `test:integration` / `test:contract` / `pack:fnos`）与 `.gitignore`
-- [ ] T002 [P] 创建目录骨架：`src/{runtime,config,store,crypto,ssh,session,net,api,mcp,audit}`、`web/{vendor/xterm,src}`、`tests/{unit,integration,contract,helpers}`、`packaging/fnos/{cmd,config,app/ui,app/images}`、`scripts/`
-- [ ] T003 执行 `npm install --omit=dev --no-optional` 安装 `ssh2` / `ws` / `@modelcontextprotocol/sdk`，并校验产物中不含任何 `.node` 原生二进制（宪法第 II 条）
-- [ ] T004 [P] 配置 `node:test` 运行脚本与 `tests/helpers/tmpdir.js`（临时目录与清理）
-- [ ] T005 [P] 将 `xterm.js` 与 `xterm-addon-fit` 发行文件 vendored 到 `web/vendor/xterm/`，并在 `web/vendor/xterm/VERSION.txt` 记录版本与来源
-- [ ] T006 [P] 集成测试用 sshd 脚手架 `tests/helpers/sshd.js`：临时主机密钥 + 专用端口 + authorized_keys，启动/探测/销毁（research R14）
+- [X] T001 创建 `package.json`（`"type": "module"`、Node 22 engines、依赖 `ssh2` / `ws` / `@modelcontextprotocol/sdk`、scripts: `start` / `test` / `test:unit` / `test:integration` / `test:contract` / `pack:fnos`）与 `.gitignore`
+- [X] T002 [P] 创建目录骨架：`src/{runtime,config,store,crypto,ssh,session,net,api,mcp,audit}`、`web/{vendor/xterm,src}`、`tests/{unit,integration,contract,helpers}`、`packaging/fnos/{cmd,config,app/ui,app/images}`、`scripts/`
+- [X] T003 执行 `npm install --omit=dev --no-optional` 安装 `ssh2` / `ws` / `@modelcontextprotocol/sdk`，并校验产物中不含任何 `.node` 原生二进制（宪法第 II 条）
+- [X] T004 [P] 配置 `node:test` 运行脚本与 `tests/helpers/tmpdir.js`（临时目录与清理）
+- [X] T005 [P] 将 `xterm.js` 与 `xterm-addon-fit` 发行文件 vendored 到 `web/vendor/xterm/`，并在 `web/vendor/xterm/VERSION.txt` 记录版本与来源
+- [X] T006 [P] 集成测试用 sshd 脚手架 `tests/helpers/sshd.js`：临时主机密钥 + 专用端口 + authorized_keys，启动/探测/销毁（research R14）
 
 ---
 

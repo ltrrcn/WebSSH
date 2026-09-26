@@ -1,0 +1,30 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+build/
+*.fpk
+
+# Runtime data (local dev)
+.webssh/
+webssh-dev/
+
+# Environment
+.env
+.env.*
+
+# Logs
+*.log
+log/
+
+# Temp
+*.tmp
+*.swp
+.tmp/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
