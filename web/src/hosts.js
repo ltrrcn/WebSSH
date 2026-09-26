@@ -32,11 +32,17 @@ export async function renderHostList(container, { onConnect, connectedIds = [], 
     if (!groups.has(g)) groups.set(g, []);
     groups.get(g).push(h);
   }
+  const collapsed = loadCollapsedGroups();
   container.innerHTML =
     [...groups.entries()]
       .map(
         ([g, list]) =>
-          `<div class="sidebar-group-title">${escapeHtml(g)}</div>` +
+          `<div class="sidebar-group-title" data-group="${escapeHtml(g)}" title="点击展开/折叠">
+            <span class="group-chevron ${collapsed.has(g) ? 'collapsed' : ''}">▾</span>
+            ${escapeHtml(g)}
+            <span class="group-count">${list.length}</span>
+          </div>` +
+          `<div class="group-items ${collapsed.has(g) ? 'collapsed' : ''}">` +
           list
             .map(
               (h) => `<div class="host-item ${connected.has(h.id) ? 'connected' : ''}" data-id="${escapeHtml(h.id)}">
@@ -52,9 +58,23 @@ export async function renderHostList(container, { onConnect, connectedIds = [], 
               </span>
             </div>`
             )
-            .join('')
+            .join('') +
+          '</div>'
       )
       .join('');
+
+  // FR-054：分组展开/折叠，状态持久化到 localStorage
+  container.querySelectorAll('.sidebar-group-title').forEach((title) => {
+    title.addEventListener('click', () => {
+      const g = title.dataset.group;
+      const items = title.nextElementSibling;
+      if (collapsed.has(g)) collapsed.delete(g);
+      else collapsed.add(g);
+      saveCollapsedGroups(collapsed);
+      items?.classList.toggle('collapsed');
+      title.querySelector('.group-chevron')?.classList.toggle('collapsed');
+    });
+  });
 
   container.querySelectorAll('.host-item').forEach((item) => {
     const host = hosts.find((h) => h.id === item.dataset.id);
@@ -79,6 +99,19 @@ export async function renderHostList(container, { onConnect, connectedIds = [], 
       });
     }
   });
+}
+
+/** 分组折叠状态（FR-054）：localStorage 持久化 */
+const COLLAPSE_KEY = 'webssh-collapsed-groups';
+function loadCollapsedGroups() {
+  try {
+    return new Set(JSON.parse(localStorage.getItem(COLLAPSE_KEY) ?? '[]'));
+  } catch {
+    return new Set();
+  }
+}
+function saveCollapsedGroups(set) {
+  localStorage.setItem(COLLAPSE_KEY, JSON.stringify([...set]));
 }
 
 function hostBadge(h) {

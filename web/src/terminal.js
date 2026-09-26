@@ -2,6 +2,8 @@
 // 切换 tab 时非活动终端仅隐藏（display），连接不中断；重新激活时重新 fit
 import { FrameType, encodeDataFrame, PROTOCOL_VERSION } from './protocol/frames.js';
 import { xtermTheme, onThemeChange } from './theme.js';
+import { fetchHosts } from './hosts.js';
+import { openModal } from './modal.js';
 
 const { Terminal } = window;
 const FitAddonCtor = window.FitAddon?.FitAddon ?? window.FitAddon;
@@ -48,7 +50,7 @@ export function connectHost(host, { forceNew = false } = {}) {
     );
     if (existing) return activateTab(existing.id);
   }
-  createTab(host);
+  return createTab(host);
 }
 
 export function hasActiveSessions() {
@@ -155,6 +157,7 @@ function createTab(host) {
   });
 
   activateTab(id);
+  return tab;
 }
 
 function fitAndReport(tab) {
@@ -261,6 +264,47 @@ function renderTabbar() {
     el.querySelector('.tab-close').addEventListener('click', () => closeTab(t.id));
     bar.appendChild(el);
   }
+  // FR-052：tab 栏末尾「＋新建会话」入口
+  const addBtn = document.createElement('button');
+  addBtn.className = 'tab new-session';
+  addBtn.title = '新建会话';
+  addBtn.textContent = '＋';
+  addBtn.addEventListener('click', () => openSessionPicker());
+  bar.appendChild(addBtn);
+}
+
+/** 新建会话：弹出主机选择（连接需要选定主机） */
+async function openSessionPicker() {
+  const hosts = await fetchHosts();
+  const m = openModal(
+    hosts.length
+      ? `<div class="picker-list">${hosts
+          .map(
+            (h) => `<button class="picker-item" data-id="${escapeHtml(h.id)}">
+              <span class="picker-name">${escapeHtml(h.name)}</span>
+              <span class="picker-meta">${escapeHtml(h.username)}@${escapeHtml(h.host)}:${h.port}</span>
+            </button>`
+          )
+          .join('')}</div>`
+      : '<div class="placeholder-box">暂无主机，请先在左侧新增。</div>'
+  );
+  m.setTitle('新建会话');
+  m.root.querySelectorAll('.picker-item').forEach((b) =>
+    b.addEventListener('click', () => {
+      m.close();
+      const host = hosts.find((h) => h.id === b.dataset.id);
+      if (host) connectHost(host);
+    })
+  );
+}
+
+/** 会话名冲突检查（FR-053）：与任何其他会话卡的当前显示名（备注名或主机名）相同即冲突 */
+function hasNameConflict(tab, name) {
+  for (const t of tabs.values()) {
+    if (t.id === tab.id) continue;
+    if ((t.label ?? t.host.name) === name) return true;
+  }
+  return false;
 }
 
 /** 双击会话卡修改备注名：本地存储，按会话临时 ID 关联（FR-051） */
@@ -278,15 +322,25 @@ function startRename(tab) {
   let done = false;
   const finish = (save) => {
     if (done) return;
-    done = true;
     if (save) {
       const v = input.value.trim();
+      // FR-053：与现有会话名冲突则拒绝保存并提示（停留在编辑态）
+      if (v && hasNameConflict(tab, v)) {
+        input.classList.add('conflict');
+        input.setAttribute('title', `会话名「${v}」与现有会话冲突`);
+        input.select();
+        return; // 不结束编辑，等待用户改名或 Esc 取消
+      }
+      done = true;
       tab.label = v || null;
       if (v) localStorage.setItem(`webssh-tab-label:${tab.sessionKey}`, v);
       else localStorage.removeItem(`webssh-tab-label:${tab.sessionKey}`);
+    } else {
+      done = true;
     }
     renderTabbar();
   };
+  input.addEventListener('input', () => input.classList.remove('conflict'));
   input.addEventListener('keydown', (e) => {
     e.stopPropagation();
     if (e.key === 'Enter') finish(true);
@@ -321,7 +375,9 @@ function showSessionMenu(tab, x, y) {
   menu.querySelector('.ctx-meta').textContent = `会话 ${tab.sessionKey}`;
   menu.querySelector('[data-act=duplicate]').onclick = () => {
     hideSessionMenu();
-    connectHost(tab.host, { forceNew: true });
+    // FR-052：复制的会话创建后立即进入改名编辑态
+    const dup = createTab(tab.host);
+    setTimeout(() => startRename(dup), 80);
   };
   menu.querySelector('[data-act=rename]').onclick = () => {
     hideSessionMenu();
@@ -349,4 +405,10 @@ export function disposeAll() {
     themeUnsub();
     themeUnsub = null;
   }
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  })[c]);
 }
