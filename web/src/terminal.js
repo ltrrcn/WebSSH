@@ -4,6 +4,7 @@ import { FrameType, encodeDataFrame, PROTOCOL_VERSION } from './protocol/frames.
 import { xtermTheme, onThemeChange } from './theme.js';
 import { fetchHosts } from './hosts.js';
 import { openModal } from './modal.js';
+import { showContextMenu } from './contextmenu.js';
 
 const { Terminal } = window;
 const FitAddonCtor = window.FitAddon?.FitAddon ?? window.FitAddon;
@@ -350,52 +351,24 @@ function startRename(tab) {
   input.addEventListener('click', (e) => e.stopPropagation());
 }
 
-/** 会话右键菜单（FR-049）：复制会话 / 关闭会话 */
-let ctxMenu = null;
-function ensureCtxMenu() {
-  if (ctxMenu) return ctxMenu;
-  ctxMenu = document.createElement('div');
-  ctxMenu.className = 'ctx-menu';
-  ctxMenu.innerHTML = `
-    <div class="ctx-meta"></div>
-    <button class="ctx-item" data-act="duplicate">复制会话</button>
-    <button class="ctx-item" data-act="rename">重命名</button>
-    <div class="ctx-sep"></div>
-    <button class="ctx-item danger" data-act="close">关闭会话</button>`;
-  document.body.appendChild(ctxMenu);
-  ctxMenu.addEventListener('contextmenu', (e) => e.preventDefault());
-  document.addEventListener('click', () => hideSessionMenu(), true);
-  window.addEventListener('blur', hideSessionMenu);
-  window.addEventListener('resize', hideSessionMenu);
-  return ctxMenu;
-}
-
+/** 会话右键菜单（FR-049）：复制会话 / 重命名 / 关闭会话（共享组件见 contextmenu.js） */
 function showSessionMenu(tab, x, y) {
-  const menu = ensureCtxMenu();
-  menu.querySelector('.ctx-meta').textContent = `会话 ${tab.sessionKey}`;
-  menu.querySelector('[data-act=duplicate]').onclick = () => {
-    hideSessionMenu();
-    // FR-052：复制的会话创建后立即进入改名编辑态
-    const dup = createTab(tab.host);
-    setTimeout(() => startRename(dup), 80);
-  };
-  menu.querySelector('[data-act=rename]').onclick = () => {
-    hideSessionMenu();
-    startRename(tab);
-  };
-  menu.querySelector('[data-act=close]').onclick = () => {
-    hideSessionMenu();
-    closeTab(tab.id);
-  };
-  menu.classList.add('show');
-  const mw = menu.offsetWidth || 160;
-  const mh = menu.offsetHeight || 130;
-  menu.style.left = `${Math.min(x, window.innerWidth - mw - 8)}px`;
-  menu.style.top = `${Math.min(y, window.innerHeight - mh - 8)}px`;
-}
-
-function hideSessionMenu() {
-  if (ctxMenu) ctxMenu.classList.remove('show');
+  showContextMenu(x, y, {
+    meta: `会话 ${tab.sessionKey}`,
+    items: [
+      {
+        label: '复制会话',
+        onClick: () => {
+          // FR-052：复制的会话创建后立即进入改名编辑态
+          const dup = createTab(tab.host);
+          setTimeout(() => startRename(dup), 80);
+        },
+      },
+      { label: '重命名', onClick: () => startRename(tab) },
+      'sep',
+      { label: '关闭会话', danger: true, onClick: () => closeTab(tab.id) },
+    ],
+  });
 }
 
 /** 页面卸载前清理（beforeunload 提示在 app.js 中注册） */

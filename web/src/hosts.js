@@ -1,5 +1,6 @@
-// 主机侧栏列表 + 表单弹窗（FR-044：主机管理在左侧栏；表单走弹窗）
+// 左侧会话连接列表 + 表单弹窗（FR-044/055：左栏展示已保存的会话连接；表单走弹窗）
 import { openModal } from './modal.js';
+import { showContextMenu } from './contextmenu.js';
 
 export async function fetchHosts() {
   try {
@@ -22,8 +23,8 @@ export async function renderHostList(container, { onConnect, connectedIds = [], 
   if (countEl) countEl.textContent = hosts.length ? `${hosts.length} 台` : '';
 
   if (!hosts.length) {
-    container.innerHTML = '<div class="sidebar-empty">暂无主机<br/>点击右上角「＋」添加</div>';
-    return;
+    container.innerHTML =
+      '<div class="sidebar-empty">暂无会话连接<br/>点击右上角「＋」或右键新建</div>';
   }
   const connected = new Set(connectedIds);
   const groups = new Map();
@@ -81,6 +82,29 @@ export async function renderHostList(container, { onConnect, connectedIds = [], 
     if (!host) return;
     // 主条目点击 = 连接（已连接则激活对应 tab）
     item.addEventListener('click', () => onConnect(host));
+    // FR-055：会话连接右键菜单
+    item.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      showContextMenu(e.clientX, e.clientY, {
+        meta: `${host.name}`,
+        items: [
+          { label: '连接', onClick: () => onConnect(host) },
+          { label: '新建会话连接', onClick: () => openHostFormModal(null, onChanged) },
+          { label: '编辑', onClick: () => openHostFormModal(host, onChanged) },
+          'sep',
+          {
+            label: '删除',
+            danger: true,
+            onClick: async () => {
+              if (!confirm(`确定删除「${host.name}」？其凭据将一并删除。`)) return;
+              await fetch(`/api/hosts/${host.id}`, { method: 'DELETE' });
+              onChanged();
+            },
+          },
+        ],
+      });
+    });
     item.querySelector('.act-edit').addEventListener('click', (e) => {
       e.stopPropagation();
       openHostFormModal(host, onChanged);
@@ -98,6 +122,17 @@ export async function renderHostList(container, { onConnect, connectedIds = [], 
         await confirmFingerprint(host, onChanged);
       });
     }
+  });
+
+  // FR-055：列表空白处右键 → 新建会话连接
+  container.addEventListener('contextmenu', (e) => {
+    if (e.target.closest('.host-item')) return;
+    e.preventDefault();
+    showContextMenu(e.clientX, e.clientY, {
+      items: [
+        { label: '新建会话连接', onClick: () => openHostFormModal(null, onChanged) },
+      ],
+    });
   });
 }
 
@@ -168,7 +203,7 @@ export function openHostFormModal(host, onSaved) {
       </div>
     </form>`
   );
-  m.setTitle(isEdit ? `编辑：${host.name}` : '新增主机');
+  m.setTitle(isEdit ? `编辑：${host.name}` : '新建会话连接');
 
   const form = m.root.querySelector('#host-form');
   const authInput = form.querySelector('[name=authType]');
