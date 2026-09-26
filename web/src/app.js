@@ -2,6 +2,7 @@
 import { initTheme } from './theme.js';
 import { renderHostList, openHostFormModal } from './hosts.js';
 import { openSettingsModal } from './settings.js';
+import { renderAudit } from './audit.js';
 import * as terminal from './terminal.js';
 
 initTheme();
@@ -25,10 +26,11 @@ function refreshHostList() {
 }
 refreshHostList();
 
-// 设置入口（FR-047）
+// 设置入口（FR-047）；审计页签由 US4 注入渲染
 document.getElementById('btn-settings').addEventListener('click', () => {
   openSettingsModal({
-    // US4/US6 交付后在此注入：renderAudit / renderTokens
+    renderAudit,
+    // US6 交付后注入 renderTokens
   });
 });
 

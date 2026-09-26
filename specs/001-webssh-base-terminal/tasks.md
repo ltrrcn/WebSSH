@@ -157,15 +157,15 @@
 
 ### Tests for User Story 4（先写，必须失败）
 
-- [ ] T056 [P] [US4] `tests/contract/audit-api.test.js`：`GET /api/audit` 分页与 `from`/`to`/`hostId`/`result` 过滤；`GET /api/audit/export` 按时间顺序且可直接阅读
-- [ ] T057 [P] [US4] `tests/unit/audit-completeness.test.js`：三类连接均产生记录，字段完备（操作者、时间、主机、认证方式、结果、时长、断开原因）
+- [X] T056 [P] [US4] `tests/contract/audit-api.test.js`：`GET /api/audit` 分页与 `from`/`to`/`hostId`/`result` 过滤；`GET /api/audit/export` 按时间顺序且可直接阅读
+- [X] T057 [P] [US4] `tests/unit/audit-completeness.test.js`：三类连接均产生记录，字段完备（操作者、时间、主机、认证方式、结果、时长、断开原因）
 
 ### Implementation for User Story 4
 
-- [ ] T058 [US4] `src/api/audit.js`：`GET /api/audit` 按时间顺序分页查询与过滤（读取端兼容旧 `version` 字段缺失）
-- [ ] T059 [US4] `src/api/audit.js`：`GET /api/audit/export` 导出可直接阅读文件，导出内容同样执行脱敏
-- [ ] T060 [US4] `src/audit/logger.js`：补全认证失败与各类断开原因的记录路径，保证 100% 覆盖（FR-010 / SC-004）
-- [ ] T061 [US4] `web/src/audit.js`：审计页——时间顺序列表、过滤条件、导出按钮
+- [X] T058 [US4] `src/api/audit.js`：`GET /api/audit` 按时间顺序分页查询与过滤（读取端兼容旧 `version` 字段缺失）
+- [X] T059 [US4] `src/api/audit.js`：`GET /api/audit/export` 导出可直接阅读文件，导出内容同样执行脱敏
+- [X] T060 [US4] `src/audit/logger.js`：补全认证失败与各类断开原因的记录路径，保证 100% 覆盖（FR-010 / SC-004）
+- [X] T061 [US4] `web/src/audit.js`：审计页——时间顺序列表、过滤条件、导出按钮
 
 **Checkpoint**: 审计可查可导出，无明文凭据（SC-010 / SC-021）。
 

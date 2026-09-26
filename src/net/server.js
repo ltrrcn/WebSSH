@@ -17,6 +17,7 @@ import { createAuditLogger } from '../audit/logger.js';
 import { createSessionManager } from '../session/manager.js';
 import { hostsRoutes } from '../api/hosts.js';
 import { sessionsRoutes } from '../api/sessions.js';
+import { auditRoutes } from '../api/audit.js';
 
 const WEB_DIR = join(fileURLToPath(new URL('../../web', import.meta.url)));
 
@@ -78,6 +79,7 @@ export async function startApp(opts = {}) {
     },
     ...hostsRoutes(deps),
     ...sessionsRoutes(deps),
+    ...auditRoutes(deps),
   ];
 
   const router = createRouter({ webDir: opts.webDir ?? WEB_DIR, apiRoutes });

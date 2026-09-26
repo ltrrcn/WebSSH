@@ -339,6 +339,32 @@
     .swatch.light { background: linear-gradient(135deg, #f4f6f9 50%, #ffffff 50%); }
     .placeholder-box { color: var(--text-faint); font-size: 13px; text-align: center; padding: 36px 0; line-height: 1.7; }
 
+    /* 审计页（US4） */
+    .audit-toolbar { display: flex; gap: 8px; margin-bottom: 10px; align-items: center; }
+    .audit-toolbar select {
+      background: var(--bg-input); color: var(--text); border: 1px solid var(--border);
+      border-radius: var(--radius-md); padding: 6px 10px; font-size: 12px;
+    }
+    .audit-toolbar .btn { padding: 6px 14px; }
+    .audit-list {
+      border: 1px solid var(--border); border-radius: var(--radius-md);
+      background: var(--bg-input); max-height: 46vh; overflow-y: auto;
+    }
+    .audit-row {
+      display: flex; align-items: center; gap: 10px; padding: 8px 12px;
+      border-bottom: 1px solid var(--border); font-size: 12px;
+    }
+    .audit-row:last-child { border-bottom: none; }
+    .audit-row:hover { background: var(--bg-hover); }
+    .audit-time { color: var(--text-faint); font-family: Menlo, monospace; font-size: 11px; white-space: nowrap; }
+    .audit-event { font-weight: 500; white-space: nowrap; }
+    .audit-host { white-space: nowrap; }
+    .audit-addr { color: var(--text-faint); font-family: Menlo, monospace; font-size: 10px; margin-left: 4px; }
+    .audit-detail { color: var(--text-dim); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+    .audit-pager { display: flex; align-items: center; justify-content: space-between; margin-top: 10px; }
+    .audit-page-info { font-size: 12px; color: var(--text-faint); }
+    .audit-pager .btn[disabled] { opacity: .4; cursor: default; }
+
     /* 会话右键菜单（FR-049） */
     .ctx-menu {
       position: fixed; z-index: 300; display: none; min-width: 168px;

@@ -5,8 +5,8 @@
 const PEM_BLOCK =
   /-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z0-9 ]*PRIVATE KEY-----/g;
 
-// 口令赋值形式：password= / passwd= / pass: 等（含 URI/配置风格）
-const PASSWORD_ASSIGN = /\b(pass(word)?|passwd|secret)\s*[=:]\s*\S+/gi;
+// 口令赋值形式：password= / passwd= / pass: / pw: / secret= 等（含 URI/配置风格）
+const PASSWORD_ASSIGN = /\b(pass(word)?|passwd|pw|secret)\s*[=:]\s*\S+/gi;
 
 /**
  * 对文本执行脱敏。
