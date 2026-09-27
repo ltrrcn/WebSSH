@@ -302,9 +302,10 @@
     }
     .modal-head .icon-btn { font-size: 14px; padding: 5px 8px; }
     .modal-body { padding: 12px 20px 20px; }
-    /* 设置弹窗：加大一号（仅设置，不影响表单等其他弹窗） */
-    .modal.settings-modal { min-width: 760px; max-width: 1080px; }
-    .modal.settings-modal .audit-list { max-height: 58vh; }
+    /* 设置弹窗：固定尺寸（仅设置，不影响表单等其他弹窗） */
+    .modal.settings-modal { width: 960px; height: 620px; display: flex; flex-direction: column; max-width: 95vw; max-height: 90vh; }
+    .modal.settings-modal .modal-body { flex: 1; display: flex; overflow: hidden; padding: 16px 20px 20px 12px; }
+    .modal.settings-modal .audit-list { max-height: 46vh; }
 
     /* 表单 */
     form.host-form label { display: block; font-size: 12px; color: var(--text-dim); margin-bottom: 12px; font-weight: 500; }
@@ -349,14 +350,21 @@
       box-shadow: var(--shadow-sm);
     }
 
-    /* 设置弹窗 */
-    .settings-nav { display: flex; gap: 2px; border-bottom: 1px solid var(--border); margin-bottom: 16px; }
+    /* 设置弹窗：左侧竖向菜单 + 右侧内容区 */
+    .settings-layout { display: flex; flex: 1; min-height: 0; min-width: 0; }
+    .settings-nav {
+      display: flex; flex-direction: column; flex: none; width: 128px;
+      border-right: 1px solid var(--border); padding-right: 4px; margin-right: 4px;
+    }
     .settings-nav button {
       border: none; background: transparent; color: var(--text-dim); cursor: pointer;
-      padding: 9px 16px; font-size: 13px; border-bottom: 2px solid transparent; margin-bottom: -1px;
+      padding: 11px 12px; font-size: 13px; text-align: left; border-radius: var(--radius-md);
+      border-left: 2px solid transparent; border-top-left-radius: 0; border-bottom-left-radius: 0;
+      margin-bottom: 2px;
     }
-    .settings-nav button:hover { color: var(--text); }
-    .settings-nav button.active { color: var(--text); border-bottom-color: var(--accent); font-weight: 500; }
+    .settings-nav button:hover { color: var(--text); background: var(--bg-hover); }
+    .settings-nav button.active { color: var(--text); border-left-color: var(--accent); background: var(--accent-soft); font-weight: 500; }
+    .settings-content { flex: 1; min-width: 0; overflow-y: auto; padding-left: 16px; }
     /* 令牌配置页（与审计/令牌页同款 audit-list/audit-row 结构） */
     .tc-title { font-size: 13px; font-weight: 600; margin: 14px 0 8px; display: flex; align-items: center; gap: 8px; }
     .tc-mono { font-family: Menlo, monospace; font-size: 11.5px; background: var(--bg-hover); border-radius: 4px; padding: 1px 6px; word-break: break-all; }

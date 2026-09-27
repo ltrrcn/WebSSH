@@ -9,13 +9,15 @@ import { currentTheme, setTheme } from './theme.js';
  */
 export function openSettingsModal({ renderAudit, renderTokens, renderTokenConfig } = {}) {
   const m = openModal(
-    `<div class="settings-nav">
-      <button data-pane="theme" class="active">主题</button>
-      <button data-pane="audit">审计</button>
-      <button data-pane="tokens">令牌</button>
-      <button data-pane="tokenConfig">令牌配置</button>
-    </div>
-    <div id="settings-pane"></div>`,
+    `<div class="settings-layout">
+      <div class="settings-nav">
+        <button data-pane="theme" class="active">🎨 主题</button>
+        <button data-pane="audit">📋 审计</button>
+        <button data-pane="tokens">🔑 令牌</button>
+        <button data-pane="tokenConfig">🛡 令牌配置</button>
+      </div>
+      <div id="settings-pane" class="settings-content"></div>
+    </div>`,
     // 关闭时移除大尺寸 class，避免影响其他弹窗（modal 为全局单例）
     { onclose: () => m.root.classList.remove('settings-modal') }
   );
