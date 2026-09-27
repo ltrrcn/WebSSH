@@ -6,7 +6,7 @@ import { createTokenRecord, publicTokenView } from '../mcp/tokens.js';
 import { assertMatrixTightened } from '../ssh/policy.js';
 
 export function tokensRoutes(deps) {
-  const { runtime, store, config, masterKey } = deps;
+  const { runtime, store, config, masterKey, audit } = deps;
 
   return [
     {
@@ -119,6 +119,34 @@ export function tokensRoutes(deps) {
         }
         // 撤销立即生效（FR-026）
         await store.touchToken(token.id, { status: 'revoked' });
+        sendJson(res, 200, { ok: true });
+      },
+    },
+    {
+      // 永久删除（rest-api.md 令牌节）：从存储移除记录，不可恢复；
+      // 仅限已撤销/已过期令牌——活跃令牌必须先撤销，防止误删在用凭据
+      method: 'DELETE',
+      path: '/api/tokens/{id}/purge',
+      handler: async (req, res, ctx) => {
+        const identity = resolveIdentity(req, runtime);
+        if (!identity) return sendError(res, 401, 'unauthorized', '未认证');
+        const token = await store.getTokenById(ctx.params.id);
+        if (!token) return sendError(res, 404, 'not_found', '令牌不存在');
+        if (token.ownerId !== identity.id) {
+          return sendError(res, 403, 'forbidden', '无权访问该资源');
+        }
+        if (token.status === 'active') {
+          return sendError(res, 422, 'token_active', '活跃令牌不可直接删除，请先撤销');
+        }
+        await store.deleteToken(token.id);
+        audit?.log({
+          event: 'token_delete',
+          actorType: 'user',
+          userId: identity.id,
+          tokenId: token.id,
+          result: 'success',
+          reason: 'permanent',
+        });
         sendJson(res, 200, { ok: true });
       },
     },

@@ -39,7 +39,11 @@ async function loadTokens(el) {
         <span class="tag ${t.level === 'writable' ? 'warn' : 'ok'}">${LEVEL_LABEL[t.level] ?? t.level}</span>
         <span class="tag ${t.status === 'active' ? 'ok' : ''}">${STATUS_LABEL[t.status] ?? t.status}</span>
         <span class="audit-detail">范围 ${t.hostScope.length} 台 · 提示 …${escapeHtml(t.tokenHint ?? '')} · 创建于 ${formatTime(t.createdAt)}</span>
-        ${t.status === 'active' ? `<button class="btn danger-text token-revoke" data-id="${escapeHtml(t.id)}" data-name="${escapeHtml(t.name)}">撤销</button>` : ''}
+        ${
+          t.status === 'active'
+            ? `<button class="btn danger-text token-revoke" data-id="${escapeHtml(t.id)}" data-name="${escapeHtml(t.name)}">撤销</button>`
+            : `<button class="btn danger-text token-purge" data-id="${escapeHtml(t.id)}" data-name="${escapeHtml(t.name)}">${icon('trash', 12)} 删除</button>`
+        }
       </div>`
     )
     .join('');
@@ -47,6 +51,17 @@ async function loadTokens(el) {
     b.addEventListener('click', async () => {
       if (!confirm(`确定撤销令牌「${b.dataset.name}」？撤销立即生效且不可恢复。`)) return;
       await fetch(apiUrl(`tokens/${b.dataset.id}`), { method: 'DELETE' });
+      loadTokens(el);
+    })
+  );
+  list.querySelectorAll('.token-purge').forEach((b) =>
+    b.addEventListener('click', async () => {
+      if (!confirm(`永久删除令牌「${b.dataset.name}」的记录？\n删除后列表不再显示该令牌（撤销状态已使其无法使用），此操作不可恢复。`)) return;
+      const res = await fetch(apiUrl(`tokens/${b.dataset.id}/purge`), { method: 'DELETE' });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        alert(`删除失败：${err.error?.message ?? res.statusText}`);
+      }
       loadTokens(el);
     })
   );

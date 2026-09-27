@@ -177,3 +177,30 @@ test('POST /api/tokens 校验：非法 level / 越权 hostScope / 放开矩阵 �
     await cleanup();
   }
 });
+test('purge：撤销后可永久删除，活跃令牌拒绝（rest-api.md 令牌节）', async () => {
+  const { app, cleanup, base } = await setup({}, [{ id: 'h1', name: '主机' }]);
+  try {
+    const t1 = await createToken(base, { name: '活跃', hostScope: [] });
+    const t2 = await createToken(base, { name: '待删', hostScope: [] });
+    // 活跃令牌 purge → 拒绝（必须先撤销）
+    const active = await fetch(`${base}/api/tokens/${t1.body.id}/purge`, { method: 'DELETE' });
+    assert.equal(active.status, 422);
+    // 撤销后 purge → 永久删除，列表不再出现
+    await fetch(`${base}/api/tokens/${t2.body.id}`, { method: 'DELETE' });
+    const purged = await fetch(`${base}/api/tokens/${t2.body.id}/purge`, { method: 'DELETE' });
+    assert.equal(purged.status, 200);
+    assert.deepEqual(await purged.json(), { ok: true });
+    const list = await (await fetch(`${base}/api/tokens`)).json();
+    assert.ok(!list.some((t) => t.id === t2.body.id), 'purge 后记录应从列表移除');
+    assert.ok(list.some((t) => t.id === t1.body.id), '活跃令牌不受影响');
+    // purge 后原明文立即失效（记录已删，摘要无处比对）
+    const rpcAfter = await rpc(base, t2.body.token, 'tools/list');
+    assert.equal(rpcAfter.status, 401);
+    // 再次 purge 同一 id → 404
+    const again = await fetch(`${base}/api/tokens/${t2.body.id}/purge`, { method: 'DELETE' });
+    assert.equal(again.status, 404);
+  } finally {
+    await app.close();
+    await cleanup();
+  }
+});

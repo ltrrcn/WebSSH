@@ -191,6 +191,16 @@ export function createFileStore({ configDir, now = () => new Date().toISOString(
     return true;
   }
 
+  /** 永久删除令牌记录（rest-api.md：仅限已撤销/已过期；调用方负责状态校验） */
+  async function deleteToken(id) {
+    const tokens = await loadTokens();
+    const idx = tokens.findIndex((t) => t.id === id);
+    if (idx < 0) return null;
+    const [removed] = tokens.splice(idx, 1);
+    await persistTokens();
+    return removed;
+  }
+
   async function saveTokens(tokens) {
     tokensCache = tokens;
     await persistTokens();
@@ -212,6 +222,7 @@ export function createFileStore({ configDir, now = () => new Date().toISOString(
     listTokensAll,
     getTokenById,
     touchToken,
+    deleteToken,
     saveTokens,
   };
 }

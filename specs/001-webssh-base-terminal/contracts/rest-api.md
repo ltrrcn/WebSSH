@@ -50,7 +50,8 @@
 |---|---|---|
 | `GET` | `/api/tokens` | 列出令牌（不含明文） |
 | `POST` | `/api/tokens` | 创建令牌；**响应中一次性返回明文**，此后不再可获取 |
-| `DELETE` | `/api/tokens/{id}` | 撤销令牌，立即生效 |
+| `DELETE` | `/api/tokens/{id}` | 撤销令牌，立即生效（记录保留供审计） |
+| `DELETE` | `/api/tokens/{id}/purge` | **永久删除**令牌记录（从存储中移除，不可恢复）。仅允许 `revoked`/`expired` 状态——活跃令牌必须先撤销 |
 | `GET` | `/api/tokens/defaults` | 获取全局默认目录权限矩阵与敏感路径说明（只读） |
 
 **创建请求体**：`name`、`level`（`readonly`/`writable`）、`hostScope`（主机 ID 数组）、`permissions`（只能在全局默认范围内收紧）、`expiresAt`（可选）。
