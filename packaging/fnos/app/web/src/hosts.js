@@ -35,46 +35,52 @@ export async function renderHostList(container, { onConnect, connectedIds = [], 
     groups.get(g).push(h);
   }
   const collapsed = loadCollapsedGroups();
-  container.innerHTML =
-    [...groups.entries()]
-      .map(
-        ([g, list]) =>
-          `<div class="sidebar-group-title" data-group="${escapeHtml(g)}" title="点击展开/折叠">
-            <span class="group-chevron ${collapsed.has(g) ? 'collapsed' : ''}">▾</span>
-            ${escapeHtml(g)}
-            <span class="group-count">${list.length}</span>
-          </div>` +
-          `<div class="group-items ${collapsed.has(g) ? 'collapsed' : ''}">` +
-          list
-            .map(
-              (h) => `<div class="host-item ${connected.has(h.id) ? 'connected' : ''}" data-id="${escapeHtml(h.id)}">
-              <div class="host-main">
-                <span class="host-name">${escapeHtml(h.name)}</span>
-                <span class="host-meta">${escapeHtml(h.username)}@${escapeHtml(h.host)}:${h.port} · ${h.authType === 'password' ? '密码' : '密钥'}</span>
-              </div>
-              <span class="host-actions">
-                ${hostBadge(h)}
-                <button class="icon-btn act-connect" title="连接终端">▶</button>
-                <button class="icon-btn act-edit" title="编辑">✎</button>
-                <button class="icon-btn danger act-delete" title="删除">🗑</button>
-              </span>
-            </div>`
-            )
-            .join('') +
-          '</div>'
-      )
-      .join('');
+  // 分组按名称排序置顶；组内主机按名称排序（竖状树形 + 可折叠）
+  const sortedGroups = [...groups.entries()].sort((a, b) => a[0].localeCompare(b[0], 'zh'));
+  for (const [, list] of sortedGroups) list.sort((a, b) => a.name.localeCompare(b.name, 'zh'));
 
-  // FR-054：分组展开/折叠，状态持久化到 localStorage
-  container.querySelectorAll('.sidebar-group-title').forEach((title) => {
-    title.addEventListener('click', () => {
-      const g = title.dataset.group;
-      const items = title.nextElementSibling;
+  container.innerHTML = sortedGroups
+    .map(
+      ([g, list]) => `
+      <div class="side-group ${collapsed.has(g) ? 'collapsed' : ''}" data-group="${escapeHtml(g)}">
+        <button class="side-group-head" title="点击展开/折叠">
+          <span class="group-chevron">▾</span>
+          <span class="group-name">${escapeHtml(g)}</span>
+          <span class="group-count">${list.length}</span>
+        </button>
+        <div class="group-items">
+          <div class="group-items-inner">
+            ${list
+              .map(
+                (h) => `<div class="host-item ${connected.has(h.id) ? 'connected' : ''}" data-id="${escapeHtml(h.id)}">
+                <div class="host-main">
+                  <span class="host-name">${escapeHtml(h.name)}</span>
+                  <span class="host-meta">${escapeHtml(h.username)}@${escapeHtml(h.host)}:${h.port} · ${h.authType === 'password' ? '密码' : '密钥'}</span>
+                </div>
+                <span class="host-actions">
+                  ${hostBadge(h)}
+                  <button class="icon-btn act-connect" title="连接终端">▶</button>
+                  <button class="icon-btn act-edit" title="编辑">✎</button>
+                  <button class="icon-btn danger act-delete" title="删除">🗑</button>
+                </span>
+              </div>`
+              )
+              .join('')}
+          </div>
+        </div>
+      </div>`
+    )
+    .join('');
+
+  // FR-054：分组展开/折叠（竖状树形），状态持久化到 localStorage
+  container.querySelectorAll('.side-group-head').forEach((head) => {
+    head.addEventListener('click', () => {
+      const groupEl = head.closest('.side-group');
+      const g = groupEl.dataset.group;
       if (collapsed.has(g)) collapsed.delete(g);
       else collapsed.add(g);
       saveCollapsedGroups(collapsed);
-      items?.classList.toggle('collapsed');
-      title.querySelector('.group-chevron')?.classList.toggle('collapsed');
+      groupEl.classList.toggle('collapsed');
     });
   });
 
