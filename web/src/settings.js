@@ -4,15 +4,16 @@ import { currentTheme, setTheme } from './theme.js';
 
 /**
  * 打开设置弹窗。
- * @param {{renderAudit?: (el: HTMLElement)=>void, renderTokens?: (el: HTMLElement)=>void}} pages
+ * @param {{renderAudit?: (el: HTMLElement)=>void, renderTokens?: (el: HTMLElement)=>void, renderTokenConfig?: (el: HTMLElement)=>void}} pages
  *   US4/US6 交付后由 app.js 注入对应页面渲染函数；当前为占位。
  */
-export function openSettingsModal({ renderAudit, renderTokens } = {}) {
+export function openSettingsModal({ renderAudit, renderTokens, renderTokenConfig } = {}) {
   const m = openModal(
     `<div class="settings-nav">
       <button data-pane="theme" class="active">主题</button>
       <button data-pane="audit">审计</button>
       <button data-pane="tokens">令牌</button>
+      <button data-pane="tokenConfig">令牌配置</button>
     </div>
     <div id="settings-pane"></div>`
   );
@@ -52,6 +53,10 @@ export function openSettingsModal({ renderAudit, renderTokens } = {}) {
     tokens: () => {
       if (renderTokens) renderTokens(pane);
       else pane.innerHTML = '<div class="placeholder-box">MCP 令牌功能将在 US6 阶段交付。</div>';
+    },
+    tokenConfig: () => {
+      if (renderTokenConfig) renderTokenConfig(pane);
+      else pane.innerHTML = '<div class="placeholder-box">令牌配置将在 US6 阶段交付。</div>';
     },
   };
 

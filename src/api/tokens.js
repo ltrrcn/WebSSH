@@ -29,6 +29,10 @@ export function tokensRoutes(deps) {
         sendJson(res, 200, {
           defaultPermissions: config.defaultPermissions ?? [],
           sensitivePaths: config.security?.sensitivePaths ?? [],
+          limits: {
+            tokenRateLimitPerMinute: config.limits?.tokenRateLimitPerMinute ?? 60,
+            execTimeoutMs: config.limits?.execTimeoutMs ?? 60000,
+          },
           note: '令牌矩阵以全局默认初始化，只能收紧不得放开；系统敏感路径恒定拒绝且不可配置放行',
         });
       },
