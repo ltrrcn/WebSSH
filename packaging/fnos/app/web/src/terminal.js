@@ -8,6 +8,7 @@ import { showContextMenu } from './contextmenu.js';
 import { wsUrl, apiUrl } from './base.js';
 import { icon } from './icons.js';
 import { getPrefs, onPrefsChange } from './prefs.js';
+import { getQuickCommands, addQuickCommand, onQuickCommandsChange } from './quick-commands.js';
 
 /** 存活终端集合：通用设置变更时动态应用（字号/光标闪烁） */
 const liveTerms = new Map(); // term -> fit 函数
@@ -99,6 +100,7 @@ async function createTab(host) {
   instance.className = 'term-instance';
   instance.innerHTML = `
     <div class="term-container"></div>
+    <div class="quick-bar"></div>
     <div class="term-status"></div>`;
   ui.terminals.appendChild(instance);
 
@@ -127,6 +129,31 @@ async function createTab(host) {
   };
   tab.setStatus = setStatus;
   setStatus('连接中…');
+
+  renderQuickBar(instance.querySelector('.quick-bar'), tab);
+
+  // 终端选中文字右键：复制 / 保存为快捷命令（FR-049 共享右键组件）
+  instance.querySelector('.term-container').addEventListener('contextmenu', (e) => {
+    const sel = term.getSelection?.().trim();
+    if (!sel) return; // 无选中时保留默认行为
+    e.preventDefault();
+    showContextMenu(e.clientX, e.clientY, {
+      meta: sel.length > 60 ? `${sel.slice(0, 60)}…` : sel,
+      items: [
+        {
+          label: '复制',
+          onClick: () => navigator.clipboard.writeText(sel).catch(() => {}),
+        },
+        {
+          label: '保存为快捷命令',
+          onClick: () => {
+            const name = prompt('快捷命令名称：', sel.length > 12 ? sel.slice(0, 12) : sel);
+            if (name?.trim()) addQuickCommand(name.trim(), sel);
+          },
+        },
+      ],
+    });
+  });
 
   // —— WS 连接（前缀感知：fnOS 统一网关下携带 /app/webssh/ 基址）——
   // 网关可能不向 WS 升级注入用户头：先经 REST 换一次性票据一并携带
@@ -191,6 +218,39 @@ async function createTab(host) {
   activateTab(id);
   return tab;
 }
+
+/** 快捷命令栏：点击即向终端发送命令并执行（命令+回车） */
+function renderQuickBar(barEl, tab) {
+  const cmds = getQuickCommands();
+  barEl.innerHTML = cmds.length
+    ? cmds
+        .map(
+          (c) => `<button class="quick-cmd" data-id="${escapeHtml(c.id)}" title="${escapeHtml(c.cmd)}">${escapeHtml(c.name)}</button>`
+        )
+        .join('')
+    : '<span class="quick-empty">右键终端选中文字可「保存为快捷命令」，或在设置中管理</span>';
+  barEl.querySelectorAll('.quick-cmd').forEach((b) =>
+    b.addEventListener('click', () => {
+      if (tab.ws?.readyState !== WebSocket.OPEN) {
+        tab.setStatus?.('未连接，无法发送快捷命令', true);
+        return;
+      }
+      const c = cmds.find((x) => x.id === b.dataset.id);
+      if (!c) return;
+      tab.ws.send(encodeDataFrame(`${c.cmd}\r`));
+      tab.term.focus();
+    })
+  );
+}
+
+// 命令增删后刷新所有存活终端的快捷栏（栏高变化需重新 fit）
+onQuickCommandsChange(() => {
+  for (const tab of tabs.values()) {
+    const bar = tab.el.querySelector('.quick-bar');
+    if (bar) renderQuickBar(bar, tab);
+    setTimeout(() => fitAndReport(tab), 30);
+  }
+});
 
 function fitAndReport(tab) {
   if (!tab.fitAddon) return;
