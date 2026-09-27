@@ -13,10 +13,10 @@ export function openSettingsModal({ renderAudit, renderTokens, renderTokenConfig
   const m = openModal(
     `<div class="settings-layout">
       <div class="settings-nav">
-        <button data-pane="theme" class="active">${icon('palette')} 主题</button>
-        <button data-pane="groups">${icon('folder')} 分组</button>
-        <button data-pane="audit">${icon('list')} 审计</button>
-        <button data-pane="tokens">${icon('key')} 令牌</button>
+        <button data-pane="theme" class="active">${icon('palette')} 通用设置</button>
+        <button data-pane="groups">${icon('folder')} 分组管理</button>
+        <button data-pane="audit">${icon('list')} 命令审计</button>
+        <button data-pane="tokens">${icon('key')} 令牌管理</button>
         <button data-pane="tokenConfig">${icon('shield')} 令牌配置</button>
       </div>
       <div id="settings-pane" class="settings-content"></div>
