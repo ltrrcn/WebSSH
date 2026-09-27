@@ -9,6 +9,8 @@ const EVENT_LABEL = {
   'file-read': '文件读取',
   'file-write': '文件写入',
   disconnect: '断开连接',
+  'group_rename': '分组重命名',
+  'group_delete': '分组删除',
 };
 const RESULT_LABEL = { success: '成功', denied: '拒绝', error: '失败' };
 
@@ -16,6 +18,10 @@ let state = { result: '', hostId: '', offset: 0, limit: 30, total: 0 };
 
 export async function renderAudit(el) {
   el.innerHTML = `
+    <div class="audit-note">
+      <b>审计说明</b>：按时间顺序记录全部连接行为与工具调用（元数据脱敏留存，不含凭据与终端输出全文）。
+      列：时间 / 事件 / 设备 ID / 状态，补充信息（断开原因、时长、令牌）附于事件下方；支持按结果与主机过滤、分页与导出。
+    </div>
     <div class="audit-toolbar">
       <select id="audit-result">
         <option value="">全部结果</option>
@@ -27,7 +33,12 @@ export async function renderAudit(el) {
       <button class="btn" id="audit-export">导出</button>
       <button class="btn" id="audit-refresh">刷新</button>
     </div>
-    <div id="audit-list" class="audit-list"><div class="placeholder-box">加载中…</div></div>
+    <div class="audit-list audit-table">
+      <div class="audit-head">
+        <span>时间</span><span>事件</span><span>设备 ID</span><span>状态</span>
+      </div>
+      <div id="audit-list-body"><div class="placeholder-box">加载中…</div></div>
+    </div>
     <div class="audit-pager">
       <button class="btn" id="audit-prev">上一页</button>
       <span id="audit-page-info" class="audit-page-info"></span>
@@ -77,7 +88,7 @@ export async function renderAudit(el) {
 }
 
 async function load(el) {
-  const list = el.querySelector('#audit-list');
+  const list = el.querySelector('#audit-list-body');
   const params = new URLSearchParams({ limit: state.limit, offset: state.offset });
   if (state.result) params.set('result', state.result);
   if (state.hostId) params.set('hostId', state.hostId);
@@ -97,13 +108,23 @@ async function load(el) {
   } else {
     list.innerHTML = body.items
       .map(
-        (ev) => `<div class="audit-row">
-          <span class="audit-time">${formatTime(ev.ts)}</span>
-          <span class="audit-event">${EVENT_LABEL[ev.event] ?? ev.event}</span>
-          <span class="audit-host">${escapeHtml(ev.hostId ?? '-')}<span class="audit-addr">${escapeHtml(ev.hostAddress ?? '')}</span></span>
-          <span class="tag ${ev.result === 'success' ? 'ok' : ev.result === 'denied' ? 'warn' : ''}">${RESULT_LABEL[ev.result] ?? ev.result}</span>
-          <span class="audit-detail">${ev.durationMs != null ? `${ev.durationMs}ms ` : ''}${ev.reason ? escapeHtml(ev.reason) : ''}${ev.actorType === 'token' ? ` · 令牌:${escapeHtml(ev.tokenId ?? '')}` : ''}</span>
-        </div>`
+        (ev) => {
+          // 事件列副文本：时长 / 原因 / 令牌主体（脱敏元数据）
+          const subs = [];
+          if (ev.durationMs != null) subs.push(`时长 ${ev.durationMs}ms`);
+          if (ev.reason) subs.push(escapeHtml(ev.reason));
+          if (ev.actorType === 'token') subs.push(`令牌:${escapeHtml(ev.tokenId ?? '')}`);
+          const sub = subs.length ? `<span class="audit-sub">${subs.join(' · ')}</span>` : '';
+          const hostTitle = ev.hostId
+            ? ` title="${escapeHtml(ev.hostId)}${ev.hostAddress ? ' · ' + escapeHtml(ev.hostAddress) : ''}"`
+            : '';
+          return `<div class="audit-row">
+            <span class="audit-time">${formatTime(ev.ts)}</span>
+            <span class="audit-cell-event"><span class="audit-event">${EVENT_LABEL[ev.event] ?? ev.event}</span>${sub}</span>
+            <span class="audit-host-id"${hostTitle}>${escapeHtml(ev.hostId ?? '-')}${ev.hostAddress ? `<span class="audit-addr">${escapeHtml(ev.hostAddress)}</span>` : ''}</span>
+            <span class="audit-cell-status"><span class="tag ${ev.result === 'success' ? 'ok' : ev.result === 'denied' ? 'warn' : ''}">${RESULT_LABEL[ev.result] ?? ev.result}</span></span>
+          </div>`;
+        }
       )
       .join('');
   }

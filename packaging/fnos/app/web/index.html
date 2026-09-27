@@ -384,6 +384,26 @@
     .placeholder-box { color: var(--text-faint); font-size: 13px; text-align: center; padding: 36px 0; line-height: 1.7; }
 
     /* 审计页（US4） */
+    /* 审计页：顶部说明 + 四列表格（时间/事件/设备 ID/状态） */
+    .audit-note {
+      font-size: 12px; color: var(--text-dim); line-height: 1.7;
+      background: var(--bg-input); border: 1px solid var(--border); border-radius: var(--radius-md);
+      padding: 10px 14px; margin-bottom: 12px;
+    }
+    .audit-note b { color: var(--text); font-weight: 600; }
+    .audit-table .audit-head, .audit-table .audit-row {
+      display: grid; grid-template-columns: 128px 1.25fr 1fr 84px; gap: 12px; align-items: center;
+    }
+    .audit-table .audit-head {
+      padding: 8px 16px; font-size: 11px; color: var(--text-faint); letter-spacing: .05em;
+      border-bottom: 1px solid var(--border); background: var(--bg-hover);
+      position: sticky; top: 0; z-index: 1;
+    }
+    .audit-table .audit-row { padding: 10px 16px; }
+    .audit-cell-event { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+    .audit-sub { font-size: 10.5px; color: var(--text-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .audit-host-id { font-family: Menlo, monospace; font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .audit-cell-status { justify-self: start; }
     .audit-toolbar { display: flex; gap: 8px; margin-bottom: 10px; align-items: center; }
     .audit-toolbar select {
       background: var(--bg-input); color: var(--text); border: 1px solid var(--border);
