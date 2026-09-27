@@ -28,3 +28,6 @@ log/
 Thumbs.db
 .vscode/
 .idea/
+
+# macOS
+.DS_Store
