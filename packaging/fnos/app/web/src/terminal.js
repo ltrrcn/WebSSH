@@ -70,7 +70,7 @@ export function connectedHostIds() {
   return ids;
 }
 
-function createTab(host) {
+async function createTab(host) {
   const id = `tab_${++seq}`;
   // 会话临时 ID（FR-051）：备注名按此 ID 存储于 localStorage，与主机数据无关
   const sessionKey = `sess_${Math.random().toString(36).slice(2, 8)}${Date.now().toString(36).slice(-4)}`;
