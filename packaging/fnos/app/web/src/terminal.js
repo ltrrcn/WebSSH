@@ -27,6 +27,7 @@ function notifyTabsChange() {
 
 export function mountTerminalArea(refs) {
   ui = refs;
+  renderTabbar(); // 初始渲染：无 tab 时也要显示「＋新建会话」入口
   onThemeChange((name) => {
     for (const t of tabs.values()) {
       try {

@@ -186,6 +186,7 @@
       display: flex; align-items: stretch; height: 40px; min-height: 40px;
       background: var(--bg-panel); border-bottom: 1px solid var(--border);
       overflow-x: auto; padding: 0 4px;
+      position: relative; z-index: 2; /* 置于空态遮罩之上，保证「＋」可点击 */
     }
     .tab {
       display: flex; align-items: center; gap: 8px; padding: 0 6px 0 12px; margin: 6px 2px 0;
