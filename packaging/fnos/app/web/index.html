@@ -111,11 +111,8 @@
     }
     .sidebar-header .brand { display: flex; align-items: center; gap: 9px; }
     .logo {
-      display: flex; align-items: center; justify-content: center;
-      width: 28px; height: 28px; border-radius: 8px;
-      background: linear-gradient(135deg, var(--accent) 0%, #7c5cff 100%);
-      box-shadow: 0 2px 8px var(--accent-soft), inset 0 1px 0 rgba(255,255,255,.25);
-      flex: none;
+      display: block; width: 28px; height: 28px; flex: none;
+      filter: drop-shadow(0 2px 6px var(--accent-soft));
     }
     .brand-text { display: flex; flex-direction: column; line-height: 1.15; }
     .brand-text .name { font-size: 14px; font-weight: 700; letter-spacing: .01em; }
@@ -205,7 +202,7 @@
       display: flex; align-items: stretch; height: 40px; min-height: 40px;
       background: var(--bg-panel); border-bottom: 1px solid var(--border);
       overflow-x: auto; padding: 0 4px;
-      position: relative; z-index: 2; /* 置于空态遮罩之上，保证「＋」可点击 */
+      position: relative; z-index: 2; /* 置于空态遮罩之上，保证「新增」按钮可点击 */
     }
     .tab {
       display: flex; align-items: center; gap: 8px; padding: 0 6px 0 12px; margin: 6px 2px 0;
@@ -333,6 +330,8 @@
     .btn.primary:hover { filter: brightness(1.08); box-shadow: 0 4px 14px var(--accent-soft); }
     .btn.danger-text { color: var(--danger); }
     .form-note { font-size: 11px; color: var(--text-faint); margin: 2px 0 0; }
+    .icon { display: inline-block; vertical-align: -0.18em; flex: none; }
+    button .icon { margin-right: 2px; }
 
     /* 分段选择器（认证方式，FR-050 美化） */
     .seg {
@@ -453,12 +452,7 @@
     <aside id="sidebar">
       <div class="sidebar-header">
         <span class="brand">
-          <span class="logo" aria-hidden="true">
-            <svg viewBox="0 0 24 24" width="17" height="17" fill="none">
-              <path d="M6.5 9l3 2.6-3 2.6" stroke="#fff" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>
-              <line x1="12" y1="14.4" x2="17.5" y2="14.4" stroke="#fff" stroke-width="1.9" stroke-linecap="round"/>
-            </svg>
-          </span>
+          <img class="logo" src="assets/logo.svg" alt="" width="28" height="28">
           <span class="brand-text">
             <span class="name">WebSSH</span>
             <span class="sub">TERMINAL</span>
@@ -466,12 +460,12 @@
         </span>
         <span class="sidebar-header-right">
           <span class="count" id="host-count"></span>
-          <button class="icon-btn" id="btn-add-host" title="新增主机" style="font-size:15px">＋</button>
+          <button class="icon-btn" id="btn-add-host" title="新增主机"><svg class="icon" width="15" height="15" viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#plus"/></svg></button>
         </span>
       </div>
       <div id="host-list"></div>
       <div class="sidebar-footer">
-        <button id="btn-settings" title="设置">⚙ 设置</button>
+        <button id="btn-settings" title="设置"><svg class="icon" width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#gear"/></svg> 设置</button>
       </div>
     </aside>
     <main id="main">

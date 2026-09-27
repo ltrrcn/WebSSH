@@ -6,6 +6,7 @@ import { fetchHosts } from './hosts.js';
 import { openModal } from './modal.js';
 import { showContextMenu } from './contextmenu.js';
 import { wsUrl, apiUrl } from './base.js';
+import { icon } from './icons.js';
 
 const { Terminal } = window;
 const FitAddonCtor = window.FitAddon?.FitAddon ?? window.FitAddon;
@@ -27,7 +28,7 @@ function notifyTabsChange() {
 
 export function mountTerminalArea(refs) {
   ui = refs;
-  renderTabbar(); // 初始渲染：无 tab 时也要显示「＋新建会话」入口
+  renderTabbar(); // 初始渲染：无 tab 时也要显示「新建会话」入口
   onThemeChange((name) => {
     for (const t of tabs.values()) {
       try {
@@ -257,7 +258,7 @@ function renderTabbar() {
     el.innerHTML = `
       <span class="tab-status ${isOpen ? 'open' : ''}" title="${isOpen ? '已连接' : '连接中/已断开'}"></span>
       <span class="tab-label" title="双击修改备注名&#10;会话 ID: ${t.sessionKey}"></span>
-      <button class="tab-close" title="关闭终端">✕</button>`;
+      <button class="tab-close" title="关闭终端">${icon('x', 11)}</button>`;
     el.querySelector('.tab-label').textContent = t.label ?? t.host.name;
     el.addEventListener('click', (e) => {
       if (e.target.closest('.tab-close')) return;
@@ -275,11 +276,11 @@ function renderTabbar() {
     el.querySelector('.tab-close').addEventListener('click', () => closeTab(t.id));
     bar.appendChild(el);
   }
-  // FR-052：tab 栏末尾「＋新建会话」入口
+  // FR-052：tab 栏末尾「新建会话」入口
   const addBtn = document.createElement('button');
   addBtn.className = 'tab new-session';
   addBtn.title = '新建会话';
-  addBtn.textContent = '＋';
+  addBtn.innerHTML = icon('plus', 14);
   addBtn.addEventListener('click', () => openSessionPicker());
   bar.appendChild(addBtn);
 }

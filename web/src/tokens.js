@@ -1,6 +1,7 @@
 // 令牌管理页（US6 / FR-022~026）：渲染在「设置 → 令牌」页签
 // 明文仅创建时展示一次（FR-023）
 import { apiUrl } from './base.js';
+import { icon } from './icons.js';
 
 const LEVEL_LABEL = { readonly: '只读', writable: '可变更' };
 const STATUS_LABEL = { active: '启用', revoked: '已撤销', expired: '已过期' };
@@ -8,7 +9,7 @@ const STATUS_LABEL = { active: '启用', revoked: '已撤销', expired: '已过�
 export async function renderTokens(el) {
   el.innerHTML = `
     <div class="audit-toolbar">
-      <button class="btn primary" id="token-create">＋ 创建令牌</button>
+      <button class="btn primary" id="token-create">${icon('plus')} 创建令牌</button>
       <button class="btn" id="token-refresh">刷新</button>
     </div>
     <div id="token-onetime"></div>
@@ -124,7 +125,7 @@ async function openTokenForm(el) {
     // 明文仅此一次展示（FR-023）：恢复列表 + 顶部一次性明文块
     el.innerHTML = `
       <div class="audit-toolbar">
-        <button class="btn primary" id="token-create">＋ 创建令牌</button>
+        <button class="btn primary" id="token-create">${icon('plus')} 创建令牌</button>
         <button class="btn" id="token-refresh">刷新</button>
       </div>
       <div id="token-onetime"></div>
@@ -134,7 +135,7 @@ async function openTokenForm(el) {
     const onetime = el.querySelector('#token-onetime');
     onetime.innerHTML = `
       <div class="onetime-token">
-        <div>✅ 令牌「${escapeHtml(created.name)}」已创建。<b>明文仅此一次展示，请立即复制保存：</b></div>
+        <div>令牌「${escapeHtml(created.name)}」已创建。<b>明文仅此一次展示，请立即复制保存：</b></div>
         <div class="onetime-value">${escapeHtml(created.token)}</div>
         <button class="btn" id="token-copy">复制</button>
       </div>`;

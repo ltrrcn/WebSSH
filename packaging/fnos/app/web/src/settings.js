@@ -1,6 +1,7 @@
 // 设置弹窗（FR-047）：主题切换 + 审计/令牌入口收纳于此
 import { openModal } from './modal.js';
 import { currentTheme, setTheme } from './theme.js';
+import { icon } from './icons.js';
 
 /**
  * 打开设置弹窗。
@@ -11,10 +12,10 @@ export function openSettingsModal({ renderAudit, renderTokens, renderTokenConfig
   const m = openModal(
     `<div class="settings-layout">
       <div class="settings-nav">
-        <button data-pane="theme" class="active">🎨 主题</button>
-        <button data-pane="audit">📋 审计</button>
-        <button data-pane="tokens">🔑 令牌</button>
-        <button data-pane="tokenConfig">🛡 令牌配置</button>
+        <button data-pane="theme" class="active">${icon('palette')} 主题</button>
+        <button data-pane="audit">${icon('list')} 审计</button>
+        <button data-pane="tokens">${icon('key')} 令牌</button>
+        <button data-pane="tokenConfig">${icon('shield')} 令牌配置</button>
       </div>
       <div id="settings-pane" class="settings-content"></div>
     </div>`,

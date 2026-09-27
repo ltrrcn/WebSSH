@@ -1,16 +1,12 @@
 <!--
 Sync Impact Report
-- Version change: 1.0.0 -> 1.1.0
-- Modified principles:
-  - II. 零外部依赖运行时 -> II. 零外部依赖运行时（基础版约束，明确高级版为例外需修宪）
-  - III. 单一进程、单一入口 -> 保留，监听形态差异下放至原则 VII
-- Added principles: VII. 运行模式无关（FnOS / 通用 Linux 双轨）、VIII. 分阶段交付：基础版优先
-- Added sections: 运行模式与路径解析、交付分层与演进路线
-- Expanded sections: 技术栈与强制约束（运行时适配层、审计 JSONL、TLS 要求）、
-  开发工作流与质量门禁（双模式冒烟、越界功能门禁、阶段 DoD）
+- Version change: 1.1.0 -> 1.2.0
+- Modified principles: 无（既有 I–VIII 条款全部保留不动）
+- Added principles: IX. 资产矢量优先（SVG 单一真源、位图为生成产物、UI 禁用 emoji/Unicode 符号图标、图标适量）
+- Added sections: 无（新条款并入 Core Principles）
+- Expanded sections: 开发工作流与质量门禁（资产门禁：图标改动必须改 SVG 源并重跑生成）
 - Removed sections: 无
-- Deferred TODOs: TODO(ADVANCED_SPEC_REF) - 高级版（SQLite 堡垒机能力）需独立 spec 与宪法
-  MINOR 修订后启用，本版仅定义其边界与扩展点，不实现
+- Deferred TODOs: 无
 - Current stage: Base（基础版）
 -->
 
@@ -86,6 +82,23 @@ WebSSH 本质是「浏览器到生产主机」的跳板，任何便利性都不�
   - 存储访问**必须**封装在 `store` 接口之后，实现可在「文件 ↔ SQLite」间替换；
   - 所有持久化 schema 与 WS 握手参数**必须**携带 `version` 字段。
 - 允许"预留"，**禁止"预建"**：不得为尚未交付的高级版功能提前引入依赖、建表或加配置项。
+
+### IX. 资产矢量优先（图标单一真源）
+
+- 图标与品牌资产（logo、应用图标）**必须**以 **SVG（矢量）为唯一设计真源**，纳入版本管理（`web/assets/logo.svg`）。
+- 平台要求的位图（fnOS `ICON.PNG` / `ICON_256.PNG` / `ui/images/*`）**必须**为构建期从 SVG 真源栅格化生成的**产物**（`scripts/gen-icons.mjs`）；**禁止**手绘像素、内嵌重复坐标或直接编辑位图文件。
+- Web 端**必须**引用同一 SVG 文件（`<img src="assets/logo.svg">`），**禁止**在页面中维护内嵌 SVG 副本导致两处漂移。
+- 修改图标的唯一入口是改 SVG 源，随后重跑生成脚本；SVG 解析与栅格化**必须**有单元测试（解析结构 + 像素断言 + 确定性）。
+- 引入需独立部署的图像处理服务或原生栅格化依赖（如 `sharp`、`resvg-js`）**违反第 II 条**，**禁止**使用；栅格化必须以纯 JS 实现。
+
+**UI 图标（emoji 禁令与适量原则）**：
+
+- UI 中的图标**必须**使用 SVG sprite（`web/assets/icons.svg`，经 `web/src/icons.js` 的 `icon()` 引用，`currentColor` 继承文字色），统一 stroke 风格。
+- **禁止**使用 emoji（🎨🔑🛡 等）或 Unicode 符号（＋ ▶ ✎ 🗑 ✕ ⚙ 等）充当图标：跨平台渲染不一致、不可控着色、无障碍语义差。文字内容中出现这些字符时同样应替换为中性措辞。
+- 图标**适量**：仅为**功能操作**（新增/编辑/删除/连接/关闭/刷新）与**导航**（页面/页签）提供图标，每处一个、尺寸克制（11–15px）；**禁止**装饰性堆砌（纯点缀图标、重复堆叠图标、大尺寸图标墙）。
+- 新增图标**必须**先加入 sprite 并说明承载的功能操作，再在 UI 引用；**禁止**在组件内临时内嵌单份 SVG path。
+
+理由：位图直接编辑不可追溯、不可缩放，且 web/fnOS 两端必然漂移；SVG 单一真源 + 程序化栅格化保证任何尺寸可再生成且视觉一致。emoji 图标在各操作系统字体下形状与颜色不可控，且屏幕阅读器无法传达操作语义。
 
 ## 技术栈与强制约束
 
@@ -163,7 +176,9 @@ WebSSH 本质是「浏览器到生产主机」的跳板，任何便利性都不�
 3. 无硬编码路径、无业务模块直读 `TRIM_*`、无明文凭据、无被跳过的 HostKey 校验；
 4. 持久化 schema 与审计 schema 的 `version` 与迁移已同步更新；
 5. 两种运行模式（fnos / standalone）**均**通过冒烟验证；
-6. 无越界功能：不包含未在当前阶段 spec 中定义的高级版能力。
+6. 无越界功能：不包含未在当前阶段 spec 中定义的高级版能力；
+7. 图标类改动**必须**修改 SVG 真源并重跑 `scripts/gen-icons.mjs`（第 IX 条），禁止直接编辑位图产物；
+8. UI **不得**出现 emoji / Unicode 符号图标，图标一律来自 sprite 且保持适量（第 IX 条）。
 
 **阶段门禁**
 
@@ -180,7 +195,7 @@ WebSSH 本质是「浏览器到生产主机」的跳板，任何便利性都不�
   - MAJOR：删除或重定义既有原则，或放宽第 I、II 条约束；
   - MINOR：新增原则、新增交付阶段、实质性扩充约束（如启用高级版）；
   - PATCH：措辞澄清、错别字、非语义调整。
-- 所有 PR 与代码审查**必须**显式核对第 I、II、V、VII、VIII 条的合规性；不符合的**必须**先修订宪法或修正实现，不得默许例外。
+- 所有 PR 与代码审查**必须**显式核对第 I、II、V、VII、VIII、IX 条的合规性；不符合的**必须**先修订宪法或修正实现，不得默许例外。
 - 运行时开发指引以 `.specify/memory/constitution.md` 为唯一真相源；口头约定不构成约束。
 
-**Version**: 1.1.0 | **Ratified**: 2026-09-26 | **Last Amended**: 2026-09-26 | **Current Stage**: Base
+**Version**: 1.2.0 | **Ratified**: 2026-09-26 | **Last Amended**: 2026-09-27 | **Current Stage**: Base

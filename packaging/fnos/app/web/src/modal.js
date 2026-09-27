@@ -1,4 +1,5 @@
 // 弹窗工具：单例 modal-root
+import { icon } from './icons.js';
 const root = document.getElementById('modal-root');
 const box = root.querySelector('.modal');
 
@@ -7,7 +8,7 @@ let onClose = null;
 export function openModal(html, { onclose } = {}) {
   onClose = onclose ?? null;
   box.innerHTML = `<div class="modal-head"><span id="modal-title"></span>
-    <button class="icon-btn" id="modal-close">✕</button></div>
+    <button class="icon-btn" id="modal-close">${icon('x', 13)}</button></div>
     <div class="modal-body">${html}</div>`;
   root.classList.add('show');
   box.querySelector('#modal-close').addEventListener('click', closeModal);

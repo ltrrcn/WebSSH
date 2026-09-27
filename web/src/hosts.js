@@ -2,6 +2,7 @@
 import { openModal } from './modal.js';
 import { showContextMenu } from './contextmenu.js';
 import { apiUrl } from './base.js';
+import { icon } from './icons.js';
 
 export async function fetchHosts() {
   try {
@@ -25,7 +26,7 @@ export async function renderHostList(container, { onConnect, connectedIds = [], 
 
   if (!hosts.length) {
     container.innerHTML =
-      '<div class="sidebar-empty">暂无会话连接<br/>点击右上角「＋」或右键新建</div>';
+      '<div class="sidebar-empty">暂无会话连接<br/>点击右上角「新增」或右键新建</div>';
   }
   const connected = new Set(connectedIds);
   const groups = new Map();
@@ -59,9 +60,9 @@ export async function renderHostList(container, { onConnect, connectedIds = [], 
                 </div>
                 <span class="host-actions">
                   ${hostBadge(h)}
-                  <button class="icon-btn act-connect" title="连接终端">▶</button>
-                  <button class="icon-btn act-edit" title="编辑">✎</button>
-                  <button class="icon-btn danger act-delete" title="删除">🗑</button>
+                  <button class="icon-btn act-connect" title="连接终端">${icon('play', 13)}</button>
+                  <button class="icon-btn act-edit" title="编辑">${icon('pencil', 13)}</button>
+                  <button class="icon-btn danger act-delete" title="删除">${icon('trash', 13)}</button>
                 </span>
               </div>`
               )
@@ -166,7 +167,7 @@ function saveCollapsedGroups(set) {
 function hostBadge(h) {
   if (h.fingerprintConfirmed) return '';
   if (h.pendingFingerprint) {
-    return `<button class="icon-btn act-confirm-fp" title="确认指纹 ${escapeHtml(h.pendingFingerprint)}" style="color: var(--warn)">🔑</button>`;
+    return `<button class="icon-btn act-confirm-fp" title="确认指纹 ${escapeHtml(h.pendingFingerprint)}" style="color: var(--warn)">${icon('key', 13)}</button>`;
   }
   return '<span class="tag" title="首次连接需确认指纹">待确认</span>';
 }
@@ -202,8 +203,8 @@ export function openHostFormModal(host, onSaved) {
       <label>分组 <input name="group" placeholder="可选" value="${isEdit ? escapeHtml(host.group ?? '') : ''}" /></label>
       <label>认证方式
         <div class="seg" role="radiogroup">
-          <button type="button" class="seg-btn ${!isEdit || host.authType === 'password' ? 'selected' : ''}" data-value="password">🔑 密码</button>
-          <button type="button" class="seg-btn ${isEdit && host.authType === 'privateKey' ? 'selected' : ''}" data-value="privateKey">🗝 密钥</button>
+          <button type="button" class="seg-btn ${!isEdit || host.authType === 'password' ? 'selected' : ''}" data-value="password">${icon('key', 13)} 密码</button>
+          <button type="button" class="seg-btn ${isEdit && host.authType === 'privateKey' ? 'selected' : ''}" data-value="privateKey">${icon('file', 13)} 密钥</button>
         </div>
         <input type="hidden" name="authType" value="${isEdit ? host.authType : 'password'}" />
       </label>
