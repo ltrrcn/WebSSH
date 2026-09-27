@@ -41,8 +41,8 @@ async function loadTokens(el) {
         <span class="audit-detail">范围 ${t.hostScope.length} 台 · 提示 …${escapeHtml(t.tokenHint ?? '')} · 创建于 ${formatTime(t.createdAt)}</span>
         ${
           t.status === 'active'
-            ? `<button class="btn danger-text token-revoke" data-id="${escapeHtml(t.id)}" data-name="${escapeHtml(t.name)}">撤销</button>`
-            : `<button class="btn danger-text token-purge" data-id="${escapeHtml(t.id)}" data-name="${escapeHtml(t.name)}">${icon('trash', 12)} 删除</button>`
+            ? `<button class="icon-btn danger-text token-revoke" data-id="${escapeHtml(t.id)}" data-name="${escapeHtml(t.name)}" title="撤销令牌「${escapeHtml(t.name)}」（立即生效，记录保留）">${icon('ban', 13)}</button>`
+            : `<button class="icon-btn danger-text token-purge" data-id="${escapeHtml(t.id)}" data-name="${escapeHtml(t.name)}" title="永久删除令牌记录「${escapeHtml(t.name)}」（不可恢复）">${icon('trash', 13)}</button>`
         }
       </div>`
     )
