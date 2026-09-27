@@ -10,11 +10,15 @@ import { icon } from './icons.js';
 import { getPrefs, onPrefsChange } from './prefs.js';
 
 /** 存活终端集合：通用设置变更时动态应用（字号/光标闪烁） */
-const liveTerms = new Set();
+const liveTerms = new Map(); // term -> fit 函数
 onPrefsChange((name, value) => {
-  for (const term of liveTerms) {
+  for (const [term, fit] of liveTerms) {
     try {
-      if (name === 'fontSize') term.options.fontSize = value;
+      if (name === 'fontSize') {
+        term.options.fontSize = value;
+        // 字号改变单元格尺寸，行列映射必须重新 fit，否则光标/文本渲染错位
+        setTimeout(fit, 30);
+      }
       if (name === 'cursorBlink') term.options.cursorBlink = value;
     } catch {
       /* 忽略已销毁实例 */
@@ -104,7 +108,6 @@ async function createTab(host) {
     fontSize: prefs.fontSize,
     theme: xtermTheme(),
   });
-  liveTerms.add(term);
   let fitAddon = null;
   if (FitAddonCtor) {
     fitAddon = new FitAddonCtor();
@@ -114,6 +117,7 @@ async function createTab(host) {
 
   const tab = { id, host, sessionKey, label: null, term, fitAddon, el: instance, ws: null, queue: [], scheduled: false };
   tabs.set(id, tab);
+  liveTerms.set(term, () => fitAndReport(tab));
 
   const statusEl = instance.querySelector('.term-status');
   const setStatus = (text, isErr) => {
