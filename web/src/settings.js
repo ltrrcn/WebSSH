@@ -67,11 +67,10 @@ export function openSettingsModal({ renderAudit, renderTokens, renderTokenConfig
           <div class="pref-title">终端</div>
           <div class="pref-row">
             <div class="pref-label">字号<div class="pref-desc">立即应用于已打开的终端</div></div>
-            <select id="pref-fontsize" class="pref-select">
-              ${[12, 13, 14, 15, 16, 17, 18]
-                .map((n) => `<option value="${n}" ${n === prefs.fontSize ? 'selected' : ''}>${n} px</option>`)
-                .join('')}
-            </select>
+            <div class="pref-inline">
+              <input type="range" id="pref-fontsize" min="12" max="18" step="1" value="${prefs.fontSize}" />
+              <code id="pref-fontsize-val">${prefs.fontSize} px</code>
+            </div>
           </div>
           <div class="pref-row">
             <div class="pref-label">光标闪烁</div>
@@ -94,8 +93,17 @@ export function openSettingsModal({ renderAudit, renderTokens, renderTokenConfig
           );
         })
       );
-      pane.querySelector('#pref-fontsize').addEventListener('change', (e) => {
-        setPref('fontSize', Number(e.target.value));
+      const fs = pane.querySelector('#pref-fontsize');
+      const fsVal = pane.querySelector('#pref-fontsize-val');
+      const paintRange = (el) => {
+        const pct = ((el.value - el.min) / (el.max - el.min)) * 100;
+        el.style.background = `linear-gradient(to right, var(--accent) ${pct}%, var(--bg-hover) ${pct}%)`;
+      };
+      paintRange(fs);
+      fs.addEventListener('input', () => {
+        fsVal.textContent = `${fs.value} px`;
+        paintRange(fs);
+        setPref('fontSize', Number(fs.value));
       });
       pane.querySelector('#pref-blink').addEventListener('change', (e) => {
         setPref('cursorBlink', e.target.checked);

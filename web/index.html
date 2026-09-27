@@ -383,6 +383,23 @@
     .pref-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 7px 0; }
     .pref-label { font-size: 13px; }
     .pref-desc { font-size: 11px; color: var(--text-faint); margin-top: 2px; }
+    .pref-inline { display: flex; align-items: center; gap: 12px; }
+    .pref-inline code { font-family: Menlo, monospace; font-size: 12px; color: var(--text-dim); min-width: 42px; text-align: right; }
+    /* 字号滑条：自定义轨道 + accent 进度填充（JS 动态 background）+ 圆点手柄 */
+    input[type="range"] {
+      appearance: none; -webkit-appearance: none; width: 150px; height: 4px;
+      border-radius: 2px; background: var(--bg-hover); cursor: pointer; outline: none;
+    }
+    input[type="range"]::-webkit-slider-thumb {
+      appearance: none; -webkit-appearance: none; width: 15px; height: 15px;
+      border-radius: 50%; background: var(--accent); border: 2px solid var(--bg-elevated, #fff);
+      box-shadow: 0 1px 4px rgba(0,0,0,.28); cursor: pointer;
+    }
+    input[type="range"]::-moz-range-thumb {
+      width: 13px; height: 13px; border-radius: 50%; background: var(--accent);
+      border: 2px solid var(--bg-elevated, #fff); box-shadow: 0 1px 4px rgba(0,0,0,.28); cursor: pointer;
+    }
+    input[type="range"]::-moz-range-track { height: 4px; border-radius: 2px; background: transparent; }
     .switch { position: relative; display: inline-block; width: 36px; height: 20px; flex: none; cursor: pointer; }
     .switch input { opacity: 0; width: 0; height: 0; }
     .switch span {
