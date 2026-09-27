@@ -51,14 +51,14 @@ export function openSettingsModal({ renderAudit, renderTokens, renderTokenConfig
           <div class="pref-row" style="flex-direction:column;align-items:stretch">
             <div class="pref-label">主题<div class="pref-desc">「跟随系统」随操作系统明暗实时切换；主动选择浅色/深色后持久保持，不随系统变化</div></div>
             <div class="theme-row">
+              <div class="theme-option ${mode === 'auto' ? 'selected' : ''}" data-theme="auto">
+                ${icon('monitor', 26)}<span>跟随系统</span>
+              </div>
               <div class="theme-option ${mode === 'light' ? 'selected' : ''}" data-theme="light">
                 ${icon('sun', 26)}<span>浅色</span>
               </div>
               <div class="theme-option ${mode === 'dark' ? 'selected' : ''}" data-theme="dark">
                 ${icon('moon', 26)}<span>深色</span>
-              </div>
-              <div class="theme-option ${mode === 'auto' ? 'selected' : ''}" data-theme="auto">
-                ${icon('monitor', 26)}<span>跟随系统</span>
               </div>
             </div>
           </div>
