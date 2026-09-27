@@ -99,14 +99,16 @@ export function createSessionManager({ config, store, audit, masterKey, runtime 
         secret,
         connectTimeoutMs,
         expectedFingerprint: host.fingerprint,
-        onHostKeyVerified: ({ fingerprint }) =>
+        onHostKeyVerified: ({ fingerprint }) => {
+          // known_hosts 仅为人工核对记录（R10），写失败不影响已确认指纹的安全性
           appendKnownHost({
             paths: runtime.paths,
             host: host.host,
             port: host.port,
             algorithm: 'ssh-host-key',
             fingerprint,
-          }),
+          }).catch(() => {});
+        },
       });
       conn = connected.conn;
       stream = connected.stream;

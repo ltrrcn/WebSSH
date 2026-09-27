@@ -5,6 +5,7 @@ import { WebSocketServer } from 'ws';
 import { resolveIdentity } from './auth.js';
 import { captureFingerprint } from '../ssh/client.js';
 import { stripGatewayPrefix } from './router.js';
+import { consumeWsTicket } from './tickets.js';
 import { PROTOCOL_VERSION } from '../../web/src/protocol/frames.js';
 
 /**
@@ -24,7 +25,14 @@ function originAllowed(req, config) {
   }
 }
 
-function rejectHandshake(socket, status, message) {
+function rejectHandshake(socket, status, message, req) {
+  // 拒绝原因写服务端日志（不含敏感值），便于现场诊断网关行为
+  const origin = req?.headers?.origin ?? '-';
+  const host = req?.headers?.host ?? '-';
+  const hasTrim = 'x-trim-userid' in (req?.headers ?? {});
+  console.error(
+    `[webssh][ws] 拒绝升级 ${status} ${message} | origin=${origin} host=${host} x-trim-userid=${hasTrim ? '有' : '无'}`
+  );
   socket.write(
     `HTTP/1.1 ${status} ${message}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`
   );
@@ -44,34 +52,49 @@ export function attachUpgrade(httpServer, deps) {
     try {
       url = new URL(req.url, 'http://localhost');
     } catch {
-      return rejectHandshake(socket, 400, 'Bad Request');
+      return rejectHandshake(socket, 400, 'Bad Request', req);
     }
     // 统一网关前缀剥离（fnOS 模式下转发路径携带 /app/webssh 前缀）
     const wsPath = stripGatewayPrefix(url.pathname);
     if (wsPath !== '/ws/terminal') {
-      return rejectHandshake(socket, 404, 'Not Found');
+      return rejectHandshake(socket, 404, 'Not Found', req);
     }
 
     // 宪法 VIII：WS 握手参数必须携带 version；不支持的版本拒绝
     if (url.searchParams.get('version') !== String(PROTOCOL_VERSION)) {
-      return rejectHandshake(socket, 400, 'Bad Request');
+      return rejectHandshake(socket, 400, 'Bad Request', req);
     }
 
-    // 契约：查询参数只允许 hostId 与 version（不接受客户端指定 host/port/凭据）
+    // 契约：查询参数只允许 hostId / version / ticket（不接受客户端指定 host/port/凭据）
     const extra = [...url.searchParams.keys()].filter(
-      (k) => k !== 'hostId' && k !== 'version'
+      (k) => k !== 'hostId' && k !== 'version' && k !== 'ticket'
     );
     if (extra.length > 0) {
-      return rejectHandshake(socket, 400, 'Bad Request');
+      return rejectHandshake(socket, 400, 'Bad Request', req);
     }
 
-    if (!originAllowed(req, deps.config)) {
-      return rejectHandshake(socket, 403, 'Forbidden');
-    }
-
-    const identity = resolveIdentity(req, deps.runtime);
+    // 身份解析：优先网关注入的 X-Trim-*；网关可能不向 WS 升级注入头 → 一次性票据回退
+    let identity = resolveIdentity(req, deps.runtime);
+    let gatewayAuthenticated = Boolean(identity); // fnos 模式下 X-Trim-* 即网关凭证
     if (!identity) {
-      return rejectHandshake(socket, 401, 'Unauthorized');
+      const ticketIdentity = consumeWsTicket(url.searchParams.get('ticket'));
+      if (ticketIdentity) {
+        identity = ticketIdentity;
+        gatewayAuthenticated = true; // 票据由经网关认证的 REST 签发
+      }
+    }
+    if (!identity) {
+      return rejectHandshake(socket, 401, 'Unauthorized', req);
+    }
+
+    // Origin 校验（FR-008）：standalone 严格同源；
+    // fnos 模式下 unix socket 仅网关可达，凡携带网关凭证（X-Trim-* 或票据）即视为已过网关登录校验
+    if (!originAllowed(req, deps.config)) {
+      if (deps.runtime.mode === 'fnos' && gatewayAuthenticated) {
+        console.error('[webssh][ws] fnos 网关流量 Origin 不匹配但携带网关凭证，放行');
+      } else {
+        return rejectHandshake(socket, 403, 'Forbidden', req);
+      }
     }
 
     wss.handleUpgrade(req, socket, head, (ws) => {

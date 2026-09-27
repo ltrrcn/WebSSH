@@ -5,7 +5,7 @@ import { xtermTheme, onThemeChange } from './theme.js';
 import { fetchHosts } from './hosts.js';
 import { openModal } from './modal.js';
 import { showContextMenu } from './contextmenu.js';
-import { wsUrl } from './base.js';
+import { wsUrl, apiUrl } from './base.js';
 
 const { Terminal } = window;
 const FitAddonCtor = window.FitAddon?.FitAddon ?? window.FitAddon;
@@ -107,9 +107,18 @@ function createTab(host) {
   setStatus('连接中…');
 
   // —— WS 连接（前缀感知：fnOS 统一网关下携带 /app/webssh/ 基址）——
+  // 网关可能不向 WS 升级注入用户头：先经 REST 换一次性票据一并携带
+  let ticket = '';
+  try {
+    const tr = await fetch(apiUrl('ws-ticket'), { method: 'POST' });
+    if (tr.ok) ticket = (await tr.json()).ticket ?? '';
+  } catch {
+    /* 票据为可选回退，失败不阻断 */
+  }
   const url =
     wsUrl('ws/terminal') +
-    `?hostId=${encodeURIComponent(host.id)}&version=${PROTOCOL_VERSION}`;
+    `?hostId=${encodeURIComponent(host.id)}&version=${PROTOCOL_VERSION}` +
+    (ticket ? `&ticket=${encodeURIComponent(ticket)}` : '');
   const ws = new WebSocket(url);
   ws.binaryType = 'arraybuffer';
   tab.ws = ws;
