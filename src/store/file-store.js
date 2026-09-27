@@ -159,8 +159,21 @@ export function createFileStore({ configDir, now = () => new Date().toISOString(
     return (await loadTokens()).filter((t) => t.ownerId === ownerId);
   }
 
+  async function listTokensAll() {
+    return await loadTokens();
+  }
+
   async function getTokenById(id) {
     return (await loadTokens()).find((t) => t.id === id);
+  }
+
+  async function touchToken(id, patch) {
+    const tokens = await loadTokens();
+    const t = tokens.find((x) => x.id === id);
+    if (!t) return false;
+    Object.assign(t, patch);
+    await persistTokens();
+    return true;
   }
 
   async function saveTokens(tokens) {
@@ -180,7 +193,9 @@ export function createFileStore({ configDir, now = () => new Date().toISOString(
     validateHost,
     touchHost,
     listTokens,
+    listTokensAll,
     getTokenById,
+    touchToken,
     saveTokens,
   };
 }

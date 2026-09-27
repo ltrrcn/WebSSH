@@ -104,6 +104,8 @@ export async function startSshd() {
     'PermitRootLogin prohibit-password',
     `PidFile ${join(dir, 'sshd.pid')}`,
     'LogLevel INFO',
+    // SFTP 子系统（MCP 文件类工具需要）
+    'Subsystem sftp internal-sftp',
     // 临时目录属主可能与 sshd 预期不同，关闭严格模式（仅测试用）
     'StrictModes no',
   ].join('\n');

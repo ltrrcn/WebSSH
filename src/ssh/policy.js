@@ -87,3 +87,36 @@ export function assertMatrixTightened(matrix, globalDefaults) {
     }
   }
 }
+
+/**
+ * 命令三层判定（FR-030~034，mcp-tools.md 契约）：
+ *   1. 语法预检：拼接/重定向语法（; | & < > ` $()）一律拒绝，不拆分放行（FR-034）
+ *   2. 只读命令白名单：readonly 级别仅允许白名单内首个词，默认拒绝（FR-032）
+ *   3. 危险命令黑名单：任何级别命中即拒绝（FR-033）
+ * 能力隔离（第一层：readonly 不注册命令工具）由工具注册矩阵承担。
+ *
+ * @param {string} command 命令原文
+ * @param {{readOnlyCommands?: string[], dangerousCommands?: string[]}} rules
+ * @param {{level?: 'readonly'|'writable'}} [opts]
+ * @returns {{allowed: boolean, reason: 'ok'|'syntax_rejected'|'not_in_readonly_whitelist'|'dangerous_command'}}
+ */
+export function checkCommand(command, rules = {}, opts = {}) {
+  const cmd = String(command ?? '');
+  if (cmd.length === 0 || cmd.length > 4096) {
+    return { allowed: false, reason: 'syntax_rejected' };
+  }
+  // 第一层：语法预检（&& || 由 & | 覆盖）
+  if (/[;|&<>`]|\$\(/.test(cmd)) {
+    return { allowed: false, reason: 'syntax_rejected' };
+  }
+  const first = cmd.trim().split(/\s+/)[0] ?? '';
+  // 第二层：只读白名单（仅 readonly 级别参与）
+  if (opts.level === 'readonly' && !(rules.readOnlyCommands ?? []).includes(first)) {
+    return { allowed: false, reason: 'not_in_readonly_whitelist' };
+  }
+  // 第三层：危险黑名单（任何级别不放行）
+  if ((rules.dangerousCommands ?? []).includes(first)) {
+    return { allowed: false, reason: 'dangerous_command' };
+  }
+  return { allowed: true, reason: 'ok' };
+}

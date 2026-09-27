@@ -204,25 +204,25 @@
 
 ### Tests for User Story 6（先写，必须失败）
 
-- [ ] T071 [P] [US6] `tests/contract/mcp-tools.test.js`：工具注册矩阵（readonly 不注册 `run_command`/`write_file`）、入参与返回、错误码 `command_denied`/`path_denied`/`host_not_allowed`/`rate_limited`
-- [ ] T072 [P] [US6] `tests/unit/command-policy.test.js`：拼接与重定向语法一律拒绝、只读白名单默认拒绝、危险黑名单任何级别不放行、三层判定顺序（FR-030 ~ FR-034）
-- [ ] T073 [P] [US6] `tests/unit/dir-matrix.test.js`：全局默认初始化、令牌条目只能收紧不得放开、越界返回 `permission_out_of_range`、系统敏感路径不可被配置放行（FR-035 ~ FR-040）
-- [ ] T074 [P] [US6] `tests/unit/token-auth.test.js`：不可逆摘要校验、明文不落盘、过期与撤销立即失效、限流按令牌维度
-- [ ] T075 [P] [US6] `tests/integration/mcp-e2e.test.js`：真实 MCP 客户端 + 真实 sshd 走完 list/read/run/write，撤销后立即拒绝
+- [X] T071 [P] [US6] `tests/contract/mcp-tools.test.js`：工具注册矩阵（readonly 不注册 `run_command`/`write_file`）、入参与返回、错误码 `command_denied`/`path_denied`/`host_not_allowed`/`rate_limited`
+- [X] T072 [P] [US6] `tests/unit/command-policy.test.js`：拼接与重定向语法一律拒绝、只读白名单默认拒绝、危险黑名单任何级别不放行、三层判定顺序（FR-030 ~ FR-034）
+- [X] T073 [P] [US6] `tests/unit/dir-matrix.test.js`：全局默认初始化、令牌条目只能收紧不得放开、越界返回 `permission_out_of_range`、系统敏感路径不可被配置放行（FR-035 ~ FR-040）
+- [X] T074 [P] [US6] `tests/unit/token-auth.test.js`：不可逆摘要校验、明文不落盘、过期与撤销立即失效、限流按令牌维度
+- [X] T075 [P] [US6] `tests/integration/mcp-e2e.test.js`：真实 MCP 客户端 + 真实 sshd 走完 list/read/run/write，撤销后立即拒绝
 
 ### Implementation for User Story 6
 
-- [ ] T076 [US6] `src/mcp/tokens.js`：令牌创建（生成明文 + `tokenHash` + `tokenHint`）、校验、撤销、过期判定、`hostScope` 校验、`lastUsedAt` 更新
-- [ ] T077 [US6] `src/api/tokens.js`：`GET`/`POST` /api/tokens（创建响应一次性返回明文）、`DELETE /api/tokens/{id}`（撤销立即生效）、`GET /api/tokens/defaults`（全局默认矩阵与敏感路径说明）
-- [ ] T078 [US6] `src/ssh/policy.js`（命令部分）：词法预检 → 只读白名单 → 危险黑名单的三层判定，命中即拒绝并给出 reason
-- [ ] T079 [US6] `src/mcp/server.js`：使用 `@modelcontextprotocol/sdk` 将 MCP 端点挂载到同一 HTTP 服务的 `/mcp`（不新开端口），Bearer 令牌鉴权
-- [ ] T080 [US6] `src/mcp/tools/list-hosts.js`：仅返回 `hostScope` 内主机，字段 `{id,name,host,port,username,group}`
-- [ ] T081 [US6] `src/mcp/tools/read-file.js`：主机授权 → 路径规范化与穿越拒绝 → 敏感路径 → 矩阵 `read` → 符号链接复核，返回 `{content,truncated}`
-- [ ] T082 [US6] `src/mcp/tools/run-command.js`：主机授权 → 语法预检 → 危险黑名单 → 矩阵；`execTimeoutMs` 超时强制终止并回传已产生摘要，返回 `{exitCode,stdoutDigest,truncated,timedOut}`
-- [ ] T083 [US6] `src/mcp/tools/write-file.js`：主机授权 → 路径规范化 → 敏感路径 → 矩阵 `write` + `modify`，返回 `{ok}`
-- [ ] T084 [US6] `src/mcp/rate-limit.js`：按令牌维度窗口限流，超额返回 `rate_limited` 且不影响其他令牌与人工会话（FR-028）
-- [ ] T085 [US6] `src/mcp/audit-hook.js`：每次工具调用写入 AuditEvent，含 `tokenId`、脱敏后的 `command` 原文、截断的 `outputDigest`、`path`、`result`、`reason`（FR-041 / FR-042 / FR-043）
-- [ ] T086 [US6] `web/src/tokens.js`：令牌管理页——创建（名称/级别/主机范围/有效期/矩阵）、列表、撤销、明文仅展示一次
+- [X] T076 [US6] `src/mcp/tokens.js`：令牌创建（生成明文 + `tokenHash` + `tokenHint`）、校验、撤销、过期判定、`hostScope` 校验、`lastUsedAt` 更新
+- [X] T077 [US6] `src/api/tokens.js`：`GET`/`POST` /api/tokens（创建响应一次性返回明文）、`DELETE /api/tokens/{id}`（撤销立即生效）、`GET /api/tokens/defaults`（全局默认矩阵与敏感路径说明）
+- [X] T078 [US6] `src/ssh/policy.js`（命令部分）：词法预检 → 只读白名单 → 危险黑名单的三层判定，命中即拒绝并给出 reason
+- [X] T079 [US6] `src/mcp/server.js`：使用 `@modelcontextprotocol/sdk` 将 MCP 端点挂载到同一 HTTP 服务的 `/mcp`（不新开端口），Bearer 令牌鉴权
+- [X] T080 [US6] `src/mcp/tools/list-hosts.js`：仅返回 `hostScope` 内主机，字段 `{id,name,host,port,username,group}`
+- [X] T081 [US6] `src/mcp/tools/read-file.js`：主机授权 → 路径规范化与穿越拒绝 → 敏感路径 → 矩阵 `read` → 符号链接复核，返回 `{content,truncated}`
+- [X] T082 [US6] `src/mcp/tools/run-command.js`：主机授权 → 语法预检 → 危险黑名单 → 矩阵；`execTimeoutMs` 超时强制终止并回传已产生摘要，返回 `{exitCode,stdoutDigest,truncated,timedOut}`
+- [X] T083 [US6] `src/mcp/tools/write-file.js`：主机授权 → 路径规范化 → 敏感路径 → 矩阵 `write` + `modify`，返回 `{ok}`
+- [X] T084 [US6] `src/mcp/rate-limit.js`：按令牌维度窗口限流，超额返回 `rate_limited` 且不影响其他令牌与人工会话（FR-028）
+- [X] T085 [US6] `src/mcp/audit-hook.js`：每次工具调用写入 AuditEvent，含 `tokenId`、脱敏后的 `command` 原文、截断的 `outputDigest`、`path`、`result`、`reason`（FR-041 / FR-042 / FR-043）
+- [X] T086 [US6] `web/src/tokens.js`：令牌管理页——创建（名称/级别/主机范围/有效期/矩阵）、列表、撤销、明文仅展示一次
 
 **Checkpoint**: 令牌可用、可控、可审计。
 
