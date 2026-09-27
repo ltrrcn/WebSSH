@@ -6,6 +6,7 @@ import { renderAudit } from './audit.js';
 import { renderTokens } from './tokens.js';
 import { renderTokenConfig } from './token-config.js';
 import { renderGroups } from './groups.js';
+import { getPrefs } from './prefs.js';
 import * as terminal from './terminal.js';
 
 initTheme();
@@ -39,9 +40,9 @@ document
   .getElementById('btn-add-host')
   .addEventListener('click', () => openHostFormModal(null, refreshHostList));
 
-// 关闭页面前检查活动会话（FR-046）
+// 关闭页面前检查活动会话（FR-046；可在通用设置中关闭确认）
 window.addEventListener('beforeunload', (e) => {
-  if (terminal.hasActiveSessions()) {
+  if (getPrefs().exitConfirm && terminal.hasActiveSessions()) {
     e.preventDefault();
     e.returnValue = '仍有终端会话在进行，关闭页面将断开连接。';
     return e.returnValue;

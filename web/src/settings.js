@@ -2,6 +2,7 @@
 import { openModal } from './modal.js';
 import { currentTheme, setTheme } from './theme.js';
 import { icon } from './icons.js';
+import { getPrefs, setPref } from './prefs.js';
 
 /**
  * 打开设置弹窗。
@@ -33,16 +34,44 @@ export function openSettingsModal({ renderAudit, renderTokens, renderTokenConfig
   const panes = {
     theme: () => {
       const cur = currentTheme();
+      const prefs = getPrefs();
       pane.innerHTML = `
-        <div class="theme-row">
-          <div class="theme-option ${cur === 'dark' ? 'selected' : ''}" data-theme="dark">
-            <div class="swatch dark"></div>黑色主题
-          </div>
-          <div class="theme-option ${cur === 'light' ? 'selected' : ''}" data-theme="light">
-            <div class="swatch light"></div>白色主题
+        <div class="pref-section">
+          <div class="pref-title">外观</div>
+          <div class="pref-row">
+            <div class="pref-label">主题<div class="pref-desc">界面配色，终端配色随之切换</div></div>
+            <div class="theme-row">
+              <div class="theme-option ${cur === 'dark' ? 'selected' : ''}" data-theme="dark">
+                <div class="swatch dark"></div>黑色主题
+              </div>
+              <div class="theme-option ${cur === 'light' ? 'selected' : ''}" data-theme="light">
+                <div class="swatch light"></div>白色主题
+              </div>
+            </div>
           </div>
         </div>
-        <p class="form-note" style="margin-top:12px">后续版本支持导入终端配色方案（如 iTerm 配色）。</p>`;
+        <div class="pref-section">
+          <div class="pref-title">终端</div>
+          <div class="pref-row">
+            <div class="pref-label">字号<div class="pref-desc">立即应用于已打开的终端</div></div>
+            <div class="pref-inline">
+              <input type="range" id="pref-fontsize" min="12" max="18" step="1" value="${prefs.fontSize}" />
+              <code id="pref-fontsize-val">${prefs.fontSize}</code>
+            </div>
+          </div>
+          <div class="pref-row">
+            <div class="pref-label">光标闪烁</div>
+            <label class="switch"><input type="checkbox" id="pref-blink" ${prefs.cursorBlink ? 'checked' : ''} /><span></span></label>
+          </div>
+        </div>
+        <div class="pref-section">
+          <div class="pref-title">行为</div>
+          <div class="pref-row">
+            <div class="pref-label">关闭页面前确认<div class="pref-desc">存在活动终端会话时，离开页面弹出确认</div></div>
+            <label class="switch"><input type="checkbox" id="pref-exit" ${prefs.exitConfirm ? 'checked' : ''} /><span></span></label>
+          </div>
+        </div>
+        <p class="form-note" style="margin-top:14px">高级偏好（终端配色方案导入等）将在后续版本提供。</p>`;
       pane.querySelectorAll('.theme-option').forEach((opt) =>
         opt.addEventListener('click', () => {
           setTheme(opt.dataset.theme);
@@ -51,6 +80,18 @@ export function openSettingsModal({ renderAudit, renderTokens, renderTokenConfig
           );
         })
       );
+      const fs = pane.querySelector('#pref-fontsize');
+      const fsVal = pane.querySelector('#pref-fontsize-val');
+      fs.addEventListener('input', () => {
+        fsVal.textContent = fs.value;
+        setPref('fontSize', Number(fs.value));
+      });
+      pane.querySelector('#pref-blink').addEventListener('change', (e) => {
+        setPref('cursorBlink', e.target.checked);
+      });
+      pane.querySelector('#pref-exit').addEventListener('change', (e) => {
+        setPref('exitConfirm', e.target.checked);
+      });
     },
     audit: () => {
       if (renderAudit) renderAudit(pane);

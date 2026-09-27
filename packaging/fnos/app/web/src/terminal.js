@@ -7,6 +7,20 @@ import { openModal } from './modal.js';
 import { showContextMenu } from './contextmenu.js';
 import { wsUrl, apiUrl } from './base.js';
 import { icon } from './icons.js';
+import { getPrefs, onPrefsChange } from './prefs.js';
+
+/** 存活终端集合：通用设置变更时动态应用（字号/光标闪烁） */
+const liveTerms = new Set();
+onPrefsChange((name, value) => {
+  for (const term of liveTerms) {
+    try {
+      if (name === 'fontSize') term.options.fontSize = value;
+      if (name === 'cursorBlink') term.options.cursorBlink = value;
+    } catch {
+      /* 忽略已销毁实例 */
+    }
+  }
+});
 
 const { Terminal } = window;
 const FitAddonCtor = window.FitAddon?.FitAddon ?? window.FitAddon;
@@ -74,6 +88,7 @@ export function connectedHostIds() {
 
 async function createTab(host) {
   const id = `tab_${++seq}`;
+  const prefs = getPrefs();
   // 会话临时 ID（FR-051）：备注名按此 ID 存储于 localStorage，与主机数据无关
   const sessionKey = `sess_${Math.random().toString(36).slice(2, 8)}${Date.now().toString(36).slice(-4)}`;
   const instance = document.createElement('div');
@@ -84,11 +99,12 @@ async function createTab(host) {
   ui.terminals.appendChild(instance);
 
   const term = new Terminal({
-    cursorBlink: true,
+    cursorBlink: prefs.cursorBlink,
     fontFamily: 'Menlo, Monaco, "Courier New", monospace',
-    fontSize: 13,
+    fontSize: prefs.fontSize,
     theme: xtermTheme(),
   });
+  liveTerms.add(term);
   let fitAddon = null;
   if (FitAddonCtor) {
     fitAddon = new FitAddonCtor();
@@ -225,6 +241,7 @@ function destroyTab(id) {
     /* 忽略 */
   }
   try {
+    liveTerms.delete(tab.term);
     tab.term.dispose();
   } catch {
     /* 忽略 */
