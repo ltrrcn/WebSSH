@@ -40,7 +40,7 @@ export function openSettingsModal({ renderAudit, renderTokens, renderTokenConfig
           <div class="pref-title">语言</div>
           <div class="pref-row">
             <div class="pref-label">界面语言<div class="pref-desc">当前默认中文（简体）</div></div>
-            <select id="pref-lang">
+            <select id="pref-lang" class="pref-select">
               <option value="zh-CN" selected>中文（简体）</option>
               <option value="en" disabled title="英文界面将在后续版本提供">English</option>
             </select>
@@ -67,10 +67,11 @@ export function openSettingsModal({ renderAudit, renderTokens, renderTokenConfig
           <div class="pref-title">终端</div>
           <div class="pref-row">
             <div class="pref-label">字号<div class="pref-desc">立即应用于已打开的终端</div></div>
-            <div class="pref-inline">
-              <input type="range" id="pref-fontsize" min="12" max="18" step="1" value="${prefs.fontSize}" />
-              <code id="pref-fontsize-val">${prefs.fontSize}</code>
-            </div>
+            <select id="pref-fontsize" class="pref-select">
+              ${[12, 13, 14, 15, 16, 17, 18]
+                .map((n) => `<option value="${n}" ${n === prefs.fontSize ? 'selected' : ''}>${n} px</option>`)
+                .join('')}
+            </select>
           </div>
           <div class="pref-row">
             <div class="pref-label">光标闪烁</div>
@@ -93,11 +94,8 @@ export function openSettingsModal({ renderAudit, renderTokens, renderTokenConfig
           );
         })
       );
-      const fs = pane.querySelector('#pref-fontsize');
-      const fsVal = pane.querySelector('#pref-fontsize-val');
-      fs.addEventListener('input', () => {
-        fsVal.textContent = fs.value;
-        setPref('fontSize', Number(fs.value));
+      pane.querySelector('#pref-fontsize').addEventListener('change', (e) => {
+        setPref('fontSize', Number(e.target.value));
       });
       pane.querySelector('#pref-blink').addEventListener('change', (e) => {
         setPref('cursorBlink', e.target.checked);
