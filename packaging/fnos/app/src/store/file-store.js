@@ -129,6 +129,21 @@ export function createFileStore({ configDir, now = () => new Date().toISOString(
     return true;
   }
 
+  /** 分组集合操作（contracts/rest-api.md 分组节）：仅作用于 ownerId 的主机，单次原子落盘 */
+  async function updateHostsGroup(ownerId, fromGroup, toGroup) {
+    const hosts = await loadHosts();
+    let moved = 0;
+    for (const h of hosts) {
+      if (h.ownerId === ownerId && h.group === fromGroup) {
+        h.group = toGroup; // string（重命名/合并）或 null（删除 → 回默认分组）
+        h.updatedAt = now();
+        moved++;
+      }
+    }
+    if (moved) await persistHosts();
+    return moved;
+  }
+
   // —— MCP 令牌（US6 使用，接口先行保证可替换性）——
   async function loadTokens() {
     if (tokensCache) return tokensCache;
@@ -192,6 +207,7 @@ export function createFileStore({ configDir, now = () => new Date().toISOString(
     deleteHost,
     validateHost,
     touchHost,
+    updateHostsGroup,
     listTokens,
     listTokensAll,
     getTokenById,

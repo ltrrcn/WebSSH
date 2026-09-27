@@ -67,6 +67,7 @@ export function validateHostPayload(body, { partial = false } = {}) {
     if (body.group !== null && typeof body.group !== 'string') {
       throw invalid('group 必须为字符串或 null');
     }
+    if (body.group === '默认') throw invalid('「默认」为保留分组名（未分组主机的显示名），请换一个名称');
     value.group = body.group;
   }
 

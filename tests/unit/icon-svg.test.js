@@ -73,7 +73,7 @@ test('宪法IX: UI 图标 sprite 合规（symbol 定义 + 无 emoji 图标）', 
   );
   // sprite 提供当前 UI 引用的全部图标
   const ids = [...sprite.matchAll(/<symbol id="(\w+)"/g)].map((m) => m[1]);
-  for (const need of ['plus', 'x', 'gear', 'play', 'pencil', 'trash', 'palette', 'list', 'key', 'shield', 'file']) {
+  for (const need of ['plus', 'x', 'gear', 'play', 'pencil', 'trash', 'palette', 'list', 'key', 'shield', 'file', 'folder']) {
     assert.ok(ids.includes(need), `sprite 缺少图标: ${need}`);
   }
   // 源码禁止 emoji / Unicode 符号图标（宪法 IX）

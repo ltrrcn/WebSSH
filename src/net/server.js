@@ -16,6 +16,7 @@ import { loadOrCreateMasterKey } from '../crypto/master-key.js';
 import { createAuditLogger } from '../audit/logger.js';
 import { createSessionManager } from '../session/manager.js';
 import { hostsRoutes } from '../api/hosts.js';
+import { groupsRoutes } from '../api/groups.js';
 import { sessionsRoutes } from '../api/sessions.js';
 import { auditRoutes } from '../api/audit.js';
 import { tokensRoutes } from '../api/tokens.js';
@@ -131,6 +132,7 @@ export async function startApp(opts = {}) {
       handler: (req, res) => sendJson(res, 200, { mode: runtime.mode, listen: runtime.listen.type }),
     },
     ...hostsRoutes(deps),
+    ...groupsRoutes(deps),
     ...sessionsRoutes(deps),
     ...auditRoutes(deps),
     ...tokensRoutes(deps),

@@ -13,4 +13,5 @@
   <symbol id="key" viewBox="0 0 24 24"><circle cx="8" cy="14" r="4.5" stroke="currentColor" stroke-width="2" fill="none"/><path d="M11.5 10.5L20 2M16 6l3 3M13 9l2.5 2.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/></symbol>
   <symbol id="shield" viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 5-3.5 7.8-8 9-4.5-1.2-8-4-8-9V6z" stroke="currentColor" stroke-width="2" stroke-linejoin="round" fill="none"/><path d="M9 12l2.2 2.2L15.5 10" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/></symbol>
   <symbol id="file" viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6zM14 3v4h4" stroke="currentColor" stroke-width="2" stroke-linejoin="round" fill="none"/></symbol>
+  <symbol id="folder" viewBox="0 0 24 24"><path d="M3 7l2-3h5l2 3h9v13H3z" stroke="currentColor" stroke-width="2" stroke-linejoin="round" fill="none"/></symbol>
 </svg>

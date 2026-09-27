@@ -8,11 +8,13 @@ import { icon } from './icons.js';
  * @param {{renderAudit?: (el: HTMLElement)=>void, renderTokens?: (el: HTMLElement)=>void, renderTokenConfig?: (el: HTMLElement)=>void}} pages
  *   US4/US6 交付后由 app.js 注入对应页面渲染函数；当前为占位。
  */
-export function openSettingsModal({ renderAudit, renderTokens, renderTokenConfig } = {}) {
+export function openSettingsModal({ renderAudit, renderTokens, renderTokenConfig, renderGroups, onGroupsChanged } = {}) {
+  const groupsChanged = onGroupsChanged;
   const m = openModal(
     `<div class="settings-layout">
       <div class="settings-nav">
         <button data-pane="theme" class="active">${icon('palette')} 主题</button>
+        <button data-pane="groups">${icon('folder')} 分组</button>
         <button data-pane="audit">${icon('list')} 审计</button>
         <button data-pane="tokens">${icon('key')} 令牌</button>
         <button data-pane="tokenConfig">${icon('shield')} 令牌配置</button>
@@ -63,6 +65,10 @@ export function openSettingsModal({ renderAudit, renderTokens, renderTokenConfig
     tokenConfig: () => {
       if (renderTokenConfig) renderTokenConfig(pane);
       else pane.innerHTML = '<div class="placeholder-box">令牌配置将在 US6 阶段交付。</div>';
+    },
+    groups: () => {
+      if (renderGroups) renderGroups(pane, { onChanged: groupsChanged });
+      else pane.innerHTML = '<div class="placeholder-box">分组管理占位。</div>';
     },
   };
 
