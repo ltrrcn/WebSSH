@@ -364,6 +364,11 @@
     .settings-nav button:hover { color: var(--text); background: var(--bg-hover); }
     .settings-nav button.active { color: var(--text); border-left-color: var(--accent); background: var(--accent-soft); font-weight: 500; }
     .settings-content { flex: 1; min-width: 0; overflow-y: auto; padding-left: 16px; }
+    /* 隐藏滚动条但保留滚动能力（数据多时滚轮/触控仍可滚动） */
+    .settings-content { scrollbar-width: none; -ms-overflow-style: none; }
+    .settings-content::-webkit-scrollbar { display: none; width: 0; }
+    .modal.settings-modal .audit-list { scrollbar-width: none; }
+    .modal.settings-modal .audit-list::-webkit-scrollbar { display: none; width: 0; }
     /* 令牌配置页（与审计/令牌页同款 audit-list/audit-row 结构） */
     .tc-title { font-size: 13px; font-weight: 600; margin: 14px 0 8px; display: flex; align-items: center; gap: 8px; }
     .tc-mono { font-family: Menlo, monospace; font-size: 11.5px; background: var(--bg-hover); border-radius: 4px; padding: 1px 6px; word-break: break-all; }
@@ -393,15 +398,12 @@
     }
     .switch input:checked + span { background: var(--accent); border-color: var(--accent); }
     .switch input:checked + span::before { transform: translateX(16px); background: #fff; }
-    /* 语言选项 */
-    .lang-row { display: flex; gap: 8px; }
-    .lang-option {
-      border: 1.5px solid var(--border); background: transparent; color: var(--text-dim);
-      border-radius: var(--radius-md); padding: 6px 14px; font-size: 12.5px; cursor: pointer;
+    /* 语言下拉框 */
+    #pref-lang {
+      background: var(--bg-input); color: var(--text); border: 1px solid var(--border);
+      border-radius: var(--radius-md); padding: 7px 12px; font-size: 12.5px; min-width: 150px;
     }
-    .lang-option:hover:not([disabled]) { border-color: var(--border-strong); color: var(--text); }
-    .lang-option.selected { border-color: var(--accent); color: var(--text); background: var(--accent-soft); font-weight: 500; }
-    .lang-option[disabled] { opacity: .45; cursor: default; }
+    #pref-lang:focus { outline: none; border-color: var(--accent); }
     .theme-row { display: flex; gap: 12px; }
     .theme-option {
       flex: 1; border: 2px solid var(--border); border-radius: 12px; padding: 16px 10px 13px;

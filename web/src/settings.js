@@ -40,10 +40,10 @@ export function openSettingsModal({ renderAudit, renderTokens, renderTokenConfig
           <div class="pref-title">语言</div>
           <div class="pref-row">
             <div class="pref-label">界面语言<div class="pref-desc">当前默认中文（简体）</div></div>
-            <div class="lang-row">
-              <button type="button" class="lang-option selected" data-lang="zh-CN">中文（简体）</button>
-              <button type="button" class="lang-option" disabled title="英文界面将在后续版本提供">English</button>
-            </div>
+            <select id="pref-lang">
+              <option value="zh-CN" selected>中文（简体）</option>
+              <option value="en" disabled title="英文界面将在后续版本提供">English</option>
+            </select>
           </div>
         </div>
         <div class="pref-section">
@@ -89,13 +89,6 @@ export function openSettingsModal({ renderAudit, renderTokens, renderTokenConfig
         opt.addEventListener('click', () => {
           setTheme(opt.dataset.theme);
           pane.querySelectorAll('.theme-option').forEach((o) =>
-            o.classList.toggle('selected', o === opt)
-          );
-        })
-      );
-      pane.querySelectorAll('.lang-option:not([disabled])').forEach((opt) =>
-        opt.addEventListener('click', () => {
-          pane.querySelectorAll('.lang-option').forEach((o) =>
             o.classList.toggle('selected', o === opt)
           );
         })
