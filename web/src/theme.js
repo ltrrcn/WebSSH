@@ -1,9 +1,13 @@
-// 主题管理（FR-048）：黑/白双主题 + localStorage 持久化 + xterm 主题映射
+// 主题管理（FR-048）：三态模式（跟随系统 / 浅色 / 深色）+ localStorage 持久化 + xterm 主题映射
+// - 跟随系统（默认）：监听 prefers-color-scheme，系统切换实时跟随
+// - 用户主动选择浅色/深色：持久生效，刷新与其他操作均保持（不随系统变化）
 // 扩展点：TERMINAL_THEMES 注册表——后续导入 iTerm 等配色时只需往注册表加条目，
 // 不需要改动主题切换机制本身（宪法 VIII：允许预留，禁止预建）。
 
-const STORAGE_KEY = 'webssh-theme';
-export const THEMES = ['dark', 'light'];
+const MODE_KEY = 'webssh-theme-mode'; // 'auto' | 'dark' | 'light'
+const LEGACY_KEY = 'webssh-theme'; // 旧版双态键，迁移为 mode
+export const THEME_MODES = ['auto', 'dark', 'light'];
+export const THEMES = ['dark', 'light']; // 实际主题（兼容既有引用）
 
 /** 终端配色注册表：key = 主题名；导入外部配色文件的扩展点 */
 export const TERMINAL_THEMES = {
@@ -23,19 +27,42 @@ export const TERMINAL_THEMES = {
   },
 };
 
-export function currentTheme() {
-  const saved = localStorage.getItem(STORAGE_KEY);
-  return THEMES.includes(saved) ? saved : 'dark';
+/** 用户选择的模式（auto/dark/light）；旧版双态键迁移，默认跟随系统 */
+export function currentThemeMode() {
+  const mode = localStorage.getItem(MODE_KEY);
+  if (THEME_MODES.includes(mode)) return mode;
+  const legacy = localStorage.getItem(LEGACY_KEY);
+  if (THEMES.includes(legacy)) {
+    localStorage.setItem(MODE_KEY, legacy);
+    return legacy;
+  }
+  return 'auto';
 }
 
-export function applyTheme(name) {
-  if (!THEMES.includes(name)) return;
+function systemPrefersDark() {
+  return window.matchMedia?.('(prefers-color-scheme: dark)').matches ?? true;
+}
+
+/** 当前实际生效主题（dark/light）：auto 模式下由系统偏好决定 */
+export function currentTheme() {
+  const mode = currentThemeMode();
+  return mode === 'auto' ? (systemPrefersDark() ? 'dark' : 'light') : mode;
+}
+
+function applyTheme(name) {
   document.documentElement.dataset.theme = name;
-  localStorage.setItem(STORAGE_KEY, name);
 }
 
 export function initTheme() {
   applyTheme(currentTheme());
+  // 跟随系统：系统切换明暗时，仅 auto 模式实时跟随
+  window.matchMedia?.('(prefers-color-scheme: dark)').addEventListener?.('change', () => {
+    if (currentThemeMode() === 'auto') {
+      const t = currentTheme();
+      applyTheme(t);
+      for (const fn of listeners) fn(t);
+    }
+  });
 }
 
 /** 当前主题对应的 xterm 配色（FR-048：终端主题随全局主题） */
@@ -50,7 +77,11 @@ export function onThemeChange(fn) {
   return () => listeners.delete(fn);
 }
 
-export function setTheme(name) {
-  applyTheme(name);
-  for (const fn of listeners) fn(name);
+/** 设置主题模式（auto/dark/light）：持久化并立即生效 */
+export function setTheme(mode) {
+  const m = THEME_MODES.includes(mode) ? mode : 'auto';
+  localStorage.setItem(MODE_KEY, m);
+  const t = currentTheme();
+  applyTheme(t);
+  for (const fn of listeners) fn(t);
 }

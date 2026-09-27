@@ -1,6 +1,6 @@
 // 设置弹窗（FR-047）：主题切换 + 审计/令牌入口收纳于此
 import { openModal } from './modal.js';
-import { currentTheme, setTheme } from './theme.js';
+import { currentThemeMode, setTheme } from './theme.js';
 import { icon } from './icons.js';
 import { getPrefs, setPref } from './prefs.js';
 
@@ -33,19 +33,32 @@ export function openSettingsModal({ renderAudit, renderTokens, renderTokenConfig
 
   const panes = {
     theme: () => {
-      const cur = currentTheme();
+      const mode = currentThemeMode();
       const prefs = getPrefs();
       pane.innerHTML = `
         <div class="pref-section">
-          <div class="pref-title">外观</div>
+          <div class="pref-title">语言</div>
           <div class="pref-row">
-            <div class="pref-label">主题<div class="pref-desc">界面配色，终端配色随之切换</div></div>
+            <div class="pref-label">界面语言<div class="pref-desc">当前默认中文（简体）</div></div>
+            <div class="lang-row">
+              <button type="button" class="lang-option selected" data-lang="zh-CN">中文（简体）</button>
+              <button type="button" class="lang-option" disabled title="英文界面将在后续版本提供">English</button>
+            </div>
+          </div>
+        </div>
+        <div class="pref-section">
+          <div class="pref-title">外观</div>
+          <div class="pref-row" style="flex-direction:column;align-items:stretch">
+            <div class="pref-label">主题<div class="pref-desc">「跟随系统」随操作系统明暗实时切换；主动选择浅色/深色后持久保持，不随系统变化</div></div>
             <div class="theme-row">
-              <div class="theme-option ${cur === 'dark' ? 'selected' : ''}" data-theme="dark">
-                <div class="swatch dark"></div>黑色主题
+              <div class="theme-option ${mode === 'light' ? 'selected' : ''}" data-theme="light">
+                ${icon('sun', 26)}<span>浅色</span>
               </div>
-              <div class="theme-option ${cur === 'light' ? 'selected' : ''}" data-theme="light">
-                <div class="swatch light"></div>白色主题
+              <div class="theme-option ${mode === 'dark' ? 'selected' : ''}" data-theme="dark">
+                ${icon('moon', 26)}<span>深色</span>
+              </div>
+              <div class="theme-option ${mode === 'auto' ? 'selected' : ''}" data-theme="auto">
+                ${icon('monitor', 26)}<span>跟随系统</span>
               </div>
             </div>
           </div>
@@ -76,6 +89,13 @@ export function openSettingsModal({ renderAudit, renderTokens, renderTokenConfig
         opt.addEventListener('click', () => {
           setTheme(opt.dataset.theme);
           pane.querySelectorAll('.theme-option').forEach((o) =>
+            o.classList.toggle('selected', o === opt)
+          );
+        })
+      );
+      pane.querySelectorAll('.lang-option:not([disabled])').forEach((opt) =>
+        opt.addEventListener('click', () => {
+          pane.querySelectorAll('.lang-option').forEach((o) =>
             o.classList.toggle('selected', o === opt)
           );
         })

@@ -393,19 +393,25 @@
     }
     .switch input:checked + span { background: var(--accent); border-color: var(--accent); }
     .switch input:checked + span::before { transform: translateX(16px); background: #fff; }
+    /* 语言选项 */
+    .lang-row { display: flex; gap: 8px; }
+    .lang-option {
+      border: 1.5px solid var(--border); background: transparent; color: var(--text-dim);
+      border-radius: var(--radius-md); padding: 6px 14px; font-size: 12.5px; cursor: pointer;
+    }
+    .lang-option:hover:not([disabled]) { border-color: var(--border-strong); color: var(--text); }
+    .lang-option.selected { border-color: var(--accent); color: var(--text); background: var(--accent-soft); font-weight: 500; }
+    .lang-option[disabled] { opacity: .45; cursor: default; }
     .theme-row { display: flex; gap: 12px; }
     .theme-option {
-      flex: 1; border: 2px solid var(--border); border-radius: 12px; padding: 14px;
+      flex: 1; border: 2px solid var(--border); border-radius: 12px; padding: 16px 10px 13px;
       cursor: pointer; text-align: center; font-size: 13px; color: var(--text-dim);
+      display: flex; flex-direction: column; align-items: center; gap: 10px;
     }
     .theme-option:hover { border-color: var(--border-strong); transform: translateY(-1px); }
     .theme-option.selected { border-color: var(--accent); color: var(--text); background: var(--accent-soft); }
-    .theme-option .swatch {
-      height: 48px; border-radius: 8px; margin-bottom: 10px;
-      border: 1px solid var(--border); box-shadow: var(--shadow-sm);
-    }
-    .swatch.dark { background: linear-gradient(135deg, #0e1116 50%, #1b2029 50%); }
-    .swatch.light { background: linear-gradient(135deg, #f4f6f9 50%, #ffffff 50%); }
+    .theme-option.selected > svg.icon { color: var(--accent); }
+    .theme-option > svg.icon { color: var(--text-dim); }
     .placeholder-box { color: var(--text-faint); font-size: 13px; text-align: center; padding: 36px 0; line-height: 1.7; }
 
     /* 审计页（US4） */
