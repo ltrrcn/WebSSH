@@ -18,17 +18,23 @@ export function detectMode(env = process.env) {
 /**
  * 解析运行时：路径、监听形态、身份来源全部在此收敛。
  * @param {NodeJS.ProcessEnv} env
- * @param {{ standalone?: { bind?: string, port?: number } }} [config]
+ * @param {{ standalone?: { bind?: string, port?: number }, fnos?: { mcpDirect?: { enabled?: boolean, bind?: string, port?: number } } }} [config]
  */
 export function resolveRuntime(env = process.env, config = {}) {
   const mode = detectMode(env);
   const paths = resolvePaths(mode, env);
 
   if (mode === 'fnos') {
+    // MCP 机器直连（可选）：绕过统一网关的 fnOS 登录态校验，AI 客户端直达 /mcp
+    const mcpDirect = config?.fnos?.mcpDirect;
+    const mcpListen = mcpDirect?.enabled
+      ? { host: mcpDirect.bind ?? '0.0.0.0', port: mcpDirect.port ?? 8422 }
+      : null;
     return {
       mode,
       paths,
       listen: { type: 'unix', socketPath: join(env.TRIM_APPDEST, 'app.sock') },
+      mcpListen,
       authSource: 'trim-headers',
     };
   }

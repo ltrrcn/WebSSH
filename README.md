@@ -35,6 +35,7 @@ WEBSSH_HOME=~/.webssh npm start
 | `audit.retentionDays` | 30 | 审计保留天数 |
 | `security.allowedOrigins` | [] | 为空时仅允许同源 WebSocket |
 | `standalone.bind / port` | 127.0.0.1 / 8080 | 监听地址（非回环必须配 TLS） |
+| `fnos.mcpDirect.enabled / bind / port` | false / 0.0.0.0 / 8422 | fnOS 下 MCP 机器直连端口（仅 /mcp，绕过统一网关登录态；限可信内网） |
 
 ## 数据与备份
 
@@ -45,7 +46,8 @@ etc/hosts.json       会话连接与加密凭据（.bak 为上一代备份）
 etc/tokens.json     MCP 令牌（SHA-256 摘要）
 etc/master.key      数据加密主密钥（0700）——丢失则凭据不可恢复
 etc/known_hosts     已确认主机指纹（人工核对用）
-var/log/audit-*.jsonl  审计日志（按天/按大小滚动）
+var/log/audit-*.jsonl     人工操作审计日志（按天/按大小滚动）
+var/log/audit-mcp-*.jsonl MCP 令牌调用独立审计流（机器行为与人工分文件）
 ```
 
 **备份 = 整目录拷贝**；恢复 = 原样放回。`master.key` 必须与 `hosts.json` 成对备份。
@@ -62,7 +64,10 @@ npm run pack:fnos    # 同步产物 + 纯 JS 依赖校验 + fnpack build
 ## MCP 接入（AI 工具）
 
 1. 设置 → 令牌 → 创建（选择级别与授权主机，明文仅展示一次）
-2. 工具端点：`http://<主机>:<端口>/mcp`（fnOS 下为 `http://<主机>:5666/app/webssh/mcp`），认证方式 `Authorization: Bearer <令牌>`
+2. 工具端点与认证：`Authorization: Bearer <令牌>`
+   - standalone：`http://<主机>:<端口>/mcp`
+   - fnOS 统一网关：`http://<主机>:5666/app/webssh/mcp` —— 网关要求 fnOS 登录态，仅适合浏览器内调试；AI 客户端请用直连端口
+   - fnOS MCP 直连（推荐，机器对机器）：在 config.json 启用 `fnos.mcpDirect` 后使用 `http://<主机>:<mcpDirect.port>/mcp`，不经过网关，令牌鉴权由应用层完成
 3. 工具：`list_hosts`、`read_file`（只读及以上）、`run_command`、`write_file`（仅可变更级）
 
 ## 测试

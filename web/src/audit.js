@@ -14,15 +14,21 @@ const EVENT_LABEL = {
 };
 const RESULT_LABEL = { success: '成功', denied: '拒绝', error: '失败' };
 
-let state = { result: '', hostId: '', offset: 0, limit: 30, total: 0 };
+let state = { result: '', hostId: '', source: '', offset: 0, limit: 30, total: 0 };
 
 export async function renderAudit(el) {
   el.innerHTML = `
     <div class="audit-note">
       <b>审计说明</b>：按时间顺序记录全部连接行为与工具调用（元数据脱敏留存，不含凭据与终端输出全文）。
-      列：时间 / 事件 / 设备 ID / 状态，补充信息（断开原因、时长、令牌）附于事件下方；支持按结果与主机过滤、分页与导出。
+      列：时间 / 事件 / 设备 ID / 状态，补充信息（断开原因、时长、令牌）附于事件下方；支持按来源、结果与主机过滤、分页与导出。
+      MCP 令牌调用（AI/机器）单独审计，可在来源中单独查看或导出。
     </div>
     <div class="audit-toolbar">
+      <select id="audit-source">
+        <option value="">全部来源</option>
+        <option value="user">人工操作</option>
+        <option value="mcp">MCP 令牌调用</option>
+      </select>
       <select id="audit-result">
         <option value="">全部结果</option>
         <option value="success">成功</option>
@@ -59,6 +65,11 @@ export async function renderAudit(el) {
     /* 忽略 */
   }
 
+  el.querySelector('#audit-source').addEventListener('change', (e) => {
+    state.source = e.target.value;
+    state.offset = 0;
+    load(el);
+  });
   el.querySelector('#audit-result').addEventListener('change', (e) => {
     state.result = e.target.value;
     state.offset = 0;
@@ -71,7 +82,9 @@ export async function renderAudit(el) {
   });
   el.querySelector('#audit-refresh').addEventListener('click', () => load(el));
   el.querySelector('#audit-export').addEventListener('click', () => {
-    window.open(apiUrl('audit/export'), '_blank');
+    const p = new URLSearchParams();
+    if (state.source) p.set('source', state.source);
+    window.open(`${apiUrl('audit/export')}?${p}`, '_blank');
   });
   el.querySelector('#audit-prev').addEventListener('click', () => {
     state.offset = Math.max(0, state.offset - state.limit);
@@ -92,6 +105,7 @@ async function load(el) {
   const params = new URLSearchParams({ limit: state.limit, offset: state.offset });
   if (state.result) params.set('result', state.result);
   if (state.hostId) params.set('hostId', state.hostId);
+  if (state.source) params.set('source', state.source);
 
   let body;
   try {

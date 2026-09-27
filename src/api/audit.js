@@ -55,10 +55,13 @@ export function auditRoutes(deps) {
         const to = q.get('to') ? Date.parse(q.get('to')) : null;
         const hostId = q.get('hostId');
         const result = q.get('result');
+        // 来源筛选：mcp=仅 MCP 令牌调用（独立审计流），user=仅人工操作，默认全部
+        const source = q.get('source');
         const limit = Math.min(Math.max(Number(q.get('limit')) || 50, 1), 500);
         const offset = Math.max(Number(q.get('offset')) || 0, 0);
 
-        let items = (await audit.listAll()).sort((a, b) => (a.ts < b.ts ? -1 : a.ts > b.ts ? 1 : 0));
+        const actorType = source === 'mcp' ? 'token' : source === 'user' ? 'user' : undefined;
+        let items = (await audit.listAll({ actorType })).sort((a, b) => (a.ts < b.ts ? -1 : a.ts > b.ts ? 1 : 0));
         if (from) items = items.filter((e) => Date.parse(e.ts) >= from);
         if (to) items = items.filter((e) => Date.parse(e.ts) <= to);
         if (hostId) items = items.filter((e) => e.hostId === hostId);
@@ -75,8 +78,12 @@ export function auditRoutes(deps) {
       handler: async (req, res) => {
         const identity = resolveIdentity(req, runtime);
         if (!identity) return sendError(res, 401, 'unauthorized', '未认证');
-        const events = (await audit.listAll()).sort((a, b) => (a.ts < b.ts ? -1 : 1));
-        const header = `# WebSSH 审计导出\n# 导出时间: ${new Date().toISOString()}\n# 共 ${events.length} 条\n\n`;
+        const url = new URL(req.url, 'http://localhost');
+        const source = url.searchParams.get('source');
+        const actorType = source === 'mcp' ? 'token' : source === 'user' ? 'user' : undefined;
+        const events = (await audit.listAll({ actorType })).sort((a, b) => (a.ts < b.ts ? -1 : 1));
+        const scope = source === 'mcp' ? 'MCP 令牌调用' : source === 'user' ? '人工操作' : '全部';
+        const header = `# WebSSH 审计导出（${scope}）\n# 导出时间: ${new Date().toISOString()}\n# 共 ${events.length} 条\n\n`;
         const body = header + events.map(toReadableLine).join('\n') + '\n';
         res.writeHead(200, {
           'content-type': 'text/plain; charset=utf-8',

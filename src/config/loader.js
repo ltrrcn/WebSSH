@@ -1,6 +1,6 @@
 // 配置加载：默认值 + 用户配置合并 + 校验
 // 用户 config.json 损坏时回退默认值并输出告警（不静默使用半截配置）
-import { readFile } from 'node:fs/promises';
+import { readFile, writeFile, rename } from 'node:fs/promises';
 import { join } from 'node:path';
 import { DEFAULT_CONFIG } from './defaults.js';
 
@@ -45,6 +45,25 @@ export async function loadConfig(paths) {
   return { config: merged, warnings };
 }
 
+/**
+ * 持久化配置（运行时修改用）：原子写 tmp + rename，保留一代 .bak。
+ * @param {{config: string}} paths 运行时路径
+ */
+export async function saveConfig(paths, config) {
+  const file = join(paths.config, 'config.json');
+  const text = JSON.stringify(config, null, 2) + '\n';
+  // 保留旧版本为 .bak（与 store 的"一代备份"策略一致）
+  try {
+    const prev = await readFile(file, 'utf8');
+    await writeFile(`${file}.bak`, prev, 'utf8');
+  } catch {
+    /* 首次保存无旧文件 */
+  }
+  const tmp = `${file}.tmp`;
+  await writeFile(tmp, text, 'utf8');
+  await rename(tmp, file);
+}
+
 function validateConfig(cfg) {
   const { limits } = cfg;
   if (limits) {
@@ -58,6 +77,21 @@ function validateConfig(cfg) {
     const p = Number(cfg.standalone.port);
     if (!Number.isInteger(p) || p < 0 || p > 65535) {
       throw new Error('config.standalone.port 必须为 0–65535');
+    }
+  }
+  const mcpDirect = cfg.fnos?.mcpDirect;
+  if (mcpDirect) {
+    if (mcpDirect.enabled !== undefined && typeof mcpDirect.enabled !== 'boolean') {
+      throw new Error('config.fnos.mcpDirect.enabled 必须为布尔值');
+    }
+    if (mcpDirect.port !== undefined) {
+      const p = Number(mcpDirect.port);
+      if (!Number.isInteger(p) || p < 1 || p > 65535) {
+        throw new Error('config.fnos.mcpDirect.port 必须为 1–65535');
+      }
+    }
+    if (mcpDirect.bind !== undefined && typeof mcpDirect.bind !== 'string') {
+      throw new Error('config.fnos.mcpDirect.bind 必须为字符串');
     }
   }
 }

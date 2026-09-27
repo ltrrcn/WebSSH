@@ -38,4 +38,13 @@ export const DEFAULT_CONFIG = {
     bind: '127.0.0.1',
     port: 8080,
   },
+  fnos: {
+    // MCP 机器直连端口：绕过统一网关（网关要求 fnOS 登录态，AI 客户端无法持有）。
+    // 仅服务 /mcp（Bearer 令牌鉴权 + 限流 + 审计），不暴露 REST/WS/静态页。
+    mcpDirect: {
+      enabled: false,
+      bind: '0.0.0.0',
+      port: 8422,
+    },
+  },
 };
