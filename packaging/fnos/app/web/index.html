@@ -376,6 +376,19 @@
     .audit-page-info { font-size: 12px; color: var(--text-faint); }
     .audit-pager .btn[disabled] { opacity: .4; cursor: default; }
 
+    /* 令牌页（US6） */
+    .onetime-token {
+      background: var(--ok-soft); border: 1px solid var(--ok); border-radius: var(--radius-md);
+      padding: 12px 14px; margin-bottom: 10px; font-size: 13px; line-height: 1.6;
+    }
+    .onetime-value {
+      font-family: Menlo, monospace; font-size: 12px; word-break: break-all;
+      background: var(--bg-input); border: 1px dashed var(--border-strong);
+      border-radius: var(--radius-sm); padding: 8px 10px; margin: 8px 0;
+      user-select: all;
+    }
+    .token-revoke { padding: 4px 12px; font-size: 12px; }
+
     /* 会话右键菜单（FR-049） */
     .ctx-menu {
       position: fixed; z-index: 300; display: none; min-width: 168px;

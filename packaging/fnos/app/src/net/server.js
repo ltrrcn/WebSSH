@@ -18,6 +18,59 @@ import { createSessionManager } from '../session/manager.js';
 import { hostsRoutes } from '../api/hosts.js';
 import { sessionsRoutes } from '../api/sessions.js';
 import { auditRoutes } from '../api/audit.js';
+import { tokensRoutes } from '../api/tokens.js';
+import { authenticateToken } from '../mcp/tokens.js';
+import { handleMcpCall } from '../mcp/server.js';
+import { checkRateLimit } from '../mcp/rate-limit.js';
+import { readJsonBody } from './router.js';
+
+/** /mcp 处理：Bearer 鉴权 → 限流 → JSON-RPC 分发 */
+async function mcpHandler(req, res, deps) {
+  if (req.method !== 'POST') {
+    res.writeHead(405, { 'content-type': 'application/json', allow: 'POST' });
+    return res.end(JSON.stringify({ error: { code: 'method_not_allowed', message: '仅支持 POST' } }));
+  }
+  const auth = req.headers.authorization ?? '';
+  const plain = auth.startsWith('Bearer ') ? auth.slice(7) : '';
+  if (!plain) {
+    res.writeHead(401, { 'content-type': 'application/json' });
+    return res.end(JSON.stringify({ error: { code: 'unauthorized', message: '缺少 Bearer 令牌' } }));
+  }
+  const result = await authenticateToken(deps.store, plain);
+  if (!result.ok) {
+    res.writeHead(401, { 'content-type': 'application/json' });
+    return res.end(JSON.stringify({ error: { code: 'invalid_token', message: `令牌无效（${result.reason}）` } }));
+  }
+  // 限流（FR-028）：按令牌维度
+  const limit = deps.config?.limits?.tokenRateLimitPerMinute ?? 60;
+  if (!checkRateLimit(result.token.id, limit)) {
+    res.writeHead(429, { 'content-type': 'application/json' });
+    return res.end(JSON.stringify({ error: { code: 'rate_limited', message: '超出令牌调用频率限制' } }));
+  }
+  let body;
+  try {
+    body = await readJsonBody(req);
+  } catch {
+    res.writeHead(400, { 'content-type': 'application/json' });
+    return res.end(JSON.stringify({ jsonrpc: '2.0', id: null, error: { code: -32700, message: 'Parse error' } }));
+  }
+  // 通知（无 id）按规范返回 202
+  if (body && body.id === undefined && !body.method?.startsWith('tools/') && !body.method?.startsWith('initialize')) {
+    res.writeHead(202);
+    return res.end();
+  }
+  const response = await handleMcpCall(body, {
+    token: result.token,
+    runtime: deps.runtime,
+    config: deps.config,
+    store: deps.store,
+    audit: deps.audit,
+    masterKey: deps.masterKey,
+  });
+  const text = JSON.stringify(response);
+  res.writeHead(200, { 'content-type': 'application/json', 'content-length': Buffer.byteLength(text) });
+  res.end(text);
+}
 
 const WEB_DIR = join(fileURLToPath(new URL('../../web', import.meta.url)));
 
@@ -80,9 +133,14 @@ export async function startApp(opts = {}) {
     ...hostsRoutes(deps),
     ...sessionsRoutes(deps),
     ...auditRoutes(deps),
+    ...tokensRoutes(deps),
   ];
 
-  const router = createRouter({ webDir: opts.webDir ?? WEB_DIR, apiRoutes });
+  const router = createRouter({
+    webDir: opts.webDir ?? WEB_DIR,
+    apiRoutes,
+    onMcp: (req, res) => mcpHandler(req, res, deps),
+  });
 
   const httpServer = createServer((req, res) => {
     Promise.resolve(router(req, res, deps)).catch((err) => {
@@ -127,6 +185,7 @@ export async function startApp(opts = {}) {
   const close = async () => {
     // 优雅退出：先终止全部会话（否则存活的 WS 连接会阻塞 httpServer.close）
     deps.sessionManager.killAll();
+    await deps.audit.drain?.(); // 等待审计队列落盘，避免清理竞态
     await new Promise((resolve) => httpServer.close(resolve));
     httpServer.closeIdleConnections?.();
     if (runtime.listen.type === 'unix') {

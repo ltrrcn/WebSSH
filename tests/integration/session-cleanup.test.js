@@ -73,15 +73,17 @@ async function waitSessionsEmpty(app, timeout = 5000) {
   return false;
 }
 
-/** 等待活动会话数达到 n（会话注册与 SSH 建连是异步的） */
-async function waitSessions(app, n, timeout = 5000) {
+/** 等待活动会话数达到 n 且全部 ready（会话注册与 SSH 建连是异步的） */
+async function waitSessions(app, n, timeout = 8000) {
   const start = Date.now();
   while (Date.now() - start < timeout) {
     const list = await (await fetch(`http://127.0.0.1:${app.port}/api/sessions`)).json();
-    if (Array.isArray(list) && list.length === n) return list;
+    if (Array.isArray(list) && list.length === n && list.every((s) => s.state === 'ready')) {
+      return list;
+    }
     await new Promise((r) => setTimeout(r, 150));
   }
-  throw new Error(`等待会话数 ${n} 超时`);
+  throw new Error(`等待 ${n} 个 ready 会话超时`);
 }
 
 /** 轮询等待 sshd 子进程归零 */

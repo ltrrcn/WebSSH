@@ -157,5 +157,10 @@ export function createAuditLogger({ logDir, config }) {
     return events;
   }
 
-  return { log, enforceRetention, listAll, logDir };
+  /** 等待队列中全部写入完成（优雅退出/测试清理前调用） */
+  function drain() {
+    return chain;
+  }
+
+  return { log, enforceRetention, listAll, logDir, drain };
 }

@@ -115,9 +115,17 @@ async function handleTerminal(ws, identity, url, deps) {
   const { store, audit, sessionManager } = deps;
   const hostId = url.searchParams.get('hostId');
 
+  // 并发会话上限（FR-019）：在任何异步操作之前【同步】预留名额——
+  // 升级检查与注册之间的异步窗口会被并发连接绕过（session-limits 挂起的根因）
+  if (!sessionManager.tryReserve(identity.id)) {
+    auditDenied(audit, identity, hostId, 'session_limit');
+    return ws.close(4004, 'session_limit');
+  }
+
   // 主机只能来自授权清单且归属本人（FR-001/009/020）
   const host = hostId ? await store.getHost(hostId, identity.id) : undefined;
   if (!host) {
+    sessionManager.releaseReservation(identity.id);
     auditDenied(audit, identity, hostId, 'host_not_allowed');
     return ws.close(4003, 'host_not_allowed');
   }
@@ -137,14 +145,9 @@ async function handleTerminal(ws, identity, url, deps) {
         /* 捕获失败（不可达等）：仍以未确认关闭，不区分原因以免泄漏 */
       }
     }
+    sessionManager.releaseReservation(identity.id);
     auditDenied(audit, identity, hostId, 'fingerprint_unconfirmed');
     return ws.close(4005, pending ? `fingerprint_unconfirmed:${pending}` : 'fingerprint_unconfirmed');
-  }
-
-  // 并发会话上限（FR-019）
-  if (!sessionManager.canCreate(identity.id)) {
-    auditDenied(audit, identity, hostId, 'session_limit');
-    return ws.close(4004, 'session_limit');
   }
 
   await sessionManager.createSession({ ws, host, identity });

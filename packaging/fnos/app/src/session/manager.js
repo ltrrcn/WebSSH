@@ -25,8 +25,24 @@ export function createSessionManager({ config, store, audit, masterKey, runtime 
     return n;
   }
 
+  /** 建连中的名额预留（FR-019）：升级检查与注册之间存在异步窗口，必须同步预留防止绕过上限 */
+  const reservations = new Map(); // ownerId -> count
+
+  function tryReserve(ownerId) {
+    const total = countByOwner(ownerId) + (reservations.get(ownerId) ?? 0);
+    if (total >= sessionsPerUser) return false;
+    reservations.set(ownerId, (reservations.get(ownerId) ?? 0) + 1);
+    return true;
+  }
+
+  function releaseReservation(ownerId) {
+    const n = (reservations.get(ownerId) ?? 0) - 1;
+    if (n > 0) reservations.set(ownerId, n);
+    else reservations.delete(ownerId);
+  }
+
   function canCreate(ownerId) {
-    return countByOwner(ownerId) < sessionsPerUser;
+    return countByOwner(ownerId) + (reservations.get(ownerId) ?? 0) < sessionsPerUser;
   }
 
   function listSessions(ownerId) {
@@ -50,20 +66,6 @@ export function createSessionManager({ config, store, audit, masterKey, runtime 
    * 创建会话：审计 connect-attempt → SSH 连接 → 桥接；失败审计 connect-failure。
    */
   async function createSession({ ws, host, identity }) {
-    // 升级预检与创建之间存在异步窗口，此处二次校验并发上限（FR-019）
-    if (!canCreate(identity.id)) {
-      audit.log({
-        actor: identity.id,
-        actorType: 'user',
-        hostId: host.id,
-        event: 'connect-attempt',
-        result: 'denied',
-        reason: 'session_limit',
-      });
-      ws.close(4004, 'session_limit');
-      return null;
-    }
-
     const now = new Date().toISOString();
     const session = {
       id: `s_${randomUUID().replace(/-/g, '').slice(0, 12)}`,
@@ -78,6 +80,7 @@ export function createSessionManager({ config, store, audit, masterKey, runtime 
       ws,
     };
     sessions.set(session.id, session);
+    releaseReservation(identity.id); // 注册完成后由会话本体计数，释放预留
 
     audit.log(auditBase(session, { event: 'connect-attempt', result: 'success' }));
 
@@ -213,7 +216,17 @@ export function createSessionManager({ config, store, audit, masterKey, runtime 
     }
   }
 
-  return { sessions, canCreate, countByOwner, listSessions, createSession, killSession, killAll };
+  return {
+    sessions,
+    canCreate,
+    countByOwner,
+    listSessions,
+    createSession,
+    killSession,
+    killAll,
+    tryReserve,
+    releaseReservation,
+  };
 }
 
 /** 失败原因白名单（错误信息不得包含凭据，SC-010） */

@@ -185,6 +185,7 @@ export async function startApp(opts = {}) {
   const close = async () => {
     // 优雅退出：先终止全部会话（否则存活的 WS 连接会阻塞 httpServer.close）
     deps.sessionManager.killAll();
+    await deps.audit.drain?.(); // 等待审计队列落盘，避免清理竞态
     await new Promise((resolve) => httpServer.close(resolve));
     httpServer.closeIdleConnections?.();
     if (runtime.listen.type === 'unix') {

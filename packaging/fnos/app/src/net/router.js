@@ -73,7 +73,7 @@ export function stripGatewayPrefix(path) {
  * 创建 HTTP 请求处理器。支持 `{param}` 路径占位（如 /api/hosts/{id}）。
  * @param {{webDir: string, apiRoutes: Array<{method:string, path:string, handler:(req,res,ctx)=>Promise<void>}>}} opts
  */
-export function createRouter({ webDir, apiRoutes = [] }) {
+export function createRouter({ webDir, apiRoutes = [], onMcp }) {
   // 编译路由：静态段 + 参数段
   const routes = apiRoutes.map((r) => {
     const pattern = r.path.split('/').map((seg) =>
@@ -106,6 +106,12 @@ export function createRouter({ webDir, apiRoutes = [] }) {
   return async function handle(req, res, ctx = {}) {
     const url = new URL(req.url, 'http://localhost');
     const path = stripGatewayPrefix(url.pathname);
+
+    // MCP 端点（单一入口，宪法 III）：Bearer 令牌鉴权由 mcp 层处理
+    if (path === '/mcp') {
+      if (typeof onMcp === 'function') return onMcp(req, res, ctx);
+      return sendError(res, 404, 'not_found', 'MCP 未启用');
+    }
 
     if (path.startsWith('/api/')) {
       const m = matchRoute(req.method, path);
