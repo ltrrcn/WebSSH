@@ -79,6 +79,9 @@ function validateConfig(cfg) {
       throw new Error('config.standalone.port 必须为 0–65535');
     }
   }
+  if (cfg.audit?.recordTerminalOutput !== undefined && typeof cfg.audit.recordTerminalOutput !== 'boolean') {
+    throw new Error('config.audit.recordTerminalOutput 必须为布尔值');
+  }
   const mcpDirect = cfg.fnos?.mcpDirect;
   if (mcpDirect) {
     if (mcpDirect.enabled !== undefined && typeof mcpDirect.enabled !== 'boolean') {
@@ -92,6 +95,21 @@ function validateConfig(cfg) {
     }
     if (mcpDirect.bind !== undefined && typeof mcpDirect.bind !== 'string') {
       throw new Error('config.fnos.mcpDirect.bind 必须为字符串');
+    }
+  }
+  const topMcp = cfg.mcpDirect;
+  if (topMcp) {
+    if (topMcp.enabled !== undefined && typeof topMcp.enabled !== 'boolean') {
+      throw new Error('config.mcpDirect.enabled 必须为布尔值');
+    }
+    if (topMcp.port !== undefined) {
+      const p = Number(topMcp.port);
+      if (!Number.isInteger(p) || p < 1 || p > 65535) {
+        throw new Error('config.mcpDirect.port 必须为 1–65535');
+      }
+    }
+    if (topMcp.bind !== undefined && typeof topMcp.bind !== 'string') {
+      throw new Error('config.mcpDirect.bind 必须为字符串');
     }
   }
 }

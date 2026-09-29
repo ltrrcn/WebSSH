@@ -50,9 +50,9 @@ test('GET /api/audit：按时间顺序返回审计记录，字段完整（FR-011
     for (const field of ['id', 'ts', 'actor', 'actorType', 'hostId', 'hostAddress', 'authType', 'event', 'result']) {
       assert.ok(field in ev, `审计记录应包含 ${field}`);
     }
-    // 时间顺序
+    // 时间倒序：最新在前
     const tss = body.items.map((i) => i.ts);
-    assert.deepEqual(tss, [...tss].sort(), '应按时间顺序排列');
+    assert.deepEqual(tss, [...tss].sort().reverse(), '应按时间倒序排列');
     assert.equal(typeof body.total, 'number');
   } finally {
     await app.close();
@@ -74,6 +74,34 @@ test('GET /api/audit：支持 result / hostId 过滤与分页', async () => {
     assert.equal(paged.items.length, 1);
     const paged2 = await (await fetch(`${base}/api/audit?limit=1&offset=1`)).json();
     assert.notEqual(paged.items[0]?.id, paged2.items[0]?.id, '分页应取不同记录');
+  } finally {
+    await app.close();
+    await cleanup();
+  }
+});
+
+test('GET /api/audit/sessions：按会话聚合，含在线状态与命令数', async () => {
+  const { app, cleanup, base } = await setup();
+  try {
+    const { sessions } = await (await fetch(`${base}/api/audit/sessions`)).json();
+    assert.ok(Array.isArray(sessions));
+    assert.ok(sessions.length >= 1, 'setup 制造了一次失败连接，应有会话');
+    const s = sessions[0];
+    for (const field of ['sessionId', 'hostId', 'createdAt', 'commandCount', 'online']) {
+      assert.ok(field in s, `会话条目应包含 ${field}`);
+    }
+    assert.equal(s.hostId, 'h_dead');
+    assert.equal(s.online, false, '连接失败的会话不在线');
+    assert.equal(s.failed, true, 'connect-failure 应标记 failed');
+    assert.equal(typeof s.commandCount, 'number');
+    // 创建时间倒序
+    const ts = sessions.map((x) => x.createdAt);
+    assert.deepEqual(ts, [...ts].sort().reverse());
+    // hostId 过滤
+    const filtered = await (await fetch(`${base}/api/audit/sessions?hostId=h_dead`)).json();
+    assert.ok(filtered.sessions.every((x) => x.hostId === 'h_dead'));
+    const none = await (await fetch(`${base}/api/audit/sessions?hostId=h_none`)).json();
+    assert.equal(none.sessions.length, 0);
   } finally {
     await app.close();
     await cleanup();

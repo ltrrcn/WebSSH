@@ -3,23 +3,26 @@ import { openModal } from './modal.js';
 import { currentThemeMode, setTheme } from './theme.js';
 import { icon } from './icons.js';
 import { getPrefs, setPref } from './prefs.js';
+import { apiUrl } from './base.js';
 import { getQuickCommands, addQuickCommand, removeQuickCommand } from './quick-commands.js';
 
 /**
  * 打开设置弹窗。
- * @param {{renderAudit?: (el: HTMLElement)=>void, renderTokens?: (el: HTMLElement)=>void, renderTokenConfig?: (el: HTMLElement)=>void}} pages
+ * @param {{renderAudit?: (el: HTMLElement, category: 'operation'|'commands')=>void, renderTokens?: (el: HTMLElement)=>void, renderTokenConfig?: (el: HTMLElement)=>void, renderPermPolicy?: (el: HTMLElement)=>void}} pages
  *   US4/US6 交付后由 app.js 注入对应页面渲染函数；当前为占位。
  */
-export function openSettingsModal({ renderAudit, renderTokens, renderTokenConfig, renderGroups, onGroupsChanged } = {}) {
+export function openSettingsModal({ renderAudit, renderTokens, renderTokenConfig, renderPermPolicy, renderGroups, onGroupsChanged } = {}) {
   const groupsChanged = onGroupsChanged;
   const m = openModal(
     `<div class="settings-layout">
       <div class="settings-nav">
         <button data-pane="theme" class="active">${icon('palette')} 通用设置</button>
         <button data-pane="groups">${icon('folder')} 分组管理</button>
-        <button data-pane="audit">${icon('list')} 命令审计</button>
+        <button data-pane="opsAudit">${icon('list')} 操作审计</button>
+        <button data-pane="cmdAudit">${icon('play')} 命令审计</button>
         <button data-pane="tokens">${icon('key')} 令牌管理</button>
         <button data-pane="tokenConfig">${icon('shield')} 令牌配置</button>
+        <button data-pane="permPolicy">${icon('ban')} 权限策略</button>
       </div>
       <div id="settings-pane" class="settings-content"></div>
     </div>`,
@@ -84,6 +87,12 @@ export function openSettingsModal({ renderAudit, renderTokens, renderTokenConfig
             <div class="pref-label">关闭页面前确认<div class="pref-desc">存在活动终端会话时，离开页面弹出确认</div></div>
             <label class="switch"><input type="checkbox" id="pref-exit" ${prefs.exitConfirm ? 'checked' : ''} /><span></span></label>
           </div>
+          <div class="pref-row">
+            <div class="pref-label">记录终端输出摘要
+              <div class="pref-desc">默认关闭：命令审计只记命令原文与元数据。开启后每条命令附带其输出摘要（自动脱敏并截断，命令审计页「查看」可见）</div>
+            </div>
+            <label class="switch"><input type="checkbox" id="pref-audit-output" /><span></span></label>
+          </div>
         </div>
         <div class="pref-section">
           <div class="pref-title">快捷命令</div>
@@ -120,6 +129,36 @@ export function openSettingsModal({ renderAudit, renderTokens, renderTokenConfig
       });
       pane.querySelector('#pref-exit').addEventListener('change', (e) => {
         setPref('exitConfirm', e.target.checked);
+      });
+
+      // —— 终端输出摘要开关（服务端配置，热生效）——
+      const auditOutputEl = pane.querySelector('#pref-audit-output');
+      auditOutputEl.disabled = true;
+      fetch(apiUrl('audit-settings'))
+        .then((r) => r.json())
+        .then((s) => {
+          auditOutputEl.checked = s.recordTerminalOutput === true;
+          auditOutputEl.disabled = false;
+        })
+        .catch(() => {
+          auditOutputEl.disabled = false;
+        });
+      auditOutputEl.addEventListener('change', async (e) => {
+        const on = e.target.checked;
+        auditOutputEl.disabled = true;
+        try {
+          const r = await fetch(apiUrl('audit-settings'), {
+            method: 'PUT',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ recordTerminalOutput: on }),
+          });
+          if (!r.ok) throw new Error(await r.text());
+        } catch {
+          alert('审计设置保存失败，请重试');
+          auditOutputEl.checked = !on; // 回滚 UI
+        } finally {
+          auditOutputEl.disabled = false;
+        }
       });
 
       // —— 快捷命令管理 ——
@@ -160,11 +199,15 @@ export function openSettingsModal({ renderAudit, renderTokens, renderTokenConfig
       });
       renderQc();
     },
-    audit: () => {
-      if (renderAudit) renderAudit(pane);
+    opsAudit: () => {
+      if (renderAudit) renderAudit(pane, 'operation');
       else
         pane.innerHTML =
           '<div class="placeholder-box">审计功能将在 US4 阶段交付（当前连接记录已在服务端留痕）。</div>';
+    },
+    cmdAudit: () => {
+      if (renderAudit) renderAudit(pane, 'commands');
+      else pane.innerHTML = '<div class="placeholder-box">命令审计功能将在 US4 阶段交付。</div>';
     },
     tokens: () => {
       if (renderTokens) renderTokens(pane);
@@ -173,6 +216,10 @@ export function openSettingsModal({ renderAudit, renderTokens, renderTokenConfig
     tokenConfig: () => {
       if (renderTokenConfig) renderTokenConfig(pane);
       else pane.innerHTML = '<div class="placeholder-box">令牌配置将在 US6 阶段交付。</div>';
+    },
+    permPolicy: () => {
+      if (renderPermPolicy) renderPermPolicy(pane);
+      else pane.innerHTML = '<div class="placeholder-box">权限策略（目录矩阵与敏感路径）将在 US6 阶段交付。</div>';
     },
     groups: () => {
       if (renderGroups) renderGroups(pane, { onChanged: groupsChanged });

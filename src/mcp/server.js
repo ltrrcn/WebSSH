@@ -48,20 +48,7 @@ export function toolDefinitions(level) {
         additionalProperties: false,
       },
     });
-    tools.push({
-      name: 'write_file',
-      description: '写入授权主机上矩阵允许路径的文件（需要 write 与 modify 权限）',
-      inputSchema: {
-        type: 'object',
-        properties: {
-          hostId: { type: 'string', description: '目标主机 ID' },
-          path: { type: 'string', description: '绝对路径' },
-          content: { type: 'string', description: '文件内容' },
-        },
-        required: ['hostId', 'path', 'content'],
-        additionalProperties: false,
-      },
-    });
+    // write_file（上传/写入远端文件）已按需求禁用：不注册即不可调用（能力隔离，FR-031 同款设计）
   }
   return tools;
 }
@@ -130,7 +117,7 @@ function auditToolCall(audit, token, name, args, result, resultStatus, reason) {
     actorType: 'token',
     tokenId: token.id,
     hostId: args?.hostId ?? null,
-    event: name === 'run_command' ? 'command' : name === 'read_file' ? 'file-read' : name === 'write_file' ? 'file-write' : 'command',
+    event: name === 'run_command' ? 'command' : name === 'read_file' ? 'file-read' : 'command',
     result: resultStatus,
     reason,
     command: name === 'run_command' ? args?.command : undefined,
@@ -183,17 +170,6 @@ async function dispatchTool(name, args, ctx) {
       throw Object.assign(new Error(`路径被拒绝（${verdict.reason}）`), { code: 'path_denied' });
     }
     return withSsh({ host, masterKey, config }, (conn) => sftpRead(conn, args.path, MAX_READ_BYTES));
-  }
-
-  if (name === 'write_file') {
-    const pctx = { sensitivePaths: config.security.sensitivePaths, matrix: token.permissions };
-    const w = checkPathAccess(args.path, pctx, 'write');
-    const m = checkPathAccess(args.path, pctx, 'modify');
-    if (!w.allowed || !m.allowed) {
-      throw Object.assign(new Error(`路径被拒绝（${!w.allowed ? w.reason : m.reason}）`), { code: 'path_denied' });
-    }
-    await withSsh({ host, masterKey, config }, (conn) => sftpWrite(conn, args.path, String(args.content ?? '')));
-    return { ok: true };
   }
 
   throw Object.assign(new Error(`未知工具: ${name}`), { code: 'tool_error' });
@@ -284,19 +260,6 @@ function sftpRead(conn, path, maxBytes) {
         sftp.end();
         resolve({ content: Buffer.concat(chunks).toString('utf8'), truncated: size > maxBytes });
       });
-    });
-  });
-}
-
-/** SFTP 写入 */
-function sftpWrite(conn, path, content) {
-  return new Promise((resolve, reject) => {
-    conn.sftp((err, sftp) => {
-      if (err) return reject(err);
-      const ws = sftp.createWriteStream(path);
-      ws.on('error', (e) => reject(Object.assign(new Error(`写入失败: ${e.message}`), { code: 'path_denied' })));
-      ws.on('close', () => { sftp.end(); resolve(); });
-      ws.end(content, 'utf8');
     });
   });
 }

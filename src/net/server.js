@@ -19,6 +19,7 @@ import { hostsRoutes } from '../api/hosts.js';
 import { groupsRoutes } from '../api/groups.js';
 import { sessionsRoutes } from '../api/sessions.js';
 import { auditRoutes } from '../api/audit.js';
+import { auditSettingsRoutes } from '../api/audit-settings.js';
 import { tokensRoutes } from '../api/tokens.js';
 import { mcpDirectRoutes } from '../api/mcp-direct.js';
 import { authenticateToken } from '../mcp/tokens.js';
@@ -142,6 +143,7 @@ export async function startApp(opts = {}) {
     ...groupsRoutes(deps),
     ...sessionsRoutes(deps),
     ...auditRoutes(deps),
+    ...auditSettingsRoutes(deps),
     ...tokensRoutes(deps),
     ...mcpDirectRoutes(deps),
   ];
@@ -234,7 +236,7 @@ export async function startApp(opts = {}) {
     /** 按当前 runtime.mcpListen 启动（已运行则报错） */
     async start() {
       if (mcpServer) throw new Error('MCP 直连端口已在运行');
-      if (!runtime.mcpListen) throw new Error('未配置 fnos.mcpDirect');
+      if (!runtime.mcpListen) throw new Error('未配置 mcpDirect');
       mcpServer = makeMcpDirectServer();
       try {
         await new Promise((resolve, reject) => {

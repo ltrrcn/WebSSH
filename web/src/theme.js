@@ -1,6 +1,6 @@
 // 主题管理（FR-048）：三态模式（跟随系统 / 浅色 / 深色）+ localStorage 持久化 + xterm 主题映射
-// - 跟随系统（默认）：监听 prefers-color-scheme，系统切换实时跟随
-// - 用户主动选择浅色/深色：持久生效，刷新与其他操作均保持（不随系统变化）
+// - 默认浅色：未做过任何选择时以浅色启动
+// - 用户主动选择跟随系统/浅色/深色：持久生效，刷新与其他操作均保持
 // 扩展点：TERMINAL_THEMES 注册表——后续导入 iTerm 等配色时只需往注册表加条目，
 // 不需要改动主题切换机制本身（宪法 VIII：允许预留，禁止预建）。
 
@@ -27,7 +27,7 @@ export const TERMINAL_THEMES = {
   },
 };
 
-/** 用户选择的模式（auto/dark/light）；旧版双态键迁移，默认跟随系统 */
+/** 用户选择的模式（auto/dark/light）；旧版双态键迁移，默认浅色 */
 export function currentThemeMode() {
   const mode = localStorage.getItem(MODE_KEY);
   if (THEME_MODES.includes(mode)) return mode;
@@ -36,7 +36,7 @@ export function currentThemeMode() {
     localStorage.setItem(MODE_KEY, legacy);
     return legacy;
   }
-  return 'auto';
+  return 'light';
 }
 
 function systemPrefersDark() {
@@ -79,7 +79,7 @@ export function onThemeChange(fn) {
 
 /** 设置主题模式（auto/dark/light）：持久化并立即生效 */
 export function setTheme(mode) {
-  const m = THEME_MODES.includes(mode) ? mode : 'auto';
+  const m = THEME_MODES.includes(mode) ? mode : 'light';
   localStorage.setItem(MODE_KEY, m);
   const t = currentTheme();
   applyTheme(t);

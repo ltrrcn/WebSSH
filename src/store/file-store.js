@@ -30,10 +30,12 @@ function migrate(data, file) {
 export function createFileStore({ configDir, now = () => new Date().toISOString() }) {
   const hostsFile = join(configDir, 'hosts.json');
   const tokensFile = join(configDir, 'tokens.json');
+  const groupsFile = join(configDir, 'groups.json');
 
   // 进程内缓存：启动后读一次，写操作「改内存 + 排队落盘」
   let hostsCache = null;
   let tokensCache = null;
+  let groupsCache = null;
 
   async function loadHosts() {
     if (hostsCache) return hostsCache;
@@ -129,13 +131,98 @@ export function createFileStore({ configDir, now = () => new Date().toISOString(
     return true;
   }
 
+  // —— 分组实体（groups.json：分组是独立实体，支持新建/排序；default 为内置不落盘） ——
+
+  async function loadGroups() {
+    if (groupsCache) return groupsCache;
+    let data;
+    try {
+      data = await readJsonWithFallback(groupsFile);
+    } catch (err) {
+      if (err.code === 'ENOENT') {
+        groupsCache = [];
+        return groupsCache;
+      }
+      throw err;
+    }
+    data = migrate(data, 'groups.json');
+    groupsCache = Array.isArray(data.groups) ? data.groups : [];
+    return groupsCache;
+  }
+
+  async function persistGroups() {
+    groupsCache = groupsCache || [];
+    await atomicWriteFile(
+      groupsFile,
+      JSON.stringify({ version: SCHEMA_VERSION, updatedAt: now(), groups: groupsCache }, null, 2)
+    );
+  }
+
+  /** 分组列表（按 order 排序）：仅该 owner 的实体分组；default 由接口层恒定前置 */
+  async function listGroups(ownerId) {
+    return (await loadGroups())
+      .filter((g) => g.ownerId === ownerId)
+      .sort((a, b) => a.order - b.order);
+  }
+
+  /** 新建分组实体：order 取该 owner 现有最大值 +1 */
+  async function createGroupEntity(ownerId, name) {
+    const groups = await loadGroups();
+    const mine = groups.filter((g) => g.ownerId === ownerId);
+    const order = mine.length ? Math.max(...mine.map((g) => g.order)) + 1 : 1;
+    const entry = { name, order, ownerId, createdAt: now() };
+    groups.push(entry);
+    await persistGroups();
+    return entry;
+  }
+
+  /** 删除分组实体（主机归属由调用方另行处理） */
+  async function removeGroupEntity(ownerId, name) {
+    const groups = await loadGroups();
+    const idx = groups.findIndex((g) => g.ownerId === ownerId && g.name === name);
+    if (idx < 0) return false;
+    groups.splice(idx, 1);
+    await persistGroups();
+    return true;
+  }
+
+  /** 重命名分组实体；目标已存在（合并语义）则直接删除源实体 */
+  async function renameGroupEntity(ownerId, from, to) {
+    const groups = await loadGroups();
+    const src = groups.find((g) => g.ownerId === ownerId && g.name === from);
+    if (!src) return false;
+    const dst = groups.find((g) => g.ownerId === ownerId && g.name === to);
+    if (dst) {
+      // 合并：删源实体，目标实体保留
+      groups.splice(groups.indexOf(src), 1);
+    } else {
+      src.name = to;
+      src.updatedAt = now();
+    }
+    await persistGroups();
+    return true;
+  }
+
+  /** 分组排序：按传入顺序重写该 owner 分组的 order（缺漏的分组追加到末尾） */
+  async function reorderGroups(ownerId, names) {
+    const groups = await loadGroups();
+    const mine = groups.filter((g) => g.ownerId === ownerId);
+    const rank = new Map(names.map((n, i) => [n, i + 1]));
+    let tail = names.length + 1;
+    for (const g of mine) {
+      g.order = rank.get(g.name) ?? tail++;
+    }
+    await persistGroups();
+    return true;
+  }
+
   /** 分组集合操作（contracts/rest-api.md 分组节）：仅作用于 ownerId 的主机，单次原子落盘 */
   async function updateHostsGroup(ownerId, fromGroup, toGroup) {
     const hosts = await loadHosts();
     let moved = 0;
     for (const h of hosts) {
       if (h.ownerId === ownerId && h.group === fromGroup) {
-        h.group = toGroup; // string（重命名/合并）或 null（删除 → 回默认分组）
+        h.group = toGroup; // string（重命名/合并）或 'default'（删除 → 回内置默认分组）
         h.updatedAt = now();
         moved++;
       }
@@ -209,6 +296,7 @@ export function createFileStore({ configDir, now = () => new Date().toISOString(
   return {
     hostsFile,
     tokensFile,
+    groupsFile,
     listHosts,
     getHost,
     getHostById,
@@ -218,6 +306,11 @@ export function createFileStore({ configDir, now = () => new Date().toISOString(
     validateHost,
     touchHost,
     updateHostsGroup,
+    listGroups,
+    createGroupEntity,
+    removeGroupEntity,
+    renameGroupEntity,
+    reorderGroups,
     listTokens,
     listTokensAll,
     getTokenById,

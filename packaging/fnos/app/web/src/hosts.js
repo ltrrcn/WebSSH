@@ -31,13 +31,26 @@ export async function renderHostList(container, { onConnect, connectedIds = [], 
   const connected = new Set(connectedIds);
   const groups = new Map();
   for (const h of hosts) {
-    const g = h.group ?? '默认';
+    // 内置 Default 分组：null 与历史别名（default/默认）均归入
+    const g = h.group == null || h.group === '默认' || h.group === 'default' ? 'Default' : h.group;
     if (!groups.has(g)) groups.set(g, []);
     groups.get(g).push(h);
   }
   const collapsed = loadCollapsedGroups();
-  // 分组按名称排序置顶；组内主机按名称排序（竖状树形 + 可折叠）
-  const sortedGroups = [...groups.entries()].sort((a, b) => a[0].localeCompare(b[0], 'zh'));
+  // 分组顺序 = 分组管理中的排序（Default 恒为第一）；无实体的历史分组按名称排在最后
+  let groupOrder = ['Default'];
+  try {
+    const gr = await fetch(apiUrl('groups'));
+    if (gr.ok) groupOrder = (await gr.json()).groups.map((g) => g.name);
+  } catch {
+    /* 网络异常时仅 Default 优先 */
+  }
+  const rank = new Map(groupOrder.map((n, i) => [n, i]));
+  const sortedGroups = [...groups.entries()].sort((a, b) => {
+    const ra = rank.get(a[0]) ?? Number.MAX_SAFE_INTEGER;
+    const rb = rank.get(b[0]) ?? Number.MAX_SAFE_INTEGER;
+    return ra !== rb ? ra - rb : a[0].localeCompare(b[0], 'zh');
+  });
   for (const [, list] of sortedGroups) list.sort((a, b) => a.name.localeCompare(b.name, 'zh'));
 
   container.innerHTML = sortedGroups
@@ -45,7 +58,7 @@ export async function renderHostList(container, { onConnect, connectedIds = [], 
       ([g, list]) => `
       <div class="side-group ${collapsed.has(g) ? 'collapsed' : ''}" data-group="${escapeHtml(g)}">
         <button class="side-group-head" title="点击展开/折叠">
-          <span class="group-chevron">▾</span>
+          <span class="group-chevron">${icon('chevron', 12)}</span>
           <span class="group-name">${escapeHtml(g)}</span>
           <span class="group-count">${list.length}</span>
         </button>
@@ -191,16 +204,37 @@ async function confirmFingerprint(host, onChanged) {
 
 /**
  * 新增/编辑主机弹窗（凭据留空 = 保持不变，FR-005）
+ * 分组为下拉选择：默认选中内置 default 分组
  */
-export function openHostFormModal(host, onSaved) {
+export async function openHostFormModal(host, onSaved) {
   const isEdit = Boolean(host);
+  // 分组选项来自实体分组列表（Default 恒为第一项）
+  let groupOptions = ['Default'];
+  try {
+    const gr = await fetch(apiUrl('groups'));
+    if (gr.ok) groupOptions = (await gr.json()).groups.map((g) => g.name);
+  } catch {
+    /* 网络异常时仅有 Default */
+  }
+  // 编辑态：历史别名（null/default/默认）归一为 Default
+  const rawGroup = isEdit ? host.group : null;
+  const currentGroup = rawGroup == null || rawGroup === '默认' || rawGroup === 'default' ? 'Default' : rawGroup;
+  if (currentGroup !== 'Default' && !groupOptions.includes(currentGroup)) {
+    groupOptions.push(currentGroup); // 历史无实体分组也保留可选
+  }
   const m = openModal(
     `<form id="host-form" class="host-form">
       <label>名称 <input name="name" required maxlength="64" value="${isEdit ? escapeHtml(host.name) : ''}" /></label>
       <label>地址 <input name="host" required placeholder="域名或 IP" value="${isEdit ? escapeHtml(host.host) : ''}" /></label>
       <label>端口 <input name="port" type="number" min="1" max="65535" value="${isEdit ? host.port : 22}" /></label>
       <label>用户名 <input name="username" required value="${isEdit ? escapeHtml(host.username) : ''}" /></label>
-      <label>分组 <input name="group" placeholder="可选" value="${isEdit ? escapeHtml(host.group ?? '') : ''}" /></label>
+      <label>分组
+        <select name="group">
+          ${groupOptions
+            .map((g) => `<option value="${escapeHtml(g)}" ${g === currentGroup ? 'selected' : ''}>${escapeHtml(g)}</option>`)
+            .join('')}
+        </select>
+      </label>
       <label>认证方式
         <div class="seg" role="radiogroup">
           <button type="button" class="seg-btn ${!isEdit || host.authType === 'password' ? 'selected' : ''}" data-value="password">${icon('key', 13)} 密码</button>
@@ -248,7 +282,7 @@ export function openHostFormModal(host, onSaved) {
       host: fd.get('host').trim(),
       port: Number(fd.get('port')) || 22,
       username: fd.get('username').trim(),
-      group: fd.get('group').trim() || null,
+      group: fd.get('group'),
       authType: fd.get('authType'),
     };
     const pw = fd.get('password');

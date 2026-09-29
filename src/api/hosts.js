@@ -1,11 +1,28 @@
 // REST：主机接口（contracts/rest-api.md）
 // Phase 3（US1）：GET /api/hosts 只读
 // Phase 4（US2）：完整 CRUD + 指纹确认 + 分组维护（T045/T046/T047）
-import { randomUUID } from 'node:crypto';
+import { randomBytes } from 'node:crypto';
 import { sendJson, sendError, readJsonBody } from '../net/router.js';
 import { resolveIdentity } from '../net/auth.js';
 import { encryptSecret } from '../crypto/secret.js';
 import { appendKnownHost } from '../ssh/hostkey.js';
+
+const SHORT_ID_CHARS = 'abcdefghijklmnopqrstuvwxyz0123456789';
+
+/** 4 位短随机后缀（base36，36^4≈168 万组合） */
+function shortSuffix() {
+  return [...randomBytes(4)].map((b) => SHORT_ID_CHARS[b % 36]).join('');
+}
+
+/** 主机 ID 生成：h_ + 4 位随机字符，冲突重试 */
+async function nextHostId(store, ownerId) {
+  const used = new Set((await store.listHosts(ownerId)).map((h) => h.id));
+  for (let i = 0; i < 32; i++) {
+    const id = `h_${shortSuffix()}`;
+    if (!used.has(id)) return id;
+  }
+  throw new Error('主机 ID 生成冲突超限');
+}
 
 /** host 字段允许的形态：域名或 IP 字面量，禁止分隔符与空白 */
 const HOSTNAME_RE = /^[A-Za-z0-9._-]+$/;
@@ -67,8 +84,11 @@ export function validateHostPayload(body, { partial = false } = {}) {
     if (body.group !== null && typeof body.group !== 'string') {
       throw invalid('group 必须为字符串或 null');
     }
-    if (body.group === '默认') throw invalid('「默认」为保留分组名（未分组主机的显示名），请换一个名称');
-    value.group = body.group;
+    if (body.group === '默认' || body.group === 'default') {
+      throw invalid('「default/默认」为内置分组 Default 的历史别名，请直接使用 Default');
+    }
+    // null 与历史别名归一化为内置 Default 分组
+    value.group = body.group == null || body.group === '默认' || body.group === 'default' ? 'Default' : body.group;
   }
 
   // 凭据：出现即校验形态
@@ -163,14 +183,14 @@ export function hostsRoutes(deps) {
         }
         const now = new Date().toISOString();
         const entry = {
-          id: `h_${randomUUID().replace(/-/g, '').slice(0, 12)}`,
+          id: await nextHostId(store, identity.id),
           name: value.name,
           host: value.host,
           port: value.port,
           username: value.username,
           authType: value.authType,
           secret: encryptSecret(masterKey, value.secret),
-          group: value.group ?? null,
+          group: value.group ?? 'Default',
           ownerId: identity.id,
           fingerprint: null,
           pendingFingerprint: null,
@@ -279,7 +299,7 @@ export function hostsRoutes(deps) {
         // FR-056：加密凭据密文原样复制（无需解密），副本为完全独立条目
         const copy = {
           ...host,
-          id: `h_${randomUUID().replace(/-/g, '').slice(0, 12)}`,
+          id: await nextHostId(store, identity.id),
           name: `${host.name} 副本`,
           createdAt: now,
           updatedAt: now,

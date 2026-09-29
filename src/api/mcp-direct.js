@@ -1,22 +1,40 @@
-// REST：MCP 机器直连端口管理（fnOS 专属，设置 → 令牌配置 页开关）
+// REST：MCP 机器直连端口管理（双模式通用，设置 → 令牌配置 页开关）
 // GET  /api/mcp-direct   当前配置与运行状态
 // PUT  /api/mcp-direct   { enabled, port?, bind? } —— 更新配置并热启停，无需重启应用
-// 仅管理员（fnOS 网关注入 X-Trim-Isadmin；standalone 本地单用户恒为管理员，
-// 但 standalone 本就有独立 TCP 端口，此接口返回 mode 提示不适用）
+// 仅管理员（fnOS 网关注入 X-Trim-Isadmin；standalone 本地单用户恒为管理员）。
+// 配置读写顶层 mcpDirect（旧版 fnos.mcpDirect 兼容读取）。
 import { sendJson, sendError, readJsonBody } from '../net/router.js';
 import { resolveIdentity } from '../net/auth.js';
 import { saveConfig } from '../config/loader.js';
 
+function readCfg(config) {
+  return config.mcpDirect ?? config.fnos?.mcpDirect ?? { enabled: false, bind: '0.0.0.0', port: 8422 };
+}
+
 function currentState(deps) {
   const { runtime, config, mcpDirectCtl } = deps;
-  const cfg = config.fnos?.mcpDirect ?? { enabled: false, bind: '0.0.0.0', port: 8422 };
+  const cfg = readCfg(config);
   return {
     mode: runtime.mode,
     enabled: Boolean(cfg.enabled),
     bind: cfg.bind ?? '0.0.0.0',
     port: cfg.port ?? 8422,
+    customEndpoint: typeof cfg.customEndpoint === 'string' ? cfg.customEndpoint : '',
     running: mcpDirectCtl ? mcpDirectCtl.isRunning() : false,
   };
+}
+
+/** 校验自定义 MCP 地址：http(s) URL，含路径（通常以 /mcp 结尾），不含凭据 */
+function validCustomEndpoint(v) {
+  if (typeof v !== 'string') return false;
+  const s = v.trim();
+  if (!s) return true; // 允许清空
+  try {
+    const u = new URL(s);
+    return (u.protocol === 'http:' || u.protocol === 'https:') && !u.username && !u.password;
+  } catch {
+    return false;
+  }
 }
 
 export function mcpDirectRoutes(deps) {
@@ -51,9 +69,6 @@ export function mcpDirectRoutes(deps) {
       handler: async (req, res) => {
         const identity = requireAdmin(req, res);
         if (!identity) return;
-        if (runtime.mode !== 'fnos') {
-          return sendError(res, 422, 'not_applicable', 'standalone 模式无需直连端口（主服务即 TCP 监听）');
-        }
         let body;
         try {
           body = await readJsonBody(req);
@@ -64,8 +79,8 @@ export function mcpDirectRoutes(deps) {
         if (typeof enabled !== 'boolean') {
           return sendError(res, 422, 'invalid_field', 'enabled 必须为布尔值');
         }
-        let port = config.fnos?.mcpDirect?.port ?? 8422;
-        let bind = config.fnos?.mcpDirect?.bind ?? '0.0.0.0';
+        let port = readCfg(config).port ?? 8422;
+        let bind = readCfg(config).bind ?? '0.0.0.0';
         if (body?.port !== undefined) {
           port = Number(body.port);
           if (!Number.isInteger(port) || port < 1 || port > 65535) {
@@ -78,9 +93,17 @@ export function mcpDirectRoutes(deps) {
             return sendError(res, 422, 'invalid_field', 'bind 必须为合法 IP/主机名');
           }
         }
+        // 自定义 MCP 地址（反代场景）：以该地址为接入端点，优先级最高
+        let customEndpoint = readCfg(config).customEndpoint ?? '';
+        if (body?.customEndpoint !== undefined) {
+          if (!validCustomEndpoint(body.customEndpoint)) {
+            return sendError(res, 422, 'invalid_field', 'customEndpoint 必须为 http(s):// 开头的合法 URL（不含用户名密码）');
+          }
+          customEndpoint = String(body.customEndpoint).trim().slice(0, 512);
+        }
 
         // 1) 更新内存配置并同步 runtime（ctl 读取 runtime.mcpListen）
-        config.fnos = { ...(config.fnos ?? {}), mcpDirect: { enabled, bind, port } };
+        config.mcpDirect = { enabled, bind, port, customEndpoint };
         runtime.mcpListen = enabled ? { host: bind, port } : null;
 
         // 2) 持久化（失败不回滚内存——运行态与磁盘可恢复一致，报错提示手动重试）

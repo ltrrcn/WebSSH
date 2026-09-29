@@ -131,4 +131,75 @@ test('真实 sshd：指纹未确认时拒绝（4005），确认后全流程可�
   const closed = new Promise((resolve) => ws.on('close', (code) => resolve(code)));
   ws.close(1000);
   assert.equal(await closed, 1000);
+
+  // 命令审计：Web 终端每条提交的命令留痕（category 过滤）
+  await new Promise((r2s) => setTimeout(r2s, 500)); // 审计异步落盘
+  const cmds = await (
+    await fetch(`http://127.0.0.1:${app.port}/api/audit?category=commands`)
+  ).json();
+  assert.ok(
+    cmds.items.some((e) => e.command === 'echo webssh-ok' && e.actorType === 'user'),
+    `Web 终端命令应留痕: ${JSON.stringify(cmds.items.map((e) => e.command))}`
+  );
+  assert.ok(cmds.items.every((e) => e.event === 'command'), 'commands 类别只含命令事件');
+  // 会话 ID：命令事件携带 sessionId，与同一会话的连接事件一致；可按会话筛选
+  const cmdEv = cmds.items.find((e) => e.command === 'echo webssh-ok');
+  assert.ok(cmdEv.sessionId, '命令事件应携带会话 ID');
+  assert.match(cmdEv.sessionId, /^s_[a-z0-9]{4}$/, '会话 ID 应为 s_ + 4 位字符');
+  const bySession = await (
+    await fetch(`http://127.0.0.1:${app.port}/api/audit?sessionId=${cmdEv.sessionId}`)
+  ).json();
+  assert.ok(bySession.items.length >= 2, '按会话筛选应含连接与命令事件');
+  assert.ok(bySession.items.every((e) => e.sessionId === cmdEv.sessionId));
+  assert.ok(
+    bySession.items.some((e) => e.event === 'connect-success'),
+    '该会话的连接成功记录应可见'
+  );
+  const ops = await (
+    await fetch(`http://127.0.0.1:${app.port}/api/audit?category=operation`)
+  ).json();
+  assert.ok(
+    ops.items.every((e) => e.event !== 'command'),
+    'operation 类别不含命令事件'
+  );
+  assert.ok(
+    ops.items.some((e) => e.event === 'connect-success'),
+    'operation 类别应含登录（连接成功）记录'
+  );
+
+  // 输出摘要开关：默认关闭 → 命令事件无 outputDigest
+  const echoEv = cmds.items.find((e) => e.command === 'echo webssh-ok');
+  assert.ok(!echoEv.outputDigest, '默认不记录输出摘要');
+
+  // 热开启（REST PUT）后新会话：命令事件附带脱敏输出摘要
+  const base = `http://127.0.0.1:${app.port}`;
+  const put = await fetch(`${base}/api/audit-settings`, {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ recordTerminalOutput: true }),
+  });
+  assert.equal(put.status, 200);
+
+  const r3 = await connectWs(`${wsBase}/ws/terminal?hostId=h_ssh&version=1`, origin);
+  assert.ok(r3.open, '开关开启后应能打开终端');
+  const ws3 = r3.ws;
+  const out3 = collect(ws3);
+  await out3.wait('Last login').catch(() => {});
+  ws3.send(encodeDataFrame(Buffer.from('echo digest-marker-7\n', 'utf8')));
+  await out3.wait('digest-marker-7');
+  ws3.send(encodeDataFrame(Buffer.from('true\n', 'utf8'))); // 触发上一条命令 flush
+  await new Promise((r2s) => setTimeout(r2s, 300));
+  const closed3 = new Promise((resolve) => ws3.on('close', resolve));
+  ws3.close(1000);
+  await closed3;
+  await new Promise((r2s) => setTimeout(r2s, 500)); // 审计异步落盘
+
+  const cmds2 = await (await fetch(`${base}/api/audit?category=commands`)).json();
+  const digestEv = cmds2.items.find((e) => e.command === 'echo digest-marker-7');
+  assert.ok(digestEv?.outputDigest, '开启后命令应带输出摘要');
+  assert.ok(digestEv.outputDigest.includes('digest-marker-7'), `摘要应含命令输出: ${digestEv.outputDigest}`);
+
+  // 开关状态持久化查询
+  const get = await (await fetch(`${base}/api/audit-settings`)).json();
+  assert.equal(get.recordTerminalOutput, true);
 });

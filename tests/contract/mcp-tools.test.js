@@ -52,7 +52,7 @@ test('工具注册矩阵（FR-031）：readonly 不注册命令与写入类工�
 
     const wr = await createToken(base, { level: 'writable', hostScope: ['h1'] });
     const tools2 = (await rpc(base, wr.body.token, 'tools/list')).body.result.tools.map((t) => t.name);
-    assert.deepEqual(tools2.sort(), ['list_hosts', 'read_file', 'run_command', 'write_file']);
+    assert.deepEqual(tools2.sort(), ['list_hosts', 'read_file', 'run_command']);
     // 明文仅创建时返回一次（列表接口不含）
     const list = await (await fetch(`${base}/api/tokens`)).json();
     assert.ok(!JSON.stringify(list).includes(ro.body.token));

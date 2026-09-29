@@ -1,4 +1,4 @@
-// T075：MCP 端到端——真实 sshd + 真实令牌调用（run_command / write_file / read_file）
+// T075：MCP 端到端——真实 sshd + 真实令牌调用（run_command / read_file；write_file 已禁用）
 import { test } from 'node:test';
 import assert from 'node:assert';
 import { execFile } from 'node:child_process';
@@ -83,12 +83,11 @@ test('MCP 全链路：令牌 → 工具调用 → 真实 sshd 执行/读写（FR
   assert.equal(run.exitCode, 0);
   assert.ok(run.stdoutDigest.includes(marker), `输出应含 marker: ${JSON.stringify(run)}`);
 
-  // 3) write_file + read_file 往返（矩阵允许 /tmp）
-  const path = `/tmp/webssh-mcp-e2e-${Date.now()}.txt`;
-  const w = await callTool(base, token, 'write_file', { hostId: 'h_ssh', path, content: 'hello-webssh' });
-  assert.deepEqual(w, { ok: true });
-  const r = await callTool(base, token, 'read_file', { hostId: 'h_ssh', path });
-  assert.equal(r.content, 'hello-webssh');
+  // 3) write_file 已禁用（不允许上传文件）：工具不注册，调用被拒绝
+  const toolsW = (await rpc(base, token, 'tools/list')).body.result.tools.map((x) => x.name);
+  assert.ok(!toolsW.includes('write_file'), 'write_file 不注册');
+  const w = await callTool(base, token, 'write_file', { hostId: 'h_ssh', path: '/tmp/x', content: 'x' });
+  assert.ok(w.rpcError || w.toolError, 'write_file 调用应被拒绝');
 
   // 4) 敏感路径拒绝（FR-036）
   const denied = await callTool(base, token, 'read_file', { hostId: 'h_ssh', path: '/etc/shadow' });
@@ -115,6 +114,12 @@ test('MCP 全链路：令牌 → 工具调用 → 真实 sshd 执行/读写（FR
   await new Promise((r) => setTimeout(r, 300));
   const events = await (await fetch(`${base}/api/audit`)).json();
   assert.ok(events.items.some((e) => e.tokenId === created.id && e.event === 'command' && e.command?.includes(marker)), '命令留痕');
-  assert.ok(events.items.some((e) => e.event === 'file-write' && e.path === path), '写入留痕');
+  assert.ok(!events.items.some((e) => e.event === 'file-write' && e.path === '/tmp/x'), '写入不留痕（write_file 已禁用）');
+  // 8) 命令原文子串过滤（审计页「按命令查询」后端）
+  const byCmd = await (await fetch(`${base}/api/audit?command=${encodeURIComponent(marker)}`)).json();
+  assert.ok(byCmd.items.length >= 1, '命令过滤应命中');
+  assert.ok(byCmd.items.every((e) => typeof e.command === 'string' && e.command.toLowerCase().includes(marker.toLowerCase())), '命中记录必须含命令原文');
+  const byCmdNone = await (await fetch(`${base}/api/audit?command=no-such-command-xyz`)).json();
+  assert.equal(byCmdNone.items.length, 0, '无命中时应为空');
   assert.ok(events.items.every((e) => !JSON.stringify(e).includes(created.token)), '审计不含令牌明文');
 });

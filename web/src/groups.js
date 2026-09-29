@@ -1,26 +1,17 @@
-// 分组管理页（设置 → 分组）：重命名（合并）/ 删除（组内主机移回「默认」分组，凭据保留）
-// 分组是主机 group 字段的集合视图，无独立实体
+// 分组管理页（设置 → 分组）：内置 default 分组 + 新建 / 重命名（合并）/ 删除 / 排序
+// 删除分组只解除标签：组内主机移回 default 分组，主机与凭据完整保留
 import { apiUrl } from './base.js';
 import { icon } from './icons.js';
 
 export async function renderGroups(el, { onChanged } = {}) {
   el.innerHTML = '<div class="placeholder-box">加载中…</div>';
-  let hosts = [];
+  let groups = [];
   try {
-    const res = await fetch(apiUrl('hosts'));
-    if (res.ok) hosts = await res.json();
+    const res = await fetch(apiUrl('groups'));
+    if (res.ok) groups = (await res.json()).groups ?? [];
   } catch {
     /* 网络异常 */
   }
-
-  // 聚合：真实 group 字符串集合（虚拟「默认」组 = group 为 null 的主机，不可管理）
-  const counts = new Map();
-  let ungrouped = 0;
-  for (const h of hosts) {
-    if (h.group == null) ungrouped++;
-    else counts.set(h.group, (counts.get(h.group) ?? 0) + 1);
-  }
-  const groups = [...counts.entries()].sort((a, b) => a[0].localeCompare(b[0], 'zh'));
 
   const doRefresh = () => {
     if (onChanged) onChanged();
@@ -29,26 +20,84 @@ export async function renderGroups(el, { onChanged } = {}) {
 
   el.innerHTML = `
     <div class="audit-toolbar">
-      <span style="font-size:12px;color:var(--text-faint)">删除分组只解除标签：组内主机移回「默认」分组，主机与凭据完整保留</span>
+      <input id="group-new-name" class="audit-search audit-sid-input" type="text"
+        placeholder="新分组名称" maxlength="64" />
+      <button class="btn primary" id="group-create">新建分组</button>
+      <span style="flex:1"></span>
       <button class="btn" id="group-refresh">刷新</button>
     </div>
-    ${
-      groups.length
-        ? `<div class="audit-list">${groups
-            .map(
-              ([name, n]) => `<div class="audit-row" data-group="${escapeHtml(name)}">
-                <span class="audit-event">${escapeHtml(name)}</span>
-                <span class="audit-detail">${n} 台主机</span>
-                <button class="btn group-rename" data-name="${escapeHtml(name)}">${icon('pencil', 12)} 重命名</button>
-                <button class="btn danger-text group-delete" data-name="${escapeHtml(name)}" data-count="${n}">${icon('trash', 12)} 删除</button>
-              </div>`
-            )
-            .join('')}</div>`
-        : '<div class="placeholder-box">暂无自定义分组。在左侧编辑主机时填写「分组」即可创建。</div>'
-    }
-    ${ungrouped ? `<p class="form-note" style="margin-top:10px">另有 ${ungrouped} 台主机未分组（显示在「默认」分组，不可删除）。</p>` : ''}`;
+    <p class="form-note" style="margin:0 0 10px">
+      新建主机默认归入 <b>Default</b> 分组（内置，不可删除）。删除自定义分组只解除标签：组内主机移回 Default，主机与凭据完整保留。
+    </p>
+    <div class="audit-list">${groups
+      .map((g, i) => {
+        // 自定义分组序号（Default 内置置顶，不参与排序）
+        const customIdx = groups.slice(0, i).filter((x) => !x.builtin).length;
+        const customTotal = groups.filter((x) => !x.builtin).length;
+        return `<div class="audit-row group-row" data-name="${escapeHtml(g.name)}" data-builtin="${g.builtin}">
+          <span class="audit-event">${escapeHtml(g.name)}${g.builtin ? ' <span class="tag pinned">置顶</span>' : ''}</span>
+          <span class="audit-detail">${g.count} 台主机</span>
+          <span class="group-order-btns">${
+            g.builtin
+              ? ''
+              : `<button class="icon-btn group-move" data-dir="-1" title="上移" ${customIdx === 0 ? 'disabled' : ''}>↑</button>
+                 <button class="icon-btn group-move" data-dir="1" title="下移" ${customIdx === customTotal - 1 ? 'disabled' : ''}>↓</button>`
+          }</span>
+          ${
+            g.builtin
+              ? '<span></span><span></span>'
+              : `<button class="icon-btn group-rename" data-name="${escapeHtml(g.name)}" title="重命名">${icon('pencil', 13)}</button>
+                 <button class="icon-btn danger-text group-delete" data-name="${escapeHtml(g.name)}" data-count="${g.count}" title="删除">${icon('trash', 13)}</button>`
+          }
+        </div>`;
+      })
+      .join('')}</div>`;
 
   el.querySelector('#group-refresh').addEventListener('click', () => renderGroups(el, { onChanged }));
+
+  // 新建分组
+  const nameInput = el.querySelector('#group-new-name');
+  const create = async () => {
+    const name = nameInput.value.trim();
+    if (!name) return alert('分组名不能为空');
+    const res = await fetch(apiUrl('groups'), {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      return alert(`新建失败：${err.error?.message ?? res.statusText}`);
+    }
+    doRefresh();
+  };
+  el.querySelector('#group-create').addEventListener('click', create);
+  nameInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') create();
+  });
+
+  // 排序：上移/下移后整体提交当前顺序（内置 default 不参与）
+  el.querySelectorAll('.group-move').forEach((b) =>
+    b.addEventListener('click', async () => {
+      if (b.disabled) return;
+      const row = b.closest('.group-row');
+      const dir = Number(b.dataset.dir);
+      const sib = dir < 0 ? row.previousElementSibling : row.nextElementSibling;
+      if (!sib || sib.dataset.builtin === 'true') return; // 内置置顶行不可越过
+      if (dir < 0) row.parentNode.insertBefore(row, sib);
+      else row.parentNode.insertBefore(sib, row);
+      const order = [...row.parentNode.querySelectorAll('.group-row')]
+        .map((r) => r.dataset.name)
+        .filter((n, i, arr) => n !== 'Default' && arr.indexOf(n) === i);
+      const res = await fetch(apiUrl('groups/reorder'), {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ order }),
+      });
+      if (res.ok) doRefresh();
+    })
+  );
+
   el.querySelectorAll('.group-rename').forEach((b) =>
     b.addEventListener('click', async () => {
       const name = b.dataset.name;
@@ -56,7 +105,6 @@ export async function renderGroups(el, { onChanged } = {}) {
       if (newName === null) return;
       const trimmed = newName.trim();
       if (!trimmed || trimmed === name) return;
-      if (trimmed === '默认') return alert('「默认」为保留分组名，请换一个名称。');
       const res = await fetch(apiUrl(`groups/${encodeURIComponent(name)}`), {
         method: 'PUT',
         headers: { 'content-type': 'application/json' },
@@ -73,7 +121,7 @@ export async function renderGroups(el, { onChanged } = {}) {
     b.addEventListener('click', async () => {
       const name = b.dataset.name;
       const n = b.dataset.count;
-      if (!confirm(`删除分组「${name}」？\n组内 ${n} 台主机将移回「默认」分组，主机与凭据完整保留。`)) return;
+      if (!confirm(`删除分组「${name}」？\n组内 ${n} 台主机将移回 default 分组，主机与凭据完整保留。`)) return;
       const res = await fetch(apiUrl(`groups/${encodeURIComponent(name)}`), { method: 'DELETE' });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));

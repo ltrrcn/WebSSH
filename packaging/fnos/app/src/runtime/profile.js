@@ -18,17 +18,25 @@ export function detectMode(env = process.env) {
 /**
  * 解析运行时：路径、监听形态、身份来源全部在此收敛。
  * @param {NodeJS.ProcessEnv} env
- * @param {{ standalone?: { bind?: string, port?: number } }} [config]
+ * @param {{ standalone?: { bind?: string, port?: number }, fnos?: { mcpDirect?: { enabled?: boolean, bind?: string, port?: number } } }} [config]
  */
 export function resolveRuntime(env = process.env, config = {}) {
   const mode = detectMode(env);
   const paths = resolvePaths(mode, env);
+
+  // MCP 机器直连（可选，双模式通用）：顶层 mcpDirect 优先，旧版 fnos.mcpDirect 兼容。
+  // fnos 下绕过统一网关的登录态校验；standalone 下主服务常驻回环，AI 客户端经此端口接入。
+  const mcpDirect = config?.mcpDirect ?? config?.fnos?.mcpDirect;
+  const mcpListen = mcpDirect?.enabled
+    ? { host: mcpDirect.bind ?? '0.0.0.0', port: mcpDirect.port ?? 8422 }
+    : null;
 
   if (mode === 'fnos') {
     return {
       mode,
       paths,
       listen: { type: 'unix', socketPath: join(env.TRIM_APPDEST, 'app.sock') },
+      mcpListen,
       authSource: 'trim-headers',
     };
   }
@@ -39,6 +47,7 @@ export function resolveRuntime(env = process.env, config = {}) {
     mode,
     paths,
     listen: { type: 'tcp', host: bind, port },
+    mcpListen,
     authSource: 'app-session',
   };
 }

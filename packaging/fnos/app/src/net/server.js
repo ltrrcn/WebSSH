@@ -1,5 +1,5 @@
 // 单一 HTTP 服务（宪法 III：单进程、单入口）
-// fnOS：监听 ${TRIM_APPDEST}/app.sock（统一网关）
+// fnOS：监听 ${TRIM_APPDEST}/app.sock（统一网关）；可选 MCP 机器直连 TCP 端口（仅 /mcp，fnos.mcpDirect）
 // standalone：监听 127.0.0.1:<port>（非回环绑定必须启用 TLS，否则启动告警）
 import { createServer } from 'node:http';
 import { unlink } from 'node:fs/promises';
@@ -19,7 +19,9 @@ import { hostsRoutes } from '../api/hosts.js';
 import { groupsRoutes } from '../api/groups.js';
 import { sessionsRoutes } from '../api/sessions.js';
 import { auditRoutes } from '../api/audit.js';
+import { auditSettingsRoutes } from '../api/audit-settings.js';
 import { tokensRoutes } from '../api/tokens.js';
+import { mcpDirectRoutes } from '../api/mcp-direct.js';
 import { authenticateToken } from '../mcp/tokens.js';
 import { handleMcpCall } from '../mcp/server.js';
 import { checkRateLimit } from '../mcp/rate-limit.js';
@@ -32,7 +34,13 @@ async function mcpHandler(req, res, deps) {
     return res.end(JSON.stringify({ error: { code: 'method_not_allowed', message: '仅支持 POST' } }));
   }
   const auth = req.headers.authorization ?? '';
-  const plain = auth.startsWith('Bearer ') ? auth.slice(7) : '';
+  // 令牌来源：Authorization: Bearer（标准）→ X-MCP-Token（回退）。
+  // fnOS 统一网关会抢验 Authorization 头（当作 fnOS token），携带网关登录态的
+  // 请求经网关转发时只能用自定义头传递 MCP 令牌，故提供等价回退通道。
+  const fallback = typeof req.headers['x-mcp-token'] === 'string' ? req.headers['x-mcp-token'].trim() : '';
+  const plain = auth.startsWith('Bearer ')
+    ? auth.slice(7)
+    : fallback;
   if (!plain) {
     res.writeHead(401, { 'content-type': 'application/json' });
     return res.end(JSON.stringify({ error: { code: 'unauthorized', message: '缺少 Bearer 令牌' } }));
@@ -135,7 +143,9 @@ export async function startApp(opts = {}) {
     ...groupsRoutes(deps),
     ...sessionsRoutes(deps),
     ...auditRoutes(deps),
+    ...auditSettingsRoutes(deps),
     ...tokensRoutes(deps),
+    ...mcpDirectRoutes(deps),
   ];
 
   const router = createRouter({
@@ -184,12 +194,80 @@ export async function startApp(opts = {}) {
         : `监听=${runtime.listen.host}:${httpServer.address().port}`)
   );
 
+  // fnOS MCP 机器直连（可选）：独立端口只服务 /mcp，不经过统一网关。
+  // 该端口不挂 REST/WS/静态页——机器端口只跑机器协议，缩小暴露面。
+  // ctl 支持运行时热启停（设置界面开关，无需重启应用）。
+  let mcpServer = null;
+  const makeMcpDirectServer = () =>
+    createServer((req, res) => {
+      let path = req.url ?? '/';
+      const q = path.indexOf('?');
+      if (q >= 0) path = path.slice(0, q);
+      if (path !== '/mcp') {
+        res.writeHead(404, { 'content-type': 'application/json' });
+        return res.end(JSON.stringify({ error: { code: 'not_found', message: '此端口仅提供 /mcp' } }));
+      }
+      Promise.resolve(mcpHandler(req, res, deps)).catch((err) => {
+        console.error('[webssh][mcp-direct] 请求处理失败:', err.message);
+        if (!res.headersSent) {
+          res.writeHead(500, { 'content-type': 'application/json' });
+          res.end(JSON.stringify({ error: { code: 'internal', message: '内部错误' } }));
+        } else {
+          res.destroy();
+        }
+      });
+    });
+  const logMcpDirect = (on, host, port) => {
+    if (on && !isLoopback(host)) {
+      console.warn(
+        `[webssh][security] MCP 直连端口绑定非回环地址 ${host}:${port}，` +
+          'HTTP 明文传输（令牌可被窃听）。仅限可信内网使用，跨网请加 TLS 反代。'
+      );
+    }
+    console.log(
+      on
+        ? `[webssh] MCP 直连=on ${host}:${port}（仅 /mcp，不经过 fnOS 网关）`
+        : '[webssh] MCP 直连=off'
+    );
+  };
+  const mcpDirectCtl = {
+    /** 当前是否在监听 */
+    isRunning: () => mcpServer !== null,
+    /** 按当前 runtime.mcpListen 启动（已运行则报错） */
+    async start() {
+      if (mcpServer) throw new Error('MCP 直连端口已在运行');
+      if (!runtime.mcpListen) throw new Error('未配置 mcpDirect');
+      mcpServer = makeMcpDirectServer();
+      try {
+        await new Promise((resolve, reject) => {
+          mcpServer.once('error', reject);
+          mcpServer.listen(runtime.mcpListen.port, runtime.mcpListen.host, resolve);
+        });
+      } catch (err) {
+        mcpServer = null;
+        throw err;
+      }
+      logMcpDirect(true, runtime.mcpListen.host, mcpServer.address().port);
+      return mcpServer.address().port;
+    },
+    /** 停止监听 */
+    async stop() {
+      if (!mcpServer) return;
+      const s = mcpServer;
+      mcpServer = null;
+      await new Promise((resolve) => s.close(resolve));
+      s.closeIdleConnections?.();
+      logMcpDirect(false);
+    },
+  };
+
   const close = async () => {
     // 优雅退出：先终止全部会话（否则存活的 WS 连接会阻塞 httpServer.close）
     deps.sessionManager.killAll();
     await deps.audit.drain?.(); // 等待审计队列落盘，避免清理竞态
     await new Promise((resolve) => httpServer.close(resolve));
     httpServer.closeIdleConnections?.();
+    await mcpDirectCtl.stop();
     if (runtime.listen.type === 'unix') {
       try {
         await unlink(runtime.listen.socketPath);
@@ -199,12 +277,20 @@ export async function startApp(opts = {}) {
     }
   };
 
-  return {
+  const app = {
     port: runtime.listen.type === 'tcp' ? httpServer.address().port : undefined,
     close,
     runtime,
     config,
     httpServer,
     deps,
+    mcpDirectCtl,
   };
+  // 注入到 deps 供 REST 热启停使用（routes 闭包引用同一 deps 对象）
+  deps.mcpDirectCtl = mcpDirectCtl;
+  deps.app = app;
+
+  if (runtime.mcpListen) await mcpDirectCtl.start();
+
+  return app;
 }

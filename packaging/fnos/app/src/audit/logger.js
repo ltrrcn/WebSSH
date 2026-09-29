@@ -1,11 +1,17 @@
 // JSONL 审计日志（research R9 / FR-010/011/041/042）
 // 按天 + 按大小滚动；保留 N 天；写入前过脱敏；schema version=1（只增不改）
+// MCP 独立审计流：actorType='token'（令牌/机器调用）写入 audit-mcp-*.jsonl，
+// 人工操作写 audit-*.jsonl —— 机器行为与人工行为物理分文件，便于独立审查与归档。
 import { appendFile, mkdir, readdir, readFile, stat, unlink } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import { redact, needsRedaction, truncateDigest } from '../crypto/redact.js';
 
 const SCHEMA_VERSION = 1;
+// 文件名前缀（两套流共用同一滚动/保留策略）
+const PREFIX_MAIN = 'audit';
+const PREFIX_MCP = 'audit-mcp';
+const FILE_RE = /^(audit|audit-mcp)-(\d{4}-\d{2}-\d{2})(\.\d+)?\.jsonl$/;
 
 function dayStamp(d = new Date()) {
   return d.toISOString().slice(0, 10);
@@ -21,32 +27,33 @@ export function createAuditLogger({ logDir, config }) {
 
   // 串行写入链：保证 JSONL 行序与滚动判定不竞态
   let chain = Promise.resolve();
-  let currentFile = null;
+  // 各流当前文件（前缀 → 文件名）
+  const currentFiles = new Map();
 
-  async function resolveFile(bytes) {
-    const base = join(logDir, `audit-${dayStamp()}.jsonl`);
-    if (currentFile !== base) {
-      currentFile = base;
+  async function resolveFile(prefix, bytes) {
+    const base = join(logDir, `${prefix}-${dayStamp()}.jsonl`);
+    if (currentFiles.get(prefix) !== base) {
+      currentFiles.set(prefix, base);
     }
     if (bytes === 0) return base;
     try {
-      const st = await stat(currentFile);
+      const st = await stat(base);
       if (st.size >= maxFileBytes) {
-        // 同日滚动：audit-YYYY-MM-DD.N.jsonl
+        // 同日滚动：{prefix}-YYYY-MM-DD.N.jsonl
         let n = 1;
         // 从当前最大序号继续
         const files = await readdir(logDir);
-        const prefix = `audit-${dayStamp()}.`;
+        const p = `${prefix}-${dayStamp()}.`;
         for (const f of files) {
-          const m = f.match(new RegExp(`^${prefix}(\\d+)\\.jsonl$`));
+          const m = f.match(new RegExp(`^${p}(\\d+)\\.jsonl$`));
           if (m) n = Math.max(n, Number(m[1]) + 1);
         }
-        return join(logDir, `audit-${dayStamp()}.${n}.jsonl`);
+        return join(logDir, `${p}${n}.jsonl`);
       }
     } catch {
       /* 文件不存在，走 base */
     }
-    return currentFile;
+    return base;
   }
 
   /** 追加写入链（串行） */
@@ -73,6 +80,7 @@ export function createAuditLogger({ logDir, config }) {
         hostId: event.hostId ?? null,
         hostAddress: event.hostAddress ?? null,
         authType: event.authType ?? null,
+        sessionId: event.sessionId ?? null, // 会话 ID（Web 终端事件；MCP 调用为 null）
         event: event.event,
         result: event.result ?? 'success',
         reason: event.reason ?? null,
@@ -97,13 +105,15 @@ export function createAuditLogger({ logDir, config }) {
         ev.redacted = true;
       }
       const line = `${JSON.stringify(ev)}\n`;
-      const file = await resolveFile(line.length);
+      // MCP 独立审计流：令牌发起的机器调用写 audit-mcp-*，人工操作写 audit-*
+      const prefix = ev.actorType === 'token' ? PREFIX_MCP : PREFIX_MAIN;
+      const file = await resolveFile(prefix, line.length);
       await appendFile(file, line, 'utf8');
       return ev;
     });
   }
 
-  /** 按保留策略清理过期审计文件（启动与每日触发） */
+  /** 按保留策略清理过期审计文件（启动与每日触发，两种流一并清理） */
   async function enforceRetention() {
     const cutoff = Date.now() - retentionDays * 24 * 3600 * 1000;
     let files;
@@ -114,9 +124,9 @@ export function createAuditLogger({ logDir, config }) {
     }
     let removed = 0;
     for (const f of files) {
-      const m = f.match(/^audit-(\d{4}-\d{2}-\d{2})(\.\d+)?\.jsonl$/);
+      const m = f.match(FILE_RE);
       if (!m) continue;
-      if (new Date(`${m[1]}T00:00:00Z`).getTime() < cutoff) {
+      if (new Date(`${m[2]}T00:00:00Z`).getTime() < cutoff) {
         try {
           await unlink(join(logDir, f));
           removed++;
@@ -128,11 +138,14 @@ export function createAuditLogger({ logDir, config }) {
     return removed;
   }
 
-  /** 读取全部事件（按文件名时间顺序 + 行序），US4 查询/导出使用 */
-  async function listAll() {
+  /**
+   * 读取全部事件（两种审计流的文件合并，行序读入；查询侧再按 ts 排序）。
+   * @param {{actorType?: 'token' | 'user'}} [opts] 按来源过滤（兼容旧文件中的历史事件）
+   */
+  async function listAll(opts = {}) {
     let files;
     try {
-      files = (await readdir(logDir)).filter((f) => /^audit-\d{4}-\d{2}-\d{2}(\.\d+)?\.jsonl$/.test(f));
+      files = (await readdir(logDir)).filter((f) => FILE_RE.test(f));
     } catch {
       return [];
     }
@@ -148,7 +161,9 @@ export function createAuditLogger({ logDir, config }) {
       for (const line of text.split('\n')) {
         if (!line.trim()) continue;
         try {
-          events.push(JSON.parse(line));
+          const ev = JSON.parse(line);
+          if (opts.actorType && ev.actorType !== opts.actorType) continue;
+          events.push(ev);
         } catch {
           /* 跳过损坏行 */
         }

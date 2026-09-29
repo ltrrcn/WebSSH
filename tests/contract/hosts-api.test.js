@@ -44,6 +44,7 @@ test('POST /api/hosts 创建主机 → 201，响应不含 secret 与明文凭据
     assert.equal(res.status, 201);
     const body = await res.json();
     assert.ok(body.id, '应返回生成的 id');
+    assert.match(body.id, /^h_[a-z0-9]{4}$/, '主机 ID 应为 h_ + 4 位字符');
     const text = JSON.stringify(body);
     assert.ok(!('secret' in body), '响应不得包含 secret 结构');
     assert.ok(!text.includes(SECRET_PW), '响应不得包含明文口令');
@@ -52,6 +53,31 @@ test('POST /api/hosts 创建主机 → 201，响应不含 secret 与明文凭据
     const host = await app.deps.store.getHost(body.id, 'local');
     assert.equal(host.secret.alg, 'aes-256-gcm');
     assert.ok(!JSON.stringify(host.secret).includes(SECRET_PW));
+  } finally {
+    await app.close();
+    await cleanup();
+  }
+});
+
+test('主机 ID 格式：h_ + 4 位短随机，多主机互不相同', async () => {
+  const { app, cleanup, base } = await setup();
+  try {
+    const post = async () =>
+      (await fetch(`${base}/api/hosts`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(createBody()),
+      })).json();
+    const a = await post();
+    const b = await post();
+    assert.match(a.id, /^h_[a-z0-9]{4}$/);
+    assert.match(b.id, /^h_[a-z0-9]{4}$/);
+    assert.notEqual(a.id, b.id, 'ID 不得重复');
+    // 副本同样走短随机格式
+    const dup = await (await fetch(`${base}/api/hosts/${b.id}/duplicate`, { method: 'POST' })).json();
+    assert.match(dup.id, /^h_[a-z0-9]{4}$/);
+    assert.notEqual(dup.id, a.id);
+    assert.notEqual(dup.id, b.id);
   } finally {
     await app.close();
     await cleanup();

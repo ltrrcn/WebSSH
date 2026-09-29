@@ -155,8 +155,41 @@ async function createTab(host) {
     });
   });
 
-  // —— WS 连接（前缀感知：fnOS 统一网关下携带 /app/webssh/ 基址）——
-  // 网关可能不向 WS 升级注入用户头：先经 REST 换一次性票据一并携带
+  term.onData((d) => {
+    const ws = tab.ws;
+    if (ws?.readyState === WebSocket.OPEN) {
+      ws.send(encodeDataFrame(d));
+    } else if (ws?.readyState === WebSocket.CLOSED && (d === '\r' || d === '\n')) {
+      // 断开后 Enter 重连：复用原终端与回滚缓冲，仅重建 WS
+      reconnectTab(tab);
+    }
+  });
+
+  await connectWs(tab);
+  activateTab(id);
+  return tab;
+}
+
+// 输出分片节流（FR-021）：队列挂在 tab 上，重连后沿用同一节流通道
+function enqueue(tab, text) {
+  tab.queue.push(text);
+  if (!tab.scheduled) {
+    tab.scheduled = true;
+    setTimeout(() => {
+      tab.scheduled = false;
+      if (tab.queue.length) tab.term.write(tab.queue.splice(0, tab.queue.length).join(''));
+    }, 16);
+  }
+}
+
+// —— WS 连接（前缀感知：fnOS 统一网关下携带 /app/webssh/ 基址）——
+// 网关可能不向 WS 升级注入用户头：先经 REST 换一次性票据一并携带。
+// createTab 首连与断开后重连共用本函数。
+async function connectWs(tab) {
+  if (tab.connecting) return; // 票据换取期间的二次触发防抖
+  tab.connecting = true;
+  const { host, term } = tab;
+  tab.setStatus?.('连接中…');
   let ticket = '';
   try {
     const tr = await fetch(apiUrl('ws-ticket'), { method: 'POST' });
@@ -172,30 +205,18 @@ async function createTab(host) {
   ws.binaryType = 'arraybuffer';
   tab.ws = ws;
 
-  // 输出分片节流（FR-021）
-  const flush = () => {
-    tab.scheduled = false;
-    if (!tab.queue.length) return;
-    term.write(tab.queue.splice(0, tab.queue.length).join(''));
-  };
-  const enqueue = (text) => {
-    tab.queue.push(text);
-    if (!tab.scheduled) {
-      tab.scheduled = true;
-      setTimeout(flush, 16);
-    }
-  };
-
   ws.onmessage = (e) => {
     const buf = new Uint8Array(e.data);
-    if (buf[0] === FrameType.DATA) enqueue(new TextDecoder().decode(buf.subarray(1)));
+    if (buf[0] === FrameType.DATA) enqueue(tab, new TextDecoder().decode(buf.subarray(1)));
   };
   ws.onopen = () => {
-    setStatus('');
+    tab.connecting = false;
+    tab.setStatus?.('');
     renderTabbar();
     notifyTabsChange();
   };
   ws.onclose = (e) => {
+    tab.connecting = false;
     const map = {
       4003: '主机不在授权范围',
       4004: '超出并发会话上限',
@@ -205,18 +226,20 @@ async function createTab(host) {
       4011: '执行超时，已终止',
     };
     const msg = map[e.code] ?? `连接已关闭（${e.reason || e.code}）`;
-    setStatus(msg, true);
+    // 断开原因只写入终端回滚区，状态行不再重复同一文案（只保留重连提示）
+    tab.setStatus?.('已断开 · 按 Enter 重新连接', true);
     term.write(`\r\n\x1b[31m—— ${msg} ——\x1b[0m\r\n`);
+    term.write('\x1b[90m按 Enter 重新连接\x1b[0m\r\n');
     renderTabbar();
     notifyTabsChange();
   };
+}
 
-  term.onData((d) => {
-    if (ws.readyState === WebSocket.OPEN) ws.send(encodeDataFrame(d));
-  });
-
-  activateTab(id);
-  return tab;
+/** 断开后重连：复用同一终端实例（保留回滚缓冲与备注名），仅重建 WS */
+function reconnectTab(tab) {
+  if (!tab.ws || tab.ws.readyState !== WebSocket.CLOSED) return;
+  tab.term.write('\x1b[90m—— 重新连接… ——\x1b[0m\r\n');
+  connectWs(tab);
 }
 
 /** 快捷命令栏：点击即向终端发送命令并执行（命令+回车） */

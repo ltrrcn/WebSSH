@@ -1,11 +1,13 @@
 // 会话生命周期管理（FR-013/014/019 + data-model Session）
 // 状态机：connecting → ready | failed；ready → closing → closed
 // 进入 closed 必须释放全部资源（SC-005：残留进程数为 0）
-import { randomUUID } from 'node:crypto';
+import { randomBytes } from 'node:crypto';
 import { connectShell } from '../ssh/client.js';
 import { appendKnownHost } from '../ssh/hostkey.js';
 import { decryptSecret } from '../crypto/secret.js';
 import { bridgeSession } from './bridge.js';
+
+const SHORT_ID_CHARS = 'abcdefghijklmnopqrstuvwxyz0123456789';
 
 /**
  * @param {{config: object, store: object, audit: object, masterKey: Buffer, runtime: object}} deps
@@ -58,6 +60,7 @@ export function createSessionManager({ config, store, audit, masterKey, runtime 
       hostId: session.hostId,
       hostAddress: session.hostAddress,
       authType: session.authType,
+      sessionId: session.id, // 会话 ID：关联同一会话的全部审计事件
       ...over,
     };
   }
@@ -65,10 +68,19 @@ export function createSessionManager({ config, store, audit, masterKey, runtime 
   /**
    * 创建会话：审计 connect-attempt → SSH 连接 → 桥接；失败审计 connect-failure。
    */
+  /** 会话 ID：s_ + 4 位 base36 随机，与存活会话冲突时重试 */
+  function newSessionId() {
+    for (let i = 0; i < 32; i++) {
+      const id = `s_${[...randomBytes(4)].map((b) => SHORT_ID_CHARS[b % 36]).join('')}`;
+      if (!sessions.has(id)) return id;
+    }
+    throw new Error('会话 ID 生成冲突超限');
+  }
+
   async function createSession({ ws, host, identity }) {
     const now = new Date().toISOString();
     const session = {
-      id: `s_${randomUUID().replace(/-/g, '').slice(0, 12)}`,
+      id: newSessionId(),
       ownerId: identity.id,
       hostId: host.id,
       hostAddress: host.host,
@@ -144,6 +156,7 @@ export function createSessionManager({ config, store, audit, masterKey, runtime 
       session,
       idleTimeoutMs,
       audit,
+      config,
       onSessionEnd: (endReason, closeCode) => closeSession(session, endReason, closeCode),
     });
 

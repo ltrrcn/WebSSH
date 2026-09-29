@@ -4,7 +4,7 @@ import { renderHostList, openHostFormModal } from './hosts.js';
 import { openSettingsModal } from './settings.js';
 import { renderAudit } from './audit.js';
 import { renderTokens } from './tokens.js';
-import { renderTokenConfig } from './token-config.js';
+import { renderTokenConfig, renderPermPolicy } from './token-config.js';
 import { renderGroups } from './groups.js';
 import { getPrefs } from './prefs.js';
 import * as terminal from './terminal.js';
@@ -32,7 +32,7 @@ refreshHostList();
 
 // 设置入口（FR-047）；审计/令牌/令牌配置/分组页签注入渲染
 document.getElementById('btn-settings').addEventListener('click', () => {
-  openSettingsModal({ renderAudit, renderTokens, renderTokenConfig, renderGroups, onGroupsChanged: refreshHostList });
+  openSettingsModal({ renderAudit, renderTokens, renderTokenConfig, renderPermPolicy, renderGroups, onGroupsChanged: refreshHostList });
 });
 
 // 新增主机入口：侧栏头部（按钮在 index.html 中）

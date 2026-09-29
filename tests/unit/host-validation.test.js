@@ -72,8 +72,8 @@ test('name 长度 1–64，username 非空', () => {
   assert.throws(() => validateHostPayload({ ...validCreate(), username: '' }, { partial: false }), /username/);
 });
 
-test('group 可选，null 或字符串', () => {
-  assert.equal(validateHostPayload({ ...validCreate(), group: null }, { partial: false }).value.group, null);
+test('group 可选，null 归一化为内置 default，字符串原样保留', () => {
+  assert.equal(validateHostPayload({ ...validCreate(), group: null }, { partial: false }).value.group, 'Default');
   assert.equal(validateHostPayload({ ...validCreate(), group: '家庭' }, { partial: false }).value.group, '家庭');
   assert.throws(() => validateHostPayload({ ...validCreate(), group: 42 }, { partial: false }), /group/);
 });
