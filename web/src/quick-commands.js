@@ -27,6 +27,23 @@ export function removeQuickCommand(id) {
   persist(getQuickCommands().filter((c) => c.id !== id));
 }
 
+/** R002 编辑快捷命令：按 id 更新名称/命令，任一字段传 null 表示保持不变 */
+export function updateQuickCommand(id, { name, cmd }) {
+  const list = getQuickCommands();
+  const item = list.find((c) => c.id === id);
+  if (!item) return false;
+  if (name != null) {
+    const v = String(name).trim();
+    if (v) item.name = v;
+  }
+  if (cmd != null) {
+    const v = String(cmd).trim();
+    if (v) item.cmd = v;
+  }
+  persist(list);
+  return true;
+}
+
 export function onQuickCommandsChange(fn) {
   listeners.add(fn);
   return () => listeners.delete(fn);

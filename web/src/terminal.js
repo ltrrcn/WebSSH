@@ -3,12 +3,14 @@
 import { FrameType, encodeDataFrame, PROTOCOL_VERSION } from './protocol/frames.js';
 import { xtermTheme, onThemeChange } from './theme.js';
 import { fetchHosts } from './hosts.js';
+import { confirmFingerprintModal } from './hosts.js';
 import { openModal } from './modal.js';
 import { showContextMenu } from './contextmenu.js';
 import { wsUrl, apiUrl } from './base.js';
 import { icon } from './icons.js';
 import { getPrefs, onPrefsChange } from './prefs.js';
-import { getQuickCommands, addQuickCommand, onQuickCommandsChange } from './quick-commands.js';
+import { getQuickCommands, addQuickCommand, onQuickCommandsChange, updateQuickCommand, removeQuickCommand } from './quick-commands.js';
+import { openQuickCommandEditor } from './quick-commands-ui.js';
 import {
   sanitizeTmuxSessionName,
   buildTmuxProbeCommand,
@@ -70,8 +72,13 @@ export function mountTerminalArea(refs) {
 }
 
 /** 连接主机：默认已有活动 tab 则激活；右键「复制会话」时 forceNew 强制新建（FR-049）
- *  R001：tmux=true 时以 tmux 保活会话连接（远端探测可用后自动 attach，同一主机共享会话） */
-export function connectHost(host, { forceNew = false, tmux = false } = {}) {
+ *  R001：tmux=true 时以 tmux 保活会话连接（远端探测可用后自动 attach，同一主机共享会话）
+ *  R003：指纹未确认时先弹确认（有 pendingFingerprint 才拦，无指纹记录直接连、由 4005 流程接管） */
+export async function connectHost(host, { forceNew = false, tmux = false } = {}) {
+  if (!host.fingerprintConfirmed && host.pendingFingerprint) {
+    const ok = await confirmFingerprintModal(host);
+    if (!ok) return null; // 取消确认 = 放弃连接
+  }
   if (!forceNew && !tmux) {
     const existing = [...tabs.values()].find(
       (t) =>
@@ -262,15 +269,29 @@ async function connectWs(tab) {
   };
   ws.onclose = (e) => {
     tab.connecting = false;
+    // R003 首次连接指纹未确认：服务端在 reason 携带指纹（fingerprint_unconfirmed:<fp>），
+    // 弹居中确认弹窗——信任则自动重连，取消则终止（无需再去左侧点钥匙）
+    let fpMissMsg = null;
+    if (e.code === 4005) {
+      const fp = e.reason?.startsWith('fingerprint_unconfirmed:')
+        ? e.reason.slice('fingerprint_unconfirmed:'.length)
+        : '';
+      if (fp) {
+        handleFingerprintConfirm(tab, fp);
+        return;
+      }
+      // 无指纹 = 服务端捕获失败（目标不可达/握手失败），弹窗无从弹起——文案必须说清
+      fpMissMsg = '无法获取主机指纹：请检查主机地址与端口是否可达，再重新连接';
+    }
     const map = {
       4003: '主机不在授权范围',
       4004: '超出并发会话上限',
-      4005: '主机指纹未确认：请先在主机列表完成指纹确认',
+      4005: '主机指纹未确认：请重新连接并在弹窗中确认',
       4006: `连接失败（${e.reason || e.code}）`,
       4010: '会话空闲超时，已自动断开',
       4011: '执行超时，已终止',
     };
-    const msg = map[e.code] ?? `连接已关闭（${e.reason || e.code}）`;
+    const msg = fpMissMsg ?? map[e.code] ?? `连接已关闭（${e.reason || e.code}）`;
     // 断开原因只写入终端回滚区，底部状态行不显示
     term.write(`\r\n\x1b[31m—— ${msg} ——\x1b[0m\r\n`);
     term.write('\x1b[90m按 Enter 重新连接\x1b[0m\r\n');
@@ -311,6 +332,21 @@ function showTmuxMissingHint(tab) {
   m.setTitle('tmux 不可用');
 }
 
+/** R003 指纹确认流程：弹窗 → 信任则自动重连，取消则终端留痕终止 */
+async function handleFingerprintConfirm(tab, fp) {
+  const { term } = tab;
+  renderTabbar();
+  notifyTabsChange();
+  const ok = await confirmFingerprintModal({ ...tab.host, pendingFingerprint: fp });
+  if (ok) {
+    term.write('\r\n\x1b[90m—— 指纹已确认，正在连接… ——\x1b[0m\r\n');
+    reconnectTab(tab);
+  } else {
+    term.write(`\r\n\x1b[90m—— 已取消指纹确认（${fp}）——\x1b[0m\r\n`);
+    term.write('\x1b[90m按 Enter 重新连接\x1b[0m\r\n');
+  }
+}
+
 /** 断开后重连：复用同一终端实例（保留回滚缓冲与备注名），仅重建 WS */
 function reconnectTab(tab) {
   if (!tab.ws || tab.ws.readyState !== WebSocket.CLOSED) return;
@@ -339,6 +375,33 @@ function renderQuickBar(barEl, tab) {
       if (!c) return;
       tab.ws.send(encodeDataFrame(`${c.cmd}\r`));
       tab.term.focus();
+    })
+  );
+  // R002 命令栏右键：编辑（名称/命令）或删除（与设置页管理实时联动）
+  barEl.querySelectorAll('.quick-cmd').forEach((b) =>
+    b.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      const c = cmds.find((x) => x.id === b.dataset.id);
+      if (!c) return;
+      showContextMenu(e.clientX, e.clientY, {
+        meta: `${c.name} — ${c.cmd}`,
+        items: [
+          {
+            label: '编辑',
+            onClick: () =>
+              openQuickCommandEditor(c, ({ name, cmd }) => updateQuickCommand(c.id, { name, cmd })),
+          },
+          {
+            label: '删除',
+            danger: true,
+            onClick: () => {
+              if (confirm(`删除快捷命令「${c.name}」？`)) {
+                removeQuickCommand(c.id);
+              }
+            },
+          },
+        ],
+      });
     })
   );
 }

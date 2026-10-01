@@ -36,7 +36,7 @@ export async function renderHostList(container, { onConnect, connectedIds = [], 
     if (!groups.has(g)) groups.set(g, []);
     groups.get(g).push(h);
   }
-  const collapsed = loadCollapsedGroups();
+  const expanded = loadExpandedGroups();
   // 分组顺序 = 分组管理中的排序（Default 恒为第一）；无实体的历史分组按名称排在最后
   let groupOrder = ['Default'];
   try {
@@ -56,7 +56,7 @@ export async function renderHostList(container, { onConnect, connectedIds = [], 
   container.innerHTML = sortedGroups
     .map(
       ([g, list]) => `
-      <div class="side-group ${collapsed.has(g) ? 'collapsed' : ''}" data-group="${escapeHtml(g)}">
+      <div class="side-group ${expanded.has(g) ? '' : 'collapsed'}" data-group="${escapeHtml(g)}">
         <button class="side-group-head" title="点击展开/折叠">
           <span class="group-chevron">${icon('chevron', 12)}</span>
           <span class="group-name">${escapeHtml(g)}</span>
@@ -91,9 +91,9 @@ export async function renderHostList(container, { onConnect, connectedIds = [], 
     head.addEventListener('click', () => {
       const groupEl = head.closest('.side-group');
       const g = groupEl.dataset.group;
-      if (collapsed.has(g)) collapsed.delete(g);
-      else collapsed.add(g);
-      saveCollapsedGroups(collapsed);
+      if (expanded.has(g)) expanded.delete(g);
+      else expanded.add(g);
+      saveExpandedGroups(expanded);
       groupEl.classList.toggle('collapsed');
     });
   });
@@ -147,7 +147,8 @@ export async function renderHostList(container, { onConnect, connectedIds = [], 
     if (cf) {
       cf.addEventListener('click', async (e) => {
         e.stopPropagation();
-        await confirmFingerprint(host, onChanged);
+        const ok = await confirmFingerprintModal(host);
+        if (ok) onChanged();
       });
     }
   });
@@ -164,17 +165,19 @@ export async function renderHostList(container, { onConnect, connectedIds = [], 
   });
 }
 
-/** 分组折叠状态（FR-054）：localStorage 持久化 */
-const COLLAPSE_KEY = 'webssh-collapsed-groups';
-function loadCollapsedGroups() {
+/** 分组展开状态（FR-054）：localStorage 持久化；默认全部折叠，仅 Default 默认展开。设置→分组管理也读写此状态 */
+const EXPANDED_KEY = 'webssh-expanded-groups';
+export function loadExpandedGroups() {
   try {
-    return new Set(JSON.parse(localStorage.getItem(COLLAPSE_KEY) ?? '[]'));
+    const raw = localStorage.getItem(EXPANDED_KEY);
+    if (raw == null) return new Set(['Default']); // 首次使用：Default 展开，其余折叠
+    return new Set(JSON.parse(raw));
   } catch {
-    return new Set();
+    return new Set(['Default']);
   }
 }
-function saveCollapsedGroups(set) {
-  localStorage.setItem(COLLAPSE_KEY, JSON.stringify([...set]));
+export function saveExpandedGroups(set) {
+  localStorage.setItem(EXPANDED_KEY, JSON.stringify([...set]));
 }
 
 function hostBadge(h) {
@@ -185,21 +188,52 @@ function hostBadge(h) {
   return '<span class="tag" title="首次连接需确认指纹">待确认</span>';
 }
 
-async function confirmFingerprint(host, onChanged) {
-  if (!host.pendingFingerprint) return;
-  if (
-    !confirm(
-      `确认以下指纹属于 ${host.host}:${host.port} ？\n\n${host.pendingFingerprint}\n\n请与目标主机管理员核对（如 ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub）。`
-    )
-  )
-    return;
-  const res = await fetch(apiUrl(`hosts/${host.id}/verify-hostkey`), {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ fingerprint: host.pendingFingerprint }),
+/** R003 指纹确认弹窗（居中 modal）：确认返回 true（已 verify），取消/失败返回 false */
+export async function confirmFingerprintModal(host) {
+  const fp = host.pendingFingerprint;
+  if (!fp) return false;
+  return new Promise((resolve) => {
+    const m = openModal(`
+      <div class="fp-confirm">
+        <p class="fp-desc">首次连接 <strong>${escapeHtml(host.name)}</strong>，请核对目标主机指纹：</p>
+        <div class="fp-meta">
+          <span class="fp-meta-label">主机</span><code>${escapeHtml(host.username)}@${escapeHtml(host.host)}:${host.port}</code>
+        </div>
+        <div class="fp-meta">
+          <span class="fp-meta-label">指纹</span><code class="fp-value">${escapeHtml(fp)}</code>
+        </div>
+        <p class="fp-note">请与目标主机管理员核对无误后信任（可在远端执行 <code>ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub</code> 查看）。指纹不匹配说明连接可能被劫持。</p>
+        <div class="qc-edit-actions" style="margin-top:14px">
+          <button class="btn" id="fp-cancel">取消</button>
+          <button class="btn primary" id="fp-trust">信任并连接</button>
+        </div>
+      </div>`);
+    m.setTitle('首次连接指纹确认');
+    let settled = false;
+    const done = (v) => {
+      if (settled) return;
+      settled = true;
+      m.close();
+      resolve(v);
+    };
+    m.root.querySelector('#fp-cancel').addEventListener('click', () => done(false));
+    m.root.querySelector('#fp-trust').addEventListener('click', async () => {
+      const btn = m.root.querySelector('#fp-trust');
+      btn.disabled = true;
+      btn.textContent = '确认中…';
+      const res = await fetch(apiUrl(`hosts/${host.id}/verify-hostkey`), {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ fingerprint: fp }),
+      });
+      if (res.ok) done(true);
+      else {
+        alert('指纹确认失败，请重试');
+        btn.disabled = false;
+        btn.textContent = '信任并连接';
+      }
+    });
   });
-  if (res.ok) onChanged();
-  else alert('确认失败');
 }
 
 /**

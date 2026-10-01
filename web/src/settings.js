@@ -1,9 +1,10 @@
-// 设置弹窗（FR-047）：主题切换 + 审计/令牌入口收纳于此
+// 设置弹窗（FR-047）：主题切换 + 审计/令牌/快捷命令入口收纳于此
 import { openModal } from './modal.js';
 import { currentThemeMode, setTheme } from './theme.js';
 import { icon } from './icons.js';
 import { getPrefs, setPref } from './prefs.js';
 import { apiUrl } from './base.js';
+import { renderQuickCommandsPane } from './quick-commands-ui.js';
 
 /**
  * 打开设置弹窗。
@@ -16,6 +17,7 @@ export function openSettingsModal({ renderAudit, renderTokens, renderTokenConfig
     `<div class="settings-layout">
       <div class="settings-nav">
         <button data-pane="theme" class="active">${icon('palette')} 通用设置</button>
+        <button data-pane="quickCmds">${icon('play')} 快捷命令</button>
         <button data-pane="groups">${icon('folder')} 分组管理</button>
         <button data-pane="opsAudit">${icon('list')} 操作审计</button>
         <button data-pane="cmdAudit">${icon('play')} 命令审计</button>
@@ -186,6 +188,8 @@ export function openSettingsModal({ renderAudit, renderTokens, renderTokenConfig
       if (renderGroups) renderGroups(pane, { onChanged: groupsChanged });
       else pane.innerHTML = '<div class="placeholder-box">分组管理占位。</div>';
     },
+    // R002：快捷命令管理（从侧栏独立弹窗迁入设置）
+    quickCmds: () => renderQuickCommandsPane(pane),
   };
 
   nav.querySelectorAll('button').forEach((btn) =>

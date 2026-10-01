@@ -2,6 +2,7 @@
 // 删除分组只解除标签：组内主机移回 default 分组，主机与凭据完整保留
 import { apiUrl } from './base.js';
 import { icon } from './icons.js';
+import { loadExpandedGroups, saveExpandedGroups } from './hosts.js';
 
 export async function renderGroups(el, { onChanged } = {}) {
   el.innerHTML = '<div class="placeholder-box">加载中…</div>';
@@ -34,9 +35,15 @@ export async function renderGroups(el, { onChanged } = {}) {
         // 自定义分组序号（Default 内置置顶，不参与排序）
         const customIdx = groups.slice(0, i).filter((x) => !x.builtin).length;
         const customTotal = groups.filter((x) => !x.builtin).length;
+        const expanded = loadExpandedGroups();
         return `<div class="audit-row group-row" data-name="${escapeHtml(g.name)}" data-builtin="${g.builtin}">
           <span class="audit-event">${escapeHtml(g.name)}${g.builtin ? ' <span class="tag pinned">置顶</span>' : ''}</span>
           <span class="audit-detail">${g.count} 台主机</span>
+          <span class="audit-detail" style="min-width:52px">
+            <button class="icon-btn group-expand" data-name="${escapeHtml(g.name)}" title="${expanded.has(g.name) ? '已展开，点击折叠' : '已折叠，点击展开'}">
+              <svg class="icon" width="14" height="14" viewBox="0 0 24 24" aria-hidden="true" style="transition:transform .22s ease;transform-origin:center;transform:rotate(${expanded.has(g.name) ? 90 : 0}deg)"><use href="assets/icons.svg#chevron"/></svg>
+            </button>
+          </span>
           <span class="group-order-btns">${
             g.builtin
               ? ''
@@ -54,6 +61,22 @@ export async function renderGroups(el, { onChanged } = {}) {
       .join('')}</div>`;
 
   el.querySelector('#group-refresh').addEventListener('click', () => renderGroups(el, { onChanged }));
+
+  // 展开/不展开（chevron 矢量图标，与侧栏同款）：与侧栏共享 localStorage 状态，切换后立即刷新侧栏
+  el.querySelectorAll('.group-expand').forEach((btn) =>
+    btn.addEventListener('click', () => {
+      const expanded = loadExpandedGroups();
+      const name = btn.dataset.name;
+      if (expanded.has(name)) expanded.delete(name);
+      else expanded.add(name);
+      saveExpandedGroups(expanded);
+      // 就地旋转箭头，不整页重刷（避免打断其他操作）
+      const svg = btn.querySelector('svg');
+      if (svg) svg.style.transform = `rotate(${expanded.has(name) ? 90 : 0}deg)`;
+      btn.title = expanded.has(name) ? '已展开，点击折叠' : '已折叠，点击展开';
+      if (onChanged) onChanged();
+    })
+  );
 
   // 新建分组
   const nameInput = el.querySelector('#group-new-name');

@@ -2,7 +2,6 @@
 import { initTheme } from './theme.js';
 import { renderHostList, openHostFormModal } from './hosts.js';
 import { openSettingsModal } from './settings.js';
-import { openQuickCommandsModal } from './quick-commands-ui.js';
 import { renderAudit } from './audit.js';
 import { renderTokens } from './tokens.js';
 import { renderTokenConfig, renderPermPolicy } from './token-config.js';
@@ -35,9 +34,6 @@ refreshHostList();
 document.getElementById('btn-settings').addEventListener('click', () => {
   openSettingsModal({ renderAudit, renderTokens, renderTokenConfig, renderPermPolicy, renderGroups, onGroupsChanged: refreshHostList });
 });
-
-// 快捷命令管理入口：侧栏独立弹窗（与终端底部命令栏实时联动）
-document.getElementById('btn-quick-cmds').addEventListener('click', () => openQuickCommandsModal());
 
 // 新增主机入口：侧栏头部（按钮在 index.html 中）
 document
