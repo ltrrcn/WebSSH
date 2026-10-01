@@ -9,6 +9,12 @@ import { wsUrl, apiUrl } from './base.js';
 import { icon } from './icons.js';
 import { getPrefs, onPrefsChange } from './prefs.js';
 import { getQuickCommands, addQuickCommand, onQuickCommandsChange } from './quick-commands.js';
+import {
+  sanitizeTmuxSessionName,
+  buildTmuxProbeCommand,
+  buildTmuxAttachCommand,
+  createTmuxDetector,
+} from './tmux.js';
 
 /** 存活终端集合：通用设置变更时动态应用（字号/光标闪烁） */
 const liveTerms = new Map(); // term -> fit 函数
@@ -63,17 +69,19 @@ export function mountTerminalArea(refs) {
   });
 }
 
-/** 连接主机：默认已有活动 tab 则激活；右键「复制会话」时 forceNew 强制新建（FR-049） */
-export function connectHost(host, { forceNew = false } = {}) {
-  if (!forceNew) {
+/** 连接主机：默认已有活动 tab 则激活；右键「复制会话」时 forceNew 强制新建（FR-049）
+ *  R001：tmux=true 时以 tmux 保活会话连接（远端探测可用后自动 attach，同一主机共享会话） */
+export function connectHost(host, { forceNew = false, tmux = false } = {}) {
+  if (!forceNew && !tmux) {
     const existing = [...tabs.values()].find(
       (t) =>
         t.host.id === host.id &&
+        !t.tmux &&
         (t.ws?.readyState === WebSocket.OPEN || t.ws?.readyState === WebSocket.CONNECTING)
     );
     if (existing) return activateTab(existing.id);
   }
-  return createTab(host);
+  return createTab(host, { tmux });
 }
 
 export function hasActiveSessions() {
@@ -91,7 +99,7 @@ export function connectedHostIds() {
   return ids;
 }
 
-async function createTab(host) {
+async function createTab(host, { tmux = false } = {}) {
   const id = `tab_${++seq}`;
   const prefs = getPrefs();
   // 会话临时 ID（FR-051）：备注名按此 ID 存储于 localStorage，与主机数据无关
@@ -117,7 +125,20 @@ async function createTab(host) {
   }
   term.open(instance.querySelector('.term-container'));
 
-  const tab = { id, host, sessionKey, label: null, term, fitAddon, el: instance, ws: null, queue: [], scheduled: false };
+  const tab = {
+    id,
+    host,
+    sessionKey,
+    label: null,
+    term,
+    fitAddon,
+    el: instance,
+    ws: null,
+    queue: [],
+    scheduled: false,
+    // R001 tmux 会话模式：name 净化后的会话名；state: detecting → active | off
+    tmux: tmux ? { name: sanitizeTmuxSessionName('webssh'), state: 'detecting', detector: null, timer: null } : null,
+  };
   tabs.set(id, tab);
   liveTerms.set(term, () => fitAndReport(tab));
 
@@ -126,6 +147,8 @@ async function createTab(host) {
     statusEl.textContent = text;
     statusEl.classList.toggle('show', Boolean(text));
     statusEl.classList.toggle('err', Boolean(isErr));
+    // 状态行显示/隐藏会改变终端容器高度，必须重新 fit，否则已渲染的 canvas 溢出压住快捷命令栏
+    setTimeout(() => fitAndReport(tab), 30);
   };
   tab.setStatus = setStatus;
   setStatus('连接中…');
@@ -156,6 +179,8 @@ async function createTab(host) {
   });
 
   term.onData((d) => {
+    // tmux 探测期忽略输入：防干扰探测命令，探测通常亚秒级完成
+    if (tab.tmux?.state === 'detecting') return;
     const ws = tab.ws;
     if (ws?.readyState === WebSocket.OPEN) {
       ws.send(encodeDataFrame(d));
@@ -207,11 +232,31 @@ async function connectWs(tab) {
 
   ws.onmessage = (e) => {
     const buf = new Uint8Array(e.data);
-    if (buf[0] === FrameType.DATA) enqueue(tab, new TextDecoder().decode(buf.subarray(1)));
+    if (buf[0] !== FrameType.DATA) return;
+    const text = new TextDecoder().decode(buf.subarray(1));
+    // R001 tmux 探测期：输出喂状态机判定，不显示（探测命令回显不进终端）
+    if (tab.tmux?.state === 'detecting') {
+      const verdict = tab.tmux.detector(text);
+      if (verdict === 'found') {
+        tab.tmux.state = 'active';
+        clearTimeout(tab.tmux.timer);
+        ws.send(encodeDataFrame(`${buildTmuxAttachCommand(tab.tmux.name)}\r`));
+        renderTabbar();
+      } else if (verdict === 'missing') {
+        tab.tmux.state = 'off';
+        clearTimeout(tab.tmux.timer);
+        showTmuxMissingHint(tab);
+        renderTabbar();
+      }
+      return;
+    }
+    enqueue(tab, text);
   };
   ws.onopen = () => {
     tab.connecting = false;
     tab.setStatus?.('');
+    // R001 tmux 模式：首连与断线重连统一在此启动探测（重连后自动 attach 恢复现场）
+    if (tab.tmux) startTmuxProbe(tab);
     renderTabbar();
     notifyTabsChange();
   };
@@ -226,13 +271,44 @@ async function connectWs(tab) {
       4011: '执行超时，已终止',
     };
     const msg = map[e.code] ?? `连接已关闭（${e.reason || e.code}）`;
-    // 断开原因只写入终端回滚区，状态行不再重复同一文案（只保留重连提示）
-    tab.setStatus?.('已断开 · 按 Enter 重新连接', true);
+    // 断开原因只写入终端回滚区，底部状态行不显示
     term.write(`\r\n\x1b[31m—— ${msg} ——\x1b[0m\r\n`);
     term.write('\x1b[90m按 Enter 重新连接\x1b[0m\r\n');
     renderTabbar();
     notifyTabsChange();
   };
+}
+
+/** R001 tmux 探测：发送探测命令 + 4s 超时兜底（超时按乐观处理直接 attach，错误自然显示） */
+function startTmuxProbe(tab) {
+  const tm = tab.tmux;
+  tm.state = 'detecting';
+  tm.detector = createTmuxDetector();
+  clearTimeout(tm.timer);
+  tm.timer = setTimeout(() => {
+    // 超时：极慢的远端或输出被吞，乐观 attach（远端无 tmux 时 shell 会报错，用户可见）
+    if (tm.state === 'detecting' && tab.ws?.readyState === WebSocket.OPEN) {
+      tm.state = 'active';
+      tab.ws.send(encodeDataFrame(`${buildTmuxAttachCommand(tm.name)}\r`));
+      renderTabbar();
+    }
+  }, 4000);
+  if (tab.ws?.readyState === WebSocket.OPEN) {
+    tab.ws.send(encodeDataFrame(`${buildTmuxProbeCommand()}\r`));
+  }
+}
+
+/** R001 远端无 tmux：明确提示（含安装指引），当前 tab 退化为普通终端继续可用 */
+function showTmuxMissingHint(tab) {
+  const m = openModal(`
+    <div class="tmux-hint">
+      <p>主机 <strong>${escapeHtml(tab.host.name)}</strong> 未安装 tmux，无法使用保活会话。</p>
+      <p>当前终端已按普通模式继续，功能不受影响。</p>
+      <p class="tmux-hint-install">在远端安装后即可启用（断线恢复 / 多标签同步）：</p>
+      <pre><code>apt-get install -y tmux</code></pre>
+      <p class="tmux-hint-note">其他系统：yum install tmux / apk add tmux / pacman -S tmux</p>
+    </div>`);
+  m.setTitle('tmux 不可用');
 }
 
 /** 断开后重连：复用同一终端实例（保留回滚缓冲与备注名），仅重建 WS */
@@ -258,6 +334,7 @@ function renderQuickBar(barEl, tab) {
         tab.setStatus?.('未连接，无法发送快捷命令', true);
         return;
       }
+      if (tab.tmux?.state === 'detecting') return; // R001 探测期不注入命令，防干扰
       const c = cmds.find((x) => x.id === b.dataset.id);
       if (!c) return;
       tab.ws.send(encodeDataFrame(`${c.cmd}\r`));
@@ -279,6 +356,16 @@ function fitAndReport(tab) {
   if (!tab.fitAddon) return;
   try {
     tab.fitAddon.fit();
+    // 高分屏（DPR>1）下实际渲染行高按物理像素取整，会略大于 fit 用的理论 cell 高，
+    // 多行累计后 canvas 底部会超出容器、与快捷命令栏重叠：检测到溢出则按少一行重设
+    const container = tab.term.element?.parentElement;
+    if (container) {
+      const cs = getComputedStyle(container);
+      const avail = parseFloat(cs.height) + parseFloat(cs.paddingBottom);
+      if (tab.term.element.offsetHeight > avail && tab.term.rows > 1) {
+        tab.term.resize(tab.term.cols, tab.term.rows - 1);
+      }
+    }
   } catch {
     return;
   }
@@ -307,7 +394,12 @@ export function closeTab(id) {
   const tab = tabs.get(id);
   if (!tab) return;
   if (tab.ws && tab.ws.readyState === WebSocket.OPEN) {
-    if (!confirm(`「${tab.host.name}」的终端会话仍在进行，关闭将断开连接。\n是否关闭当前终端？`)) {
+    // R001：tmux 会话关闭提示不同——远端会话保留，重连可恢复现场
+    const msg =
+      tab.tmux?.state === 'active'
+        ? `「${tab.host.name}」处于 tmux 保活会话，关闭标签后远端会话继续保留，\n重新连接可恢复现场。是否关闭当前终端？`
+        : `「${tab.host.name}」的终端会话仍在进行，关闭将断开连接。\n是否关闭当前终端？`;
+    if (!confirm(msg)) {
       return;
     }
   }
@@ -317,6 +409,7 @@ export function closeTab(id) {
 function destroyTab(id) {
   const tab = tabs.get(id);
   if (!tab) return;
+  if (tab.tmux) clearTimeout(tab.tmux.timer); // R001：清理探测超时定时器
   try {
     if (tab.ws) {
       tab.ws.onclose = null; // 主动关闭不再提示
@@ -361,7 +454,7 @@ function renderTabbar() {
     const isOpen = t.ws?.readyState === WebSocket.OPEN;
     el.innerHTML = `
       <span class="tab-status ${isOpen ? 'open' : ''}" title="${isOpen ? '已连接' : '连接中/已断开'}"></span>
-      <span class="tab-label" title="双击修改备注名&#10;会话 ID: ${t.sessionKey}"></span>
+      <span class="tab-label" title="双击修改备注名&#10;会话 ID: ${t.sessionKey}${t.tmux ? `&#10;tmux 会话: ${t.tmux.state === 'active' ? t.tmux.name : '探测中/不可用'}` : ''}"></span>
       <button class="tab-close" title="关闭终端">${icon('x', 11)}</button>`;
     el.querySelector('.tab-label').textContent = t.label ?? t.host.name;
     el.addEventListener('click', (e) => {
@@ -392,9 +485,13 @@ function renderTabbar() {
 /** 新建会话：弹出主机选择（连接需要选定主机） */
 async function openSessionPicker() {
   const hosts = await fetchHosts();
+  const prefs = getPrefs();
   const m = openModal(
     hosts.length
-      ? `<div class="picker-list">${hosts
+      ? `<label class="picker-tmux"><input type="checkbox" id="picker-tmux" ${prefs.tmuxDefault ? 'checked' : ''} />
+          <span>以 tmux 保活会话连接<div class="picker-tmux-desc">断线后可恢复现场；同一主机的多个标签屏幕同步（需远端已安装 tmux）</div></span>
+        </label>
+        <div class="picker-list">${hosts
           .map(
             (h) => `<button class="picker-item" data-id="${escapeHtml(h.id)}">
               <span class="picker-name">${escapeHtml(h.name)}</span>
@@ -409,7 +506,8 @@ async function openSessionPicker() {
     b.addEventListener('click', () => {
       m.close();
       const host = hosts.find((h) => h.id === b.dataset.id);
-      if (host) connectHost(host);
+      const tmux = m.root.querySelector('#picker-tmux')?.checked ?? false;
+      if (host) connectHost(host, { forceNew: tmux, tmux });
     })
   );
 }
@@ -468,14 +566,16 @@ function startRename(tab) {
 
 /** 会话右键菜单（FR-049）：复制会话 / 重命名 / 关闭会话（共享组件见 contextmenu.js） */
 function showSessionMenu(tab, x, y) {
+  const dupTmux = tab.tmux?.state === 'active';
   showContextMenu(x, y, {
-    meta: `会话 ${tab.sessionKey}`,
+    meta: `会话 ${tab.sessionKey}${tab.tmux ? ` · tmux: ${tab.tmux.name}` : ''}`,
     items: [
       {
-        label: '复制会话',
+        label: dupTmux ? '复制会话（tmux 同步）' : '复制会话',
         onClick: () => {
           // FR-052：复制的会话创建后立即进入改名编辑态
-          const dup = createTab(tab.host);
+          // R001：tmux 会话的复制 attach 同一远端会话，两端屏幕同步
+          const dup = createTab(tab.host, { tmux: dupTmux });
           setTimeout(() => startRename(dup), 80);
         },
       },

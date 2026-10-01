@@ -6,7 +6,8 @@ const DEFAULTS = {
   fontSize: 13, // 终端字号（px）
   cursorBlink: true, // 终端光标闪烁
   exitConfirm: true, // 关闭页面前确认仍有活动会话（FR-046 的用户开关）
-};
+  tmuxDefault: false, // 新建会话默认勾选 tmux 保活模式（R001）
+};;
 
 function read() {
   try {

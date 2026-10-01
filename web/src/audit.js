@@ -20,6 +20,24 @@ const EVENT_LABEL = {
 };
 const RESULT_LABEL = { success: '成功', denied: '拒绝', error: '失败' };
 
+// 页面说明（收敛为工具栏末尾的感叹号图标，悬停展开气泡）
+const NOTE = {
+  operation: `<b>操作审计</b>：按时间顺序记录登录（连接尝试/成功/失败，时间即会话创建时间）与操作调用（断开、文件读取、分组管理等非命令事件）。
+    元数据脱敏留存，不含凭据与终端输出全文。支持按时间范围、会话 ID、来源、结果与主机过滤、分页与导出。`,
+  sessions: `<b>命令审计</b>：按会话组织——每行是一个终端会话（创建时间、主机、命令数、在线状态），
+    点击展开可查看该会话执行过的全部命令（含 MCP 令牌的 run_command 调用，归入「MCP 令牌调用」组）。
+    支持按会话创建时间范围与主机过滤。`,
+};
+
+// 可筛选条件（key 与 state 字段同名；time 对应 from/to 一对）
+const CONDS = [
+  { key: 'time', label: '时间范围' },
+  { key: 'sessionId', label: '会话 ID' },
+  { key: 'source', label: '来源' },
+  { key: 'result', label: '结果' },
+  { key: 'hostId', label: '主机' },
+];
+
 let state = { category: 'operation', result: '', hostId: '', source: '', command: '', sessionId: '', from: '', to: '', offset: 0, limit: 30, total: 0 };
 
 /**
@@ -33,49 +51,15 @@ export async function renderAudit(el, category = 'operation') {
   if (isCmd) return renderSessionView(el);
 
   el.innerHTML = `
-    <div class="audit-note">
-      ${
-        isCmd
-          ? `<b>命令审计</b>：记录每一条实际执行的命令——Web 终端按回车提交的输入与 MCP 令牌的 run_command 调用（原文脱敏留存）。
-             点击「查看」可见完整命令原文、来源、所属会话 ID 与输出摘要。`
-          : `<b>操作审计</b>：按时间顺序记录登录（连接尝试/成功/失败，时间即会话创建时间）与操作调用（断开、文件读取、分组管理等非命令事件）。
-             元数据脱敏留存，不含凭据与终端输出全文。`
-      }
-      支持按${isCmd ? '命令原文、' : ''}时间范围、会话 ID、来源、结果与主机过滤、分页与导出。
-    </div>
     <div class="audit-toolbar">
-      ${
-        isCmd
-          ? `<input id="audit-command" class="audit-search" type="search"
-        placeholder="按命令原文查询…" autocomplete="off" />`
-          : ''
-      }
-      <input id="audit-sid" class="audit-search audit-sid-input" type="search"
-        placeholder="会话 ID（点击记录中的 会话:s_… 自动填入）" autocomplete="off" />
-      <input id="audit-from" class="audit-search audit-time-input" type="datetime-local" title="起始时间（含）" />
-      <input id="audit-to" class="audit-search audit-time-input" type="datetime-local" title="结束时间（含）" />
-      <select id="audit-source">
-        <option value="">全部来源</option>
-        <option value="user">人工操作</option>
-        <option value="mcp">MCP 令牌调用</option>
-      </select>
-      <select id="audit-result">
-        <option value="">全部结果</option>
-        <option value="success">成功</option>
-        <option value="error">失败</option>
-        <option value="denied">拒绝</option>
-      </select>
-      <select id="audit-host"><option value="">全部主机</option></select>
+      ${filterBoxHtml()}
       <button class="btn" id="audit-export">导出</button>
       <button class="btn" id="audit-refresh">刷新</button>
+      ${infoTipHtml(NOTE.operation)}
     </div>
     <div class="audit-list audit-table">
-      <div class="audit-head ${isCmd ? 'audit-head-cmd' : 'audit-head-op'}">
-        ${
-          isCmd
-            ? '<span>时间</span><span>来源</span><span>设备 ID</span><span>命令</span><span>状态</span><span>操作</span>'
-            : '<span>时间</span><span>事件</span><span>设备 ID</span><span>状态</span><span>操作</span>'
-        }
+      <div class="audit-head audit-head-op">
+        <span>时间</span><span>事件</span><span>设备 ID</span><span>状态</span><span>操作</span>
       </div>
       <div id="audit-list-body"><div class="placeholder-box">加载中…</div></div>
     </div>
@@ -85,88 +69,19 @@ export async function renderAudit(el, category = 'operation') {
       <button class="btn" id="audit-next">下一页</button>
     </div>`;
 
-  // 主机过滤选项
-  try {
-    const hosts = await (await fetch(apiUrl('hosts'))).json();
-    const sel = el.querySelector('#audit-host');
-    for (const h of hosts) {
-      const o = document.createElement('option');
-      o.value = h.id;
-      o.textContent = h.name;
-      sel.appendChild(o);
-    }
-  } catch {
-    /* 忽略 */
-  }
-
-  // 文本类过滤（命令原文 / 会话 ID）：回车或清空即时触发，输入停顿 300ms 自动查询
-  const bindDebouncedInput = (selector, key) => {
-    const input = el.querySelector(selector);
-    if (!input) return;
-    let searchTimer = null;
-    input.addEventListener('input', () => {
-      clearTimeout(searchTimer);
-      const v = input.value.trim();
-      if (v === '') {
-        state[key] = '';
-        state.offset = 0;
-        load(el);
-      } else {
-        searchTimer = setTimeout(() => {
-          state[key] = v;
-          state.offset = 0;
-          load(el);
-        }, 300);
-      }
-    });
-    input.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') {
-        e.preventDefault();
-        clearTimeout(searchTimer);
-        state[key] = input.value.trim();
-        state.offset = 0;
-        load(el);
-      }
-    });
-  };
-  if (isCmd) bindDebouncedInput('#audit-command', 'command');
-  bindDebouncedInput('#audit-sid', 'sessionId');
-
-  // 时间范围筛选（会话创建时间 = 连接尝试事件时间）
-  for (const [sel, key] of [['#audit-from', 'from'], ['#audit-to', 'to']]) {
-    el.querySelector(sel).addEventListener('change', (e) => {
-      state[key] = e.target.value ? new Date(e.target.value).toISOString() : '';
-      state.offset = 0;
-      load(el);
-    });
-  }
+  // 统一筛选框：点击「+ 添加筛选」选择条件，值以 chip 聚合在搜索框内
+  const filter = setupFilter(el, ['time', 'sessionId', 'source', 'result', 'hostId'], () => load(el));
 
   // 点击记录中的「会话:s_…」→ 自动填入会话 ID 并查询该会话全部事件
   el.querySelector('#audit-list-body').addEventListener('click', (e) => {
     const sid = e.target.closest('.audit-sid-link');
     if (!sid) return;
-    const input = el.querySelector('#audit-sid');
-    input.value = sid.dataset.sid;
     state.sessionId = sid.dataset.sid;
     state.offset = 0;
+    filter.renderChips();
     load(el);
   });
 
-  el.querySelector('#audit-source').addEventListener('change', (e) => {
-    state.source = e.target.value;
-    state.offset = 0;
-    load(el);
-  });
-  el.querySelector('#audit-result').addEventListener('change', (e) => {
-    state.result = e.target.value;
-    state.offset = 0;
-    load(el);
-  });
-  el.querySelector('#audit-host').addEventListener('change', (e) => {
-    state.hostId = e.target.value;
-    state.offset = 0;
-    load(el);
-  });
   el.querySelector('#audit-refresh').addEventListener('click', () => load(el));
   el.querySelector('#audit-export').addEventListener('click', () => {
     const p = new URLSearchParams();
@@ -185,6 +100,220 @@ export async function renderAudit(el, category = 'operation') {
   });
 
   await load(el);
+}
+
+/** 统一筛选框骨架：搜索图标 + chip 区 + 「+ 添加筛选」入口（条件菜单/编辑器挂在入口下） */
+function filterBoxHtml() {
+  return `
+    <div class="af-box" id="af-box">
+      ${icon('search', 13)}
+      <span class="af-chips" id="af-chips"></span>
+      <span class="af-entry">
+        <button class="af-add" id="af-add" type="button">${icon('plus', 11)} 添加筛选</button>
+        <span class="af-menu" id="af-menu" hidden></span>
+        <span class="af-editor" id="af-editor" hidden></span>
+      </span>
+    </div>`;
+}
+
+/** 说明气泡：感叹号图标，悬停/聚焦展开 */
+function infoTipHtml(note) {
+  return `
+    <span class="audit-info" tabindex="0" role="note" aria-label="页面说明">
+      ${icon('info', 15)}
+      <span class="audit-info-tip">${note}</span>
+    </span>`;
+}
+
+/**
+ * 统一筛选框：把原先分散的搜索/时间/下拉控件聚合为一个搜索框。
+ * 点击「+ 添加筛选」选择条件（时间/会话 ID/来源/结果/主机），弹出对应编辑器；
+ * 已生效的条件以 chip 形式呈现在框内——点击 chip 再编辑，× 移除该条件。
+ * @param {HTMLElement} el 页签容器
+ * @param {string[]} condKeys 该视图可用的条件（CONDS 的子集）
+ * @param {() => void} reload 条件变化后的重新加载
+ * @returns {{ renderChips: () => void }} 供「会话:s_…」快捷筛选后刷新 chip
+ */
+function setupFilter(el, condKeys, reload) {
+  const box = el.querySelector('#af-box');
+  const chipsEl = el.querySelector('#af-chips');
+  const addBtn = el.querySelector('#af-add');
+  const menu = el.querySelector('#af-menu');
+  const editor = el.querySelector('#af-editor');
+  const conds = CONDS.filter((c) => condKeys.includes(c.key));
+  const condLabel = Object.fromEntries(conds.map((c) => [c.key, c.label]));
+  const hostMap = {};
+
+  menu.innerHTML = conds.map((c) => `<button type="button" data-cond="${c.key}">${c.label}</button>`).join('');
+
+  // 主机选项（hostId 条件下拉与 chip 名称显示）
+  fetch(apiUrl('hosts'))
+    .then((r) => r.json())
+    .then((hosts) => {
+      for (const h of hosts) hostMap[h.id] = h.name;
+      renderChips();
+    })
+    .catch(() => {});
+
+  const fmtShort = (iso) =>
+    new Date(iso).toLocaleString('zh-CN', { hour12: false, month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+  const toLocalInput = (iso) => {
+    if (!iso) return '';
+    const d = new Date(iso);
+    const p = (n) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+  };
+
+  function chipText(key) {
+    switch (key) {
+      case 'time': {
+        if (!state.from && !state.to) return '';
+        return `时间 ${state.from ? fmtShort(state.from) : '…'} ~ ${state.to ? fmtShort(state.to) : '…'}`;
+      }
+      case 'sessionId': return state.sessionId ? `会话 ${state.sessionId}` : '';
+      case 'source': return state.source ? `来源 ${state.source === 'user' ? '人工操作' : 'MCP 令牌'}` : '';
+      case 'result': return state.result ? `结果 ${RESULT_LABEL[state.result] ?? state.result}` : '';
+      case 'hostId': return state.hostId ? `主机 ${hostMap[state.hostId] ?? state.hostId}` : '';
+      default: return '';
+    }
+  }
+
+  function renderChips() {
+    chipsEl.innerHTML = conds
+      .map((c) => {
+        const text = chipText(c.key);
+        if (!text) return '';
+        return `<span class="af-chip" data-cond="${c.key}" title="点击编辑该条件">${escapeHtml(text)}<button class="af-chip-x" data-remove="${c.key}" type="button" title="移除条件">${icon('x', 9)}</button></span>`;
+      })
+      .join('');
+  }
+
+  function commit() {
+    state.offset = 0;
+    renderChips();
+    reload();
+  }
+
+  function closeEditor() {
+    editor.hidden = true;
+    editor.innerHTML = '';
+  }
+
+  function openEditor(key) {
+    menu.hidden = true;
+    editor.hidden = false;
+    editor.dataset.cond = key;
+    if (key === 'time') {
+      editor.innerHTML = `
+        <input type="datetime-local" class="af-time" value="${toLocalInput(state.from)}" title="起始时间（含）" />
+        <span class="af-sep">至</span>
+        <input type="datetime-local" class="af-time" value="${toLocalInput(state.to)}" title="结束时间（含）" />
+        <button class="af-done" type="button">完成</button>`;
+      const [fromIn, toIn] = editor.querySelectorAll('input');
+      fromIn.addEventListener('change', () => {
+        state.from = fromIn.value ? new Date(fromIn.value).toISOString() : '';
+        commit();
+      });
+      toIn.addEventListener('change', () => {
+        state.to = toIn.value ? new Date(toIn.value).toISOString() : '';
+        commit();
+      });
+      editor.querySelector('.af-done').addEventListener('click', closeEditor);
+    } else if (key === 'sessionId') {
+      editor.innerHTML = `<input type="search" class="af-text" autocomplete="off"
+        placeholder="输入会话 ID，回车确认" value="${escapeHtml(state.sessionId)}" />`;
+      const input = editor.querySelector('input');
+      let timer = null;
+      const apply = () => {
+        state.sessionId = input.value.trim();
+        commit();
+      };
+      input.addEventListener('input', () => {
+        clearTimeout(timer);
+        if (input.value.trim() === '') {
+          apply();
+          closeEditor();
+        } else {
+          timer = setTimeout(apply, 300);
+        }
+      });
+      input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          clearTimeout(timer);
+          apply();
+          closeEditor();
+        }
+        if (e.key === 'Escape') closeEditor();
+      });
+      input.focus();
+    } else {
+      // 枚举条件：来源 / 结果 / 主机
+      const options = {
+        source: [
+          ['user', '人工操作'],
+          ['mcp', 'MCP 令牌调用'],
+        ],
+        result: [
+          ['success', '成功'],
+          ['error', '失败'],
+          ['denied', '拒绝'],
+        ],
+        hostId: Object.entries(hostMap),
+      }[key];
+      editor.innerHTML = `<select class="af-select">
+        <option value="">全部${condLabel[key]}</option>
+        ${options.map(([v, l]) => `<option value="${escapeHtml(v)}"${state[key] === v ? ' selected' : ''}>${escapeHtml(l)}</option>`).join('')}
+      </select>`;
+      const sel = editor.querySelector('select');
+      sel.addEventListener('change', () => {
+        state[key] = sel.value;
+        commit();
+        closeEditor();
+      });
+      sel.focus();
+    }
+  }
+
+  addBtn.addEventListener('click', () => {
+    closeEditor();
+    menu.hidden = !menu.hidden;
+  });
+  menu.addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-cond]');
+    if (b) openEditor(b.dataset.cond);
+  });
+  chipsEl.addEventListener('click', (e) => {
+    const rm = e.target.closest('[data-remove]');
+    if (rm) {
+      const key = rm.dataset.remove;
+      if (key === 'time') {
+        state.from = '';
+        state.to = '';
+      } else {
+        state[key] = '';
+      }
+      commit();
+      return;
+    }
+    const chip = e.target.closest('.af-chip');
+    if (chip) openEditor(chip.dataset.cond);
+  });
+  // 点击筛选框外部时收起菜单/编辑器；元素销毁后自动解绑
+  const onDocDown = (e) => {
+    if (!box.isConnected) {
+      document.removeEventListener('mousedown', onDocDown, true);
+      return;
+    }
+    if (!box.contains(e.target)) {
+      menu.hidden = true;
+      closeEditor();
+    }
+  };
+  document.addEventListener('mousedown', onDocDown, true);
+
+  renderChips();
+  return { renderChips };
 }
 
 async function load(el) {
@@ -350,44 +479,17 @@ function formatTime(ts) {
 /** 命令审计：按会话展开。会话行（在线/已关闭）→ 展开后内嵌该会话的命令列表 */
 async function renderSessionView(el) {
   el.innerHTML = `
-    <div class="audit-note">
-      <b>命令审计</b>：按会话组织——每行是一个终端会话（创建时间、主机、命令数、在线状态），
-      点击展开可查看该会话执行过的全部命令（含 MCP 令牌的 run_command 调用，归入「MCP 令牌调用」组）。
-      支持按会话创建时间范围与主机过滤。
-    </div>
     <div class="audit-toolbar">
-      <input id="audit-from" class="audit-search audit-time-input" type="datetime-local" title="会话创建起始时间（含）" />
-      <input id="audit-to" class="audit-search audit-time-input" type="datetime-local" title="会话创建结束时间（含）" />
-      <select id="audit-host"><option value="">全部主机</option></select>
+      ${filterBoxHtml()}
       <button class="btn" id="audit-export">导出</button>
       <button class="btn" id="audit-refresh">刷新</button>
+      ${infoTipHtml(NOTE.sessions)}
     </div>
     <div class="audit-list" id="session-list"><div class="placeholder-box">加载中…</div></div>`;
 
-  // 主机过滤选项
-  try {
-    const hosts = await (await fetch(apiUrl('hosts'))).json();
-    const sel = el.querySelector('#audit-host');
-    for (const h of hosts) {
-      const o = document.createElement('option');
-      o.value = h.id;
-      o.textContent = h.name;
-      sel.appendChild(o);
-    }
-  } catch {
-    /* 忽略 */
-  }
+  // 统一筛选框：会话视图仅支持时间范围与主机
+  setupFilter(el, ['time', 'hostId'], () => loadSessions(el));
 
-  for (const [sel, key] of [['#audit-from', 'from'], ['#audit-to', 'to']]) {
-    el.querySelector(sel).addEventListener('change', (e) => {
-      state[key] = e.target.value ? new Date(e.target.value).toISOString() : '';
-      loadSessions(el);
-    });
-  }
-  el.querySelector('#audit-host').addEventListener('change', (e) => {
-    state.hostId = e.target.value;
-    loadSessions(el);
-  });
   el.querySelector('#audit-refresh').addEventListener('click', () => loadSessions(el));
   el.querySelector('#audit-export').addEventListener('click', () => {
     window.open(`${apiUrl('audit/export')}?source=user`, '_blank');

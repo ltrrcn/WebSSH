@@ -45,7 +45,19 @@ export function connectShell(opts) {
     };
 
     conn.on('ready', () => {
-      conn.shell({ term: 'xterm-256color', cols, rows }, (err, stream) => {
+      conn.shell(
+        {
+          term: 'xterm-256color',
+          cols,
+          rows,
+          // 中文输入乱码修复：不带 env 时 sshd 会话以 C/POSIX locale 启动，
+          // zle 按单字节处理中文（显示 <0093><0088> 形式转义）。
+          // LC_CTYPE=UTF-8 为 macOS 原生形式且 glibc 系（Debian/Ubuntu）内置接受，
+          // 双平台保底字符集；LANG 让界面消息保持中文。
+          // sshd 需 AcceptEnv LANG LC_*（OpenSSH 默认开启），被拒绝也不影响 shell 建立。
+          env: { LANG: 'zh_CN.UTF-8', LC_CTYPE: 'UTF-8' },
+        },
+        (err, stream) => {
         if (err) return fail(err);
         if (settled) {
           try {

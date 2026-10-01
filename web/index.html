@@ -189,13 +189,13 @@
       color: var(--text-faint); font-size: 12px; text-align: center;
       padding: 40px 16px; line-height: 1.8;
     }
-    .sidebar-footer { padding: 10px; border-top: 1px solid var(--border); }
-    #btn-settings {
-      display: flex; align-items: center; gap: 8px; width: 100%;
-      padding: 9px 12px; border-radius: var(--radius-md); border: none; cursor: pointer;
-      background: transparent; color: var(--text-dim); font-size: 13px;
+    .sidebar-footer { display: flex; gap: 6px; padding: 10px; border-top: 1px solid var(--border); }
+    .sidebar-footer button {
+      display: flex; align-items: center; justify-content: center; gap: 6px; flex: 1;
+      padding: 9px 8px; border-radius: var(--radius-md); border: none; cursor: pointer;
+      background: transparent; color: var(--text-dim); font-size: 12.5px; white-space: nowrap;
     }
-    #btn-settings:hover { background: var(--bg-hover); color: var(--text); }
+    .sidebar-footer button:hover { background: var(--bg-hover); color: var(--text); }
 
     /* ===== 右侧终端区（FR-044/045） ===== */
     #main { flex: 1; display: flex; flex-direction: column; min-width: 0; position: relative; }
@@ -248,6 +248,24 @@
     .tab.new-session:hover { color: var(--accent); background: var(--accent-soft); }
     /* 新建会话主机选择（FR-052） */
     .picker-list { display: flex; flex-direction: column; gap: 6px; }
+    /* R001 tmux 模式选项（新建会话弹窗顶部） */
+    .picker-tmux {
+      display: flex; align-items: flex-start; gap: 8px; cursor: pointer;
+      padding: 10px 12px; margin-bottom: 10px; border-radius: var(--radius-md);
+      border: 1px dashed var(--border); background: var(--bg-input);
+    }
+    .picker-tmux input { margin-top: 2px; accent-color: var(--accent); }
+    .picker-tmux span { font-size: 12px; }
+    .picker-tmux-desc { font-size: 11px; color: var(--text-dim); margin-top: 2px; }
+    /* R001 远端无 tmux 提示 */
+    .tmux-hint p { margin: 0 0 10px; }
+    .tmux-hint pre {
+      background: var(--bg-input); border: 1px solid var(--border); border-radius: var(--radius-md);
+      padding: 8px 12px; overflow-x: auto;
+    }
+    .tmux-hint code { font-size: 12px; }
+    .tmux-hint-install { font-weight: 500; }
+    .tmux-hint-note { font-size: 11px; color: var(--text-dim); margin: 8px 0 0; }
     .picker-item {
       display: flex; align-items: center; justify-content: space-between; gap: 12px;
       padding: 11px 14px; border-radius: var(--radius-md); border: 1px solid var(--border);
@@ -259,7 +277,8 @@
     #terminals { flex: 1; position: relative; background: var(--term-bg); }
     .term-instance { position: absolute; inset: 0; display: none; flex-direction: column; }
     .term-instance.active { display: flex; }
-    .term-instance .term-container { flex: 1; padding: 10px 6px 14px 10px; min-height: 0; }
+    /* overflow hidden：xterm canvas 在高分屏下行高取整会略微溢出容器，裁剪防止盖住快捷命令栏 */
+    .term-instance .term-container { flex: 1; padding: 10px 6px 14px 10px; min-height: 0; overflow: hidden; }
     .term-instance .term-status {
       min-height: 24px; font-size: 12px; color: var(--text-faint);
       padding: 2px 14px 12px; display: none;
@@ -269,7 +288,10 @@
     /* 快捷命令栏（终端底部） */
     .quick-bar {
       display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
-      padding: 0 12px 10px 12px; min-height: 8px;
+      padding: 8px 12px 10px 12px; min-height: 8px;
+      /* 底栏独立成条：背景与终端区分层 + 顶部分隔线，浅/深主题下均有明显边界 */
+      background: var(--bg-hover);
+      border-top: 1px solid var(--border);
     }
     .quick-cmd {
       border: 1px solid var(--border); background: var(--bg-input); color: var(--text-dim);
@@ -465,13 +487,28 @@
     .placeholder-box { color: var(--text-faint); font-size: 13px; text-align: center; padding: 36px 0; line-height: 1.7; }
 
     /* 审计页（US4） */
-    /* 审计页：顶部说明 + 六列表格（时间/事件/设备 ID/命令/状态/操作） */
-    .audit-note {
-      font-size: 12px; color: var(--text-dim); line-height: 1.7;
-      background: var(--bg-input); border: 1px solid var(--border); border-radius: var(--radius-md);
-      padding: 10px 14px; margin-bottom: 12px;
+    /* 审计页：说明收敛为感叹号图标，悬停/聚焦展开气泡 */
+    .audit-info {
+      position: relative; display: inline-flex; align-items: center; justify-content: center;
+      width: 26px; height: 26px; flex-shrink: 0; border-radius: 50%;
+      color: var(--text-faint); cursor: help; transition: color .12s ease, background .12s ease;
     }
-    .audit-note b { color: var(--text); font-weight: 600; }
+    .audit-info:hover, .audit-info:focus-visible { color: var(--accent); background: var(--accent-soft); }
+    .audit-info:focus { outline: none; }
+    .audit-info-tip {
+      position: absolute; top: calc(100% + 8px); right: 0; z-index: 60;
+      width: 340px; max-width: 78vw; padding: 10px 14px;
+      font-size: 12px; line-height: 1.7; font-weight: normal; text-align: left;
+      color: var(--text-dim); background: var(--bg-panel); border: 1px solid var(--border);
+      border-radius: var(--radius-md); box-shadow: var(--shadow-lg); cursor: default;
+      opacity: 0; visibility: hidden; transform: translateY(-4px);
+      transition: opacity .15s ease, transform .15s ease, visibility .15s;
+      pointer-events: none;
+    }
+    .audit-info-tip b { color: var(--text); font-weight: 600; }
+    .audit-info:hover .audit-info-tip,
+    .audit-info:focus .audit-info-tip,
+    .audit-info:focus-within .audit-info-tip { opacity: 1; visibility: visible; transform: translateY(0); }
     .audit-table .audit-head, .audit-table .audit-row {
       display: grid; gap: 12px; align-items: center;
     }
@@ -513,6 +550,59 @@
     .audit-sid-link { cursor: pointer; color: var(--accent); font-family: Menlo, monospace; }
     .audit-sid-link:hover { text-decoration: underline; }
     .audit-toolbar .btn { padding: 6px 14px; }
+    /* 统一筛选框：所有条件聚合为一个搜索框，点击「+ 添加筛选」选择条件（时间/会话 ID/来源/结果/主机），
+       已选条件以 chip 形式呈现在框内，点击 chip 可再编辑、× 可移除 */
+    .af-box {
+      flex: 1; min-width: 220px; min-height: 34px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+      background: var(--bg-input); border: 1px solid var(--border); border-radius: var(--radius-md);
+      padding: 3px 8px; color: var(--text-faint); transition: border-color .12s ease;
+    }
+    .af-box:focus-within { border-color: var(--accent); }
+    .af-box > .icon { flex-shrink: 0; }
+    .af-chips { display: contents; }
+    .af-chip {
+      display: inline-flex; align-items: center; gap: 3px; white-space: nowrap; cursor: pointer;
+      background: var(--accent-soft); color: var(--accent);
+      border-radius: 6px; padding: 3px 4px 3px 8px; font-size: 11.5px;
+    }
+    .af-chip:hover { filter: brightness(1.06); }
+    .af-chip-x {
+      border: none; background: none; color: inherit; cursor: pointer; opacity: .65;
+      display: inline-flex; align-items: center; padding: 2px; border-radius: 4px;
+    }
+    .af-chip-x:hover { opacity: 1; background: rgba(0, 0, 0, .18); }
+    .af-entry { position: relative; display: inline-flex; align-items: center; }
+    .af-add {
+      border: none; background: none; color: var(--text-faint); font-size: 12px; cursor: pointer;
+      display: inline-flex; align-items: center; gap: 4px; padding: 4px 7px; border-radius: 6px;
+    }
+    .af-add:hover { color: var(--accent); background: var(--accent-soft); }
+    .af-menu, .af-editor {
+      position: absolute; top: calc(100% + 7px); left: 0; z-index: 60;
+      background: var(--bg-panel); border: 1px solid var(--border); border-radius: var(--radius-md);
+      box-shadow: var(--shadow-lg);
+    }
+    .af-menu { min-width: 128px; padding: 4px; display: flex; flex-direction: column; }
+    .af-menu button {
+      border: none; background: none; text-align: left; padding: 7px 12px; font-size: 12px;
+      color: var(--text); border-radius: 6px; cursor: pointer;
+    }
+    .af-menu button:hover { background: var(--accent-soft); color: var(--accent); }
+    .af-editor { display: flex; align-items: center; gap: 8px; padding: 8px 10px; }
+    .af-editor[hidden], .af-menu[hidden] { display: none; }
+    .af-editor input, .af-editor select {
+      background: var(--bg-input); color: var(--text); border: 1px solid var(--border);
+      border-radius: 6px; padding: 5px 8px; font-size: 12px;
+    }
+    .af-editor input:focus, .af-editor select:focus { outline: none; border-color: var(--accent); }
+    .af-text { width: 200px; font-family: Menlo, monospace; font-size: 11.5px; }
+    .af-time { font-size: 11.5px; }
+    .af-sep { color: var(--text-faint); font-size: 11px; }
+    .af-done {
+      border: 1px solid var(--border); background: var(--bg-input); color: var(--text-dim);
+      border-radius: 6px; padding: 4px 10px; font-size: 11.5px; cursor: pointer;
+    }
+    .af-done:hover { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
     /* 审计详情浮层（独立于全局 modal，z-index 高于设置弹窗） */
     .audit-detail-overlay { position: fixed; inset: 0; z-index: 200; opacity: 0; transition: opacity .15s ease; }
     .audit-detail-overlay.show { opacity: 1; }
@@ -691,6 +781,7 @@
       </div>
       <div id="host-list"></div>
       <div class="sidebar-footer">
+        <button id="btn-quick-cmds" title="快捷命令"><svg class="icon" width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#play"/></svg> 快捷命令</button>
         <button id="btn-settings" title="设置"><svg class="icon" width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#gear"/></svg> 设置</button>
       </div>
     </aside>

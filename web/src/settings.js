@@ -4,7 +4,6 @@ import { currentThemeMode, setTheme } from './theme.js';
 import { icon } from './icons.js';
 import { getPrefs, setPref } from './prefs.js';
 import { apiUrl } from './base.js';
-import { getQuickCommands, addQuickCommand, removeQuickCommand } from './quick-commands.js';
 
 /**
  * 打开设置弹窗。
@@ -80,6 +79,12 @@ export function openSettingsModal({ renderAudit, renderTokens, renderTokenConfig
             <div class="pref-label">光标闪烁</div>
             <label class="switch"><input type="checkbox" id="pref-blink" ${prefs.cursorBlink ? 'checked' : ''} /><span></span></label>
           </div>
+          <div class="pref-row">
+            <div class="pref-label">新建会话默认 tmux 保活
+              <div class="pref-desc">新建会话弹窗默认勾选「以 tmux 保活会话连接」；远端未安装 tmux 时会自动提示并按普通终端继续</div>
+            </div>
+            <label class="switch"><input type="checkbox" id="pref-tmux" ${prefs.tmuxDefault ? 'checked' : ''} /><span></span></label>
+          </div>
         </div>
         <div class="pref-section">
           <div class="pref-title">行为</div>
@@ -94,16 +99,7 @@ export function openSettingsModal({ renderAudit, renderTokens, renderTokenConfig
             <label class="switch"><input type="checkbox" id="pref-audit-output" /><span></span></label>
           </div>
         </div>
-        <div class="pref-section">
-          <div class="pref-title">快捷命令</div>
-          <div class="pref-row" style="align-items:flex-end">
-            <div class="pref-label" style="flex:1">名称<input id="qc-name" class="pref-input" placeholder="如：查看负载" maxlength="32" /></div>
-            <div class="pref-label" style="flex:2">命令<input id="qc-cmd" class="pref-input" placeholder="如：uptime && df -h" maxlength="200" /></div>
-            <button class="btn primary" id="qc-add">添加</button>
-          </div>
-          <div id="qc-list"></div>
-        </div>
-        <p class="form-note" style="margin-top:14px">快捷命令显示在终端底部命令栏，点击即发送执行（含回车）。高级偏好（终端配色方案导入等）将在后续版本提供。</p>`;
+        <p class="form-note" style="margin-top:14px">快捷命令已拆分至左侧独立入口管理。高级偏好（终端配色方案导入等）将在后续版本提供。</p>`;
       pane.querySelectorAll('.theme-option').forEach((opt) =>
         opt.addEventListener('click', () => {
           setTheme(opt.dataset.theme);
@@ -126,6 +122,9 @@ export function openSettingsModal({ renderAudit, renderTokens, renderTokenConfig
       });
       pane.querySelector('#pref-blink').addEventListener('change', (e) => {
         setPref('cursorBlink', e.target.checked);
+      });
+      pane.querySelector('#pref-tmux').addEventListener('change', (e) => {
+        setPref('tmuxDefault', e.target.checked);
       });
       pane.querySelector('#pref-exit').addEventListener('change', (e) => {
         setPref('exitConfirm', e.target.checked);
@@ -160,44 +159,6 @@ export function openSettingsModal({ renderAudit, renderTokens, renderTokenConfig
           auditOutputEl.disabled = false;
         }
       });
-
-      // —— 快捷命令管理 ——
-      const qcList = pane.querySelector('#qc-list');
-      const qcName = pane.querySelector('#qc-name');
-      const qcCmd = pane.querySelector('#qc-cmd');
-      const renderQc = () => {
-        const cmds = getQuickCommands();
-        qcList.innerHTML = cmds.length
-          ? cmds
-              .map(
-                (c) => `<div class="qc-row" data-id="${escapeAttr(c.id)}">
-                  <span class="qc-name">${escapeText(c.name)}</span>
-                  <code class="qc-cmd" title="${escapeAttr(c.cmd)}">${escapeText(c.cmd)}</code>
-                  <button class="icon-btn danger-text qc-del" title="删除">${icon('trash', 12)}</button>
-                </div>`
-              )
-              .join('')
-          : '<div class="qc-empty">暂无快捷命令。终端中选中文字右键可快速保存。</div>';
-        qcList.querySelectorAll('.qc-del').forEach((b) =>
-          b.addEventListener('click', () => {
-            removeQuickCommand(b.closest('.qc-row').dataset.id);
-            renderQc();
-          })
-        );
-      };
-      pane.querySelector('#qc-add').addEventListener('click', () => {
-        const name = qcName.value.trim();
-        const cmd = qcCmd.value.trim();
-        if (!name || !cmd) return alert('名称与命令都不能为空');
-        addQuickCommand(name, cmd);
-        qcName.value = '';
-        qcCmd.value = '';
-        renderQc();
-      });
-      qcCmd.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') pane.querySelector('#qc-add').click();
-      });
-      renderQc();
     },
     opsAudit: () => {
       if (renderAudit) renderAudit(pane, 'operation');
@@ -235,13 +196,4 @@ export function openSettingsModal({ renderAudit, renderTokens, renderTokenConfig
   );
   panes.theme();
   return m;
-}
-
-function escapeText(s) {
-  return String(s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]);
-}
-function escapeAttr(s) {
-  return String(s).replace(/[&<>"']/g, (c) => ({
-    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
-  })[c]);
 }
