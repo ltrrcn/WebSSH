@@ -31,3 +31,10 @@ Thumbs.db
 
 # macOS
 .DS_Store
+
+# fnOS 打包暂存目录（构建产物，由 scripts/build-fnos.sh 生成；ui/ 为手工维护的桌面入口仍跟踪）
+packaging/fnos/app/src/
+packaging/fnos/app/web/
+packaging/fnos/app/package.json
+packaging/fnos/app/package-lock.json
+packaging/fnos/app/.npmrc
