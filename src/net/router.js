@@ -136,6 +136,8 @@ export function createRouter({ webDir, apiRoutes = [], onMcp }) {
     res.writeHead(200, {
       'content-type': MIME[extname(abs).toLowerCase()] ?? 'application/octet-stream',
       'content-length': st.size,
+      // 前端无构建步骤、无文件名指纹：禁用缓存，避免升级后浏览器仍加载旧模块
+      'cache-control': 'no-cache, must-revalidate',
     });
     createReadStream(abs).pipe(res);
   };

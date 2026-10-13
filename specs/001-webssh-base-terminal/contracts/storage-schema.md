@@ -72,6 +72,7 @@
     "sessionsPerUser": 10,
     "connectTimeoutMs": 10000,
     "idleTimeoutMs": 1800000,
+    "detachedTtlMs": 600000,
     "execTimeoutMs": 60000,
     "tokenRateLimitPerMinute": 60,
     "outputDigestBytes": 2048

@@ -4,7 +4,7 @@
 // 命令审计：从上行终端输入流按行重组，回车提交时记录命令原文（脱敏由审计层完成）
 // 可选输出摘要：config.audit.recordTerminalOutput 开启后，命令事件延迟落盘并附带
 // 其输出摘要（清洗 ANSI + redact 脱敏 + outputDigestBytes 截断）；默认关闭不改变行为
-import { encodeDataFrame, parseClientFrame } from '../../web/src/protocol/frames.js';
+import { encodeDataFrame, encodeMetaFrame, parseClientFrame } from '../../web/src/protocol/frames.js';
 import { redact, truncateDigest } from '../crypto/redact.js';
 
 // ANSI 转义序列清洗（CSI / OSC / 其余控制字符，保留换行）
@@ -101,14 +101,26 @@ function createCommandRecorder(session, audit, getOutputCfg) {
   };
 }
 
+/** WS 就绪态常量（避免依赖实例属性） */
+const WS_OPEN = 1;
+/** detached 期间的输出缓冲上限（超出丢弃最旧，防内存膨胀） */
+const MAX_BUFFER_BYTES = 256 * 1024;
+
 /**
  * @param {{ws: import('ws').WebSocket, stream: import('ssh2').Channel,
- *   session: object, idleTimeoutMs: number, audit: object, config: object,
- *   onSessionEnd: (endReason: string, wsCloseCode: number) => void}} opts
+ *   session: object, idleTimeoutMs: number, detachedTtlMs?: number, audit: object, config: object,
+ *   onSessionEnd: (endReason: string, wsCloseCode: number) => void,
+ *   onDetach?: () => void}} opts
+ * @returns {{attach: (ws: import('ws').WebSocket) => boolean, detach: () => void}}
  */
-export function bridgeSession({ ws, stream, session, idleTimeoutMs, audit, config, onSessionEnd }) {
+export function bridgeSession({ ws, stream, session, idleTimeoutMs, detachedTtlMs = 0, audit, config, onSessionEnd, onDetach }) {
   let ended = false;
+  let detached = false;
   let idleTimer = null;
+  let currentWs = ws;
+  // detached 期间远端输出先入缓冲，重新接管时回放
+  let buffer = [];
+  let bufferedBytes = 0;
   // 开关运行时读取：设置页热改 config 后即刻生效，无需重开会话
   const getOutputCfg = () => ({
     enabled: config?.audit?.recordTerminalOutput === true,
@@ -116,15 +128,29 @@ export function bridgeSession({ ws, stream, session, idleTimeoutMs, audit, confi
   });
   const recorder = createCommandRecorder(session, audit, getOutputCfg);
 
+  // 会话元信息下发（FR-058）：前端据此把本地会话卡与审计里的服务端会话 ID 对应，
+  // 便于在「命令审计」中定位后台运行/已断开的会话并继续连接
+  const sendMeta = (w) => {
+    if (w && w.readyState === WS_OPEN) {
+      try {
+        w.send(encodeMetaFrame({ sessionId: session.id }), { binary: true });
+      } catch {
+        /* 下发失败不影响终端透传 */
+      }
+    }
+  };
+  sendMeta(ws);
+
   const touchIdle = () => {
     if (idleTimer) clearTimeout(idleTimer);
     idleTimer = setTimeout(() => {
       // 空闲超时：断开会话并告知原因（关闭码 4010）
-      onSessionEnd('idle-timeout', 4010);
+      finalize('idle-timeout', 4010);
     }, idleTimeoutMs);
   };
 
-  const end = (reason, code) => {
+  /** 真正销毁：释放 SSH 通道并结束会话 */
+  const finalize = (reason, code) => {
     if (ended) return;
     ended = true;
     if (idleTimer) clearTimeout(idleTimer);
@@ -141,8 +167,52 @@ export function bridgeSession({ ws, stream, session, idleTimeoutMs, audit, confi
     onSessionEnd(reason, code);
   };
 
+  /** 挂起：解绑 WS、保留 SSH 连接，远端输出转入缓冲（FR-059） */
+  const detach = () => {
+    if (ended || detached) return;
+    // 未启用保活（detachedTtlMs<=0）：维持旧语义，断线即释放
+    if (!(detachedTtlMs > 0)) {
+      finalize('network', 1006);
+      return;
+    }
+    detached = true;
+    if (idleTimer) clearTimeout(idleTimer);
+    unbindWs(currentWs);
+    currentWs = null;
+    onDetach?.(); // 由 manager 置状态、记审计并启动 TTL
+  };
+
+  /** 重新接管：绑定新 WS 并回放缓冲输出 */
+  const attach = (newWs) => {
+    if (ended || !detached) return false;
+    detached = false;
+    currentWs = newWs;
+    bindWs(newWs);
+    sendMeta(newWs);
+    for (const chunk of buffer) {
+      if (newWs.readyState !== WS_OPEN) break;
+      try {
+        newWs.send(encodeDataFrame(chunk), { binary: true });
+      } catch {
+        break;
+      }
+    }
+    buffer = [];
+    bufferedBytes = 0;
+    touchIdle();
+    return true;
+  };
+
+  const pushBuffer = (chunk) => {
+    buffer.push(chunk);
+    bufferedBytes += chunk.length;
+    while (bufferedBytes > MAX_BUFFER_BYTES && buffer.length > 1) {
+      bufferedBytes -= buffer.shift().length;
+    }
+  };
+
   // —— 上行：浏览器 → 远端 ——
-  ws.on('message', (data, isBinary) => {
+  const onMessage = (data, isBinary) => {
     if (ended) return;
     if (!isBinary) {
       // 契约：所有消息必须为二进制帧
@@ -188,28 +258,55 @@ export function bridgeSession({ ws, stream, session, idleTimeoutMs, audit, confi
           reason: `invalid-frame:${frame.reason}`,
         });
     }
-  });
+  };
+
+  const onWsClose = (code) => {
+    if (ended || detached) return;
+    // 1000 = 客户端主动关闭（点「关闭会话」）→ 立即释放 SSH；
+    // 其余（刷新/关窗口 1001、网络异常 1006 等）→ 挂起保活，等待重新接管
+    if (code === 1000) finalize('user', 1000);
+    else detach();
+  };
+  const onWsError = () => {
+    if (ended || detached) return;
+    detach();
+  };
+
+  function bindWs(w) {
+    if (!w) return;
+    w.on('message', onMessage);
+    w.on('close', onWsClose);
+    w.on('error', onWsError);
+  }
+  function unbindWs(w) {
+    if (!w) return;
+    w.off('message', onMessage);
+    w.off('close', onWsClose);
+    w.off('error', onWsError);
+  }
+  bindWs(ws);
 
   // —— 下行：远端 → 浏览器 ——
   stream.on('data', (chunk) => {
     if (ended) return;
-    touchIdle();
+    if (!detached) touchIdle();
     try {
       recorder.onOutput(chunk); // 输出摘要收集（仅开关开启且有 pending 命令时生效）
     } catch {
       /* 审计失败不阻断透传 */
     }
-    if (ws.readyState === ws.OPEN) {
-      ws.send(encodeDataFrame(chunk), { binary: true });
+    if (currentWs && currentWs.readyState === WS_OPEN) {
+      currentWs.send(encodeDataFrame(chunk), { binary: true });
+    } else if (!ended) {
+      pushBuffer(chunk); // 无 WS（已挂起/正在关闭）：缓冲等接管后回放
     }
   });
 
-  ws.on('close', () => end('user', 1000));
-  ws.on('error', () => end('network', 1006));
-
-  stream.on('close', () => end(session.endReason ?? 'error', 1000));
-  stream.on('error', () => end('error', 1011));
+  stream.on('close', () => finalize(session.endReason ?? 'error', 1000));
+  stream.on('error', () => finalize('error', 1011));
 
   // 启动空闲计时
   touchIdle();
+
+  return { attach, detach };
 }

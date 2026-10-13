@@ -4,7 +4,7 @@ import { FrameType, encodeDataFrame, PROTOCOL_VERSION } from './protocol/frames.
 import { xtermTheme, onThemeChange } from './theme.js';
 import { fetchHosts } from './hosts.js';
 import { confirmFingerprintModal } from './hosts.js';
-import { openModal } from './modal.js';
+import { openModal, confirmModal } from './modal.js';
 import { showContextMenu } from './contextmenu.js';
 import { wsUrl, apiUrl } from './base.js';
 import { icon } from './icons.js';
@@ -41,8 +41,12 @@ const FitAddonCtor = window.FitAddon?.FitAddon ?? window.FitAddon;
 const tabs = new Map(); // tabId -> tab
 let seq = 0;
 let activeTabId = null;
-let ui = null; // { tabbar, terminals, emptyState }
+let ui = null; // { tabbar, tabStrip, terminals, emptyState }
 let themeUnsub = null;
+/** 会话条可见窗口的起始索引：窗口宽度不足时由右侧 ‹ › 左右滑动切换 */
+let tabOffset = 0;
+/** 已保证过可见的活动会话：仅在活动会话切换时重新定位，避免把用户手动滑动的结果拉回 */
+let pinnedTabId = null;
 const tabsChangeListeners = new Set();
 
 export function onTabsChange(fn) {
@@ -51,11 +55,16 @@ export function onTabsChange(fn) {
 }
 function notifyTabsChange() {
   for (const fn of tabsChangeListeners) fn();
+  // 会话变动后同步一次服务端保活列表（合并高频触发）
+  if (detachedRefreshTimer) clearTimeout(detachedRefreshTimer);
+  detachedRefreshTimer = setTimeout(() => refreshDetachedSessions(), 300);
 }
 
 export function mountTerminalArea(refs) {
   ui = refs;
+  buildTabbar();
   renderTabbar(); // 初始渲染：无 tab 时也要显示「新建会话」入口
+  refreshDetachedSessions(); // FR-059：刷新页面后仍可接管服务端保活的会话
   onThemeChange((name) => {
     for (const t of tabs.values()) {
       try {
@@ -66,27 +75,60 @@ export function mountTerminalArea(refs) {
     }
   });
   window.addEventListener('resize', () => {
+    pinnedTabId = null; // 宽度变化后重新保证活动会话可见
+    layoutTabs(); // 窗口尺寸变化 → 可容纳会话数随之变化
     const t = tabs.get(activeTabId);
     if (t) fitAndReport(t);
   });
 }
 
-/** 连接主机：默认已有活动 tab 则激活；右键「复制会话」时 forceNew 强制新建（FR-049）
- *  R001：tmux=true 时以 tmux 保活会话连接（远端探测可用后自动 attach，同一主机共享会话）
+/** tabbar 骨架：左侧会话条（容纳不下的会话卡隐藏）+ 右侧左右切换与「新建会话」 */
+function buildTabbar() {
+  const bar = ui.tabbar;
+  bar.innerHTML = `
+    <div class="tab-strip"></div>
+    <div class="tab-tools">
+      <button class="tab-nav-btn" id="tab-nav-prev" title="向左切换会话" aria-label="向左切换会话">${icon('chevron', 14)}</button>
+      <button class="tab-nav-btn" id="tab-nav-next" title="向右切换会话" aria-label="向右切换会话">${icon('chevron', 14)}</button>
+      <button class="tab-bg-btn" id="btn-bg-sessions" title="后台运行的会话">${icon('monitor', 13)}<span id="bg-count"></span></button>
+      <button class="tab-detached-btn" id="btn-detached" title="服务端保活的会话（刷新/关窗口后仍可恢复）">${icon('monitor', 13)}<span id="dt-count"></span></button>
+      <button class="tab new-session" id="btn-new-session" title="新建会话">${icon('plus', 14)}</button>
+    </div>`;
+  ui.tabStrip = bar.querySelector('.tab-strip');
+  const prev = bar.querySelector('#tab-nav-prev');
+  const next = bar.querySelector('#tab-nav-next');
+  prev.querySelector('.icon').style.transform = 'scaleX(-1)'; // 复用 chevron 图标做左向箭头
+  prev.addEventListener('click', () => shiftTabs(-1));
+  next.addEventListener('click', () => shiftTabs(1));
+  bar.querySelector('#btn-bg-sessions').addEventListener('click', (e) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    showBackgroundMenu(r.left, r.bottom + 4); // 菜单贴着按钮左下展开
+  });
+  bar.querySelector('#btn-detached').addEventListener('click', (e) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    showDetachedMenu(r.left, r.bottom + 4);
+  });
+  bar.querySelector('#btn-new-session').addEventListener('click', () => openSessionPicker());
+  // 触控板横向滑动 / Shift+滚轮 = 左右切换（未溢出时不拦截默认行为）
+  ui.tabStrip.addEventListener(
+    'wheel',
+    (e) => {
+      const d = e.deltaX !== 0 ? e.deltaX : e.shiftKey ? e.deltaY : 0;
+      if (!d || !bar.classList.contains('overflowing')) return;
+      e.preventDefault();
+      shiftTabs(d > 0 ? 1 : -1);
+    },
+    { passive: false }
+  );
+}
+
+/** 连接主机：每次点「连接」都新建一个会话卡（同一主机可多开），与会话卡右键「复制会话」行为一致
+ *  R001：tmux=true 时以 tmux 保活会话连接（远端探测可用后自动 attach，同一主机共享屏幕）
  *  R003：指纹未确认时先弹确认（有 pendingFingerprint 才拦，无指纹记录直接连、由 4005 流程接管） */
-export async function connectHost(host, { forceNew = false, tmux = false } = {}) {
+export async function connectHost(host, { tmux = false } = {}) {
   if (!host.fingerprintConfirmed && host.pendingFingerprint) {
     const ok = await confirmFingerprintModal(host);
     if (!ok) return null; // 取消确认 = 放弃连接
-  }
-  if (!forceNew && !tmux) {
-    const existing = [...tabs.values()].find(
-      (t) =>
-        t.host.id === host.id &&
-        !t.tmux &&
-        (t.ws?.readyState === WebSocket.OPEN || t.ws?.readyState === WebSocket.CONNECTING)
-    );
-    if (existing) return activateTab(existing.id);
   }
   return createTab(host, { tmux });
 }
@@ -106,7 +148,7 @@ export function connectedHostIds() {
   return ids;
 }
 
-async function createTab(host, { tmux = false } = {}) {
+async function createTab(host, { tmux = false, attachId = '' } = {}) {
   const id = `tab_${++seq}`;
   const prefs = getPrefs();
   // 会话临时 ID（FR-051）：备注名按此 ID 存储于 localStorage，与主机数据无关
@@ -136,6 +178,7 @@ async function createTab(host, { tmux = false } = {}) {
     id,
     host,
     sessionKey,
+    serverSessionId: null, // 服务端会话 ID（session+连接时刻）：建连后由 SESSION 帧下发，与审计记录对应
     label: null,
     term,
     fitAddon,
@@ -143,6 +186,8 @@ async function createTab(host, { tmux = false } = {}) {
     ws: null,
     queue: [],
     scheduled: false,
+    // FR-059：接管服务端挂起会话时携带其会话 ID；为空表示新建会话
+    attachSessionId: attachId || null,
     // R001 tmux 会话模式：name 净化后的会话名；state: detecting → active | off
     tmux: tmux ? { name: sanitizeTmuxSessionName('webssh'), state: 'detecting', detector: null, timer: null } : null,
   };
@@ -229,9 +274,11 @@ async function connectWs(tab) {
   } catch {
     /* 票据为可选回退，失败不阻断 */
   }
+  // FR-059：带 sessionId 时服务端把本连接接到已挂起的会话上（而非新建）
   const url =
     wsUrl('ws/terminal') +
     `?hostId=${encodeURIComponent(host.id)}&version=${PROTOCOL_VERSION}` +
+    (tab.attachSessionId ? `&sessionId=${encodeURIComponent(tab.attachSessionId)}` : '') +
     (ticket ? `&ticket=${encodeURIComponent(ticket)}` : '');
   const ws = new WebSocket(url);
   ws.binaryType = 'arraybuffer';
@@ -239,6 +286,16 @@ async function connectWs(tab) {
 
   ws.onmessage = (e) => {
     const buf = new Uint8Array(e.data);
+    if (buf[0] === FrameType.SESSION) {
+      // 服务端会话 ID：与审计记录里的「会话 ID」是同一个值（FR-058）
+      try {
+        const meta = JSON.parse(new TextDecoder().decode(buf.subarray(1)));
+        if (meta?.sessionId) tab.serverSessionId = meta.sessionId;
+      } catch {
+        /* 忽略 */
+      }
+      return;
+    }
     if (buf[0] !== FrameType.DATA) return;
     const text = new TextDecoder().decode(buf.subarray(1));
     // R001 tmux 探测期：输出喂状态机判定，不显示（探测命令回显不进终端）
@@ -262,6 +319,8 @@ async function connectWs(tab) {
   ws.onopen = () => {
     tab.connecting = false;
     tab.setStatus?.('');
+    // FR-059 接管会话：重设窗口尺寸，让远端按当前终端大小重绘
+    if (tab.attachSessionId) setTimeout(() => fitAndReport(tab), 60);
     // R001 tmux 模式：首连与断线重连统一在此启动探测（重连后自动 attach 恢复现场）
     if (tab.tmux) startTmuxProbe(tab);
     renderTabbar();
@@ -272,6 +331,13 @@ async function connectWs(tab) {
     // R003 首次连接指纹未确认：服务端在 reason 携带指纹（fingerprint_unconfirmed:<fp>），
     // 弹居中确认弹窗——信任则自动重连，取消则终止（无需再去左侧点钥匙）
     let fpMissMsg = null;
+    if (e.code === 4007) {
+      // 待接管的会话已失效（超保活时长被回收 / 不属于当前用户）→ 退化为新建会话重连一次
+      tab.attachSessionId = null;
+      term.write('\r\n\x1b[33m—— 原会话已失效，正在建立新连接 ——\x1b[0m\r\n');
+      connectWs(tab);
+      return;
+    }
     if (e.code === 4005) {
       const fp = e.reason?.startsWith('fingerprint_unconfirmed:')
         ? e.reason.slice('fingerprint_unconfirmed:'.length)
@@ -445,6 +511,9 @@ export function activateTab(id) {
   const tab = tabs.get(id);
   if (!tab) return;
   activeTabId = id;
+  // 主动切换到某会话（点击会话卡 / 左侧连接）时重新定位可见窗口：
+  // 该会话可能正被宽度隐藏，必须滑到可见位置（用户手动滑动不经过此路径，不会被拉回）
+  pinnedTabId = null;
   for (const t of tabs.values()) t.el.classList.toggle('active', t.id === id);
   renderTabbar();
   // 重新显示后容器尺寸可能变化，需要重新 fit
@@ -452,21 +521,185 @@ export function activateTab(id) {
   tab.term.focus();
 }
 
-/** 关闭 tab（FR-046）：活动会话先确认 */
-export function closeTab(id) {
+/** 关闭 tab（FR-046）：活动会话先弹确认（替代原生 confirm） */
+export async function closeTab(id) {
   const tab = tabs.get(id);
   if (!tab) return;
   if (tab.ws && tab.ws.readyState === WebSocket.OPEN) {
     // R001：tmux 会话关闭提示不同——远端会话保留，重连可恢复现场
-    const msg =
-      tab.tmux?.state === 'active'
-        ? `「${tab.host.name}」处于 tmux 保活会话，关闭标签后远端会话继续保留，\n重新连接可恢复现场。是否关闭当前终端？`
-        : `「${tab.host.name}」的终端会话仍在进行，关闭将断开连接。\n是否关闭当前终端？`;
-    if (!confirm(msg)) {
+    const tmuxOn = tab.tmux?.state === 'active';
+    const res = await confirmModal({
+      title: '关闭会话',
+      danger: true,
+      iconName: 'monitor',
+      confirmText: '关闭会话',
+      extraText: '后台运行',
+      message: `<strong>${escapeHtml(tab.host.name)}</strong> 的终端会话正在进行。`,
+      note: `关闭将断开 SSH 连接${tmuxOn ? '（tmux 远端会话保留，重连可恢复现场）' : '，未写入文件的现场会丢失'}。后台运行则保持连接、只收起会话卡，可从右上角随时恢复。`,
+    });
+    if (res === 'extra') {
+      backgroundTab(tab);
+      return;
+    }
+    if (res !== true) return; // 取消
+  }
+  destroyTab(id);
+}
+
+/** 后台运行（FR-058）：会话卡从会话条收起，终端隐藏，WS 连接保持不断 */
+export function backgroundTab(idOrTab) {
+  const tab = typeof idOrTab === 'string' ? tabs.get(idOrTab) : idOrTab;
+  if (!tab || tab.bg) return;
+  tab.bg = true;
+  tab.el.classList.remove('active');
+  if (activeTabId === tab.id) {
+    activeTabId = null;
+    const next = visibleTabs().pop();
+    if (next) {
+      activateTab(next.id); // 内部会 renderTabbar
+      notifyTabsChange();
       return;
     }
   }
-  destroyTab(id);
+  renderTabbar();
+  notifyTabsChange();
+}
+
+/**
+ * 审计页定位本地会话卡（FR-058）：
+ * - 优先按服务端会话 ID 精确匹配
+ * - 兜底：服务端未下发 ID 的旧会话（如后端未重启）按主机匹配唯一候选，避免误判为「其他页面」
+ * @param {string} serverId 审计记录里的 sessionId
+ * @param {string} hostId 审计记录里的主机 ID
+ */
+export function findLocalTab(serverId, hostId) {
+  if (serverId) {
+    const exact = findTabByServerId(serverId);
+    if (exact) return exact;
+  }
+  if (!hostId) return null;
+  const cands = [...tabs.values()].filter((t) => t.host.id === hostId && !t.serverSessionId);
+  return cands.length === 1 ? cands[0] : null;
+}
+
+/** 按服务端会话 ID 定位本地会话卡（含后台运行的）：供审计页「继续连接」使用（FR-058） */
+export function findTabByServerId(serverId) {
+  if (!serverId) return null;
+  for (const t of tabs.values()) {
+    if (t.serverSessionId === serverId) return t;
+  }
+  return null;
+}
+
+/** 恢复后台会话到会话条并激活 */
+export function restoreTab(id) {
+  const tab = tabs.get(id);
+  if (!tab) return;
+  tab.bg = false;
+  activateTab(id);
+  notifyTabsChange();
+}
+
+function visibleTabs() {
+  return [...tabs.values()].filter((t) => !t.bg);
+}
+
+function backgroundTabs() {
+  return [...tabs.values()].filter((t) => t.bg);
+}
+
+/** 后台会话菜单：列出后台会话（点击恢复），可一次性全部关闭 */
+function showBackgroundMenu(x, y) {
+  const list = backgroundTabs();
+  if (!list.length) return;
+  showContextMenu(x, y, {
+    meta: `后台运行 ${list.length} 个会话`,
+    items: [
+      ...list.map((t) => ({
+        label: t.label ?? t.host.name,
+        onClick: () => restoreTab(t.id),
+      })),
+      'sep',
+      {
+        label: `全部关闭（${list.length}）`,
+        danger: true,
+        onClick: async () => {
+          const ok = await confirmModal({
+            title: '关闭后台会话',
+            danger: true,
+            iconName: 'trash',
+            confirmText: '全部关闭',
+            message: `将断开 <strong>${list.length}</strong> 个后台会话的 SSH 连接，现场不可恢复。`,
+          });
+          if (ok !== true) return;
+          for (const t of list) destroyTab(t.id);
+        },
+      },
+    ],
+  });
+}
+
+// —— FR-059：服务端挂起（断线保活）的会话 ——
+// 与本地「后台运行」不同：这些会话的浏览器连接已经消失（刷新/关窗口/掉线），
+// SSH 连接仍由服务端持有，页面重新打开后可原样接管。
+let detachedSessions = [];
+let detachedRefreshTimer = null;
+
+/** 拉取服务端保活会话并刷新会话条入口（主机已删除的会话不可恢复，直接忽略） */
+export async function refreshDetachedSessions() {
+  try {
+    const [list, hosts] = await Promise.all([
+      fetch(apiUrl('sessions')).then((r) => (r.ok ? r.json() : [])),
+      fetchHosts(),
+    ]);
+    detachedSessions = (Array.isArray(list) ? list : [])
+      .filter((s) => s.state === 'detached')
+      .map((s) => ({ ...s, host: hosts.find((h) => h.id === s.hostId) }))
+      .filter((s) => s.host);
+  } catch {
+    detachedSessions = [];
+  }
+  renderTabbar();
+}
+
+/** 保活会话菜单：点击恢复（接管），可一次性全部断开 */
+function showDetachedMenu(x, y) {
+  const list = detachedSessions;
+  if (!list.length) return;
+  showContextMenu(x, y, {
+    meta: `${list.length} 个会话在服务端保活`,
+    items: [
+      ...list.map((s) => ({
+        label: `${s.host.name} · ${s.id}`,
+        onClick: async () => {
+          const tab = await createTab(s.host, { attachId: s.id });
+          if (tab) {
+            activateTab(tab.id);
+            refreshDetachedSessions();
+          }
+        },
+      })),
+      'sep',
+      {
+        label: `全部断开（${list.length}）`,
+        danger: true,
+        onClick: async () => {
+          const ok = await confirmModal({
+            title: '断开保活会话',
+            danger: true,
+            iconName: 'trash',
+            confirmText: '全部断开',
+            message: `将断开 <strong>${list.length}</strong> 个保活会话的 SSH 连接，现场不可恢复。`,
+          });
+          if (ok !== true) return;
+          for (const s of list) {
+            await fetch(apiUrl(`sessions/${encodeURIComponent(s.id)}`), { method: 'DELETE' }).catch(() => {});
+          }
+          refreshDetachedSessions();
+        },
+      },
+    ],
+  });
 }
 
 function destroyTab(id) {
@@ -492,8 +725,8 @@ function destroyTab(id) {
   tab.el.remove();
   tabs.delete(id);
   if (activeTabId === id) {
-    const next = [...tabs.keys()].pop();
-    if (next) activateTab(next);
+    const next = visibleTabs().pop();
+    if (next) activateTab(next.id);
     else {
       activeTabId = null;
       renderTabbar();
@@ -505,19 +738,34 @@ function destroyTab(id) {
 }
 
 function renderTabbar() {
-  if (!ui) return;
-  const bar = ui.tabbar;
+  if (!ui?.tabStrip) return;
+  const bar = ui.tabStrip;
   bar.innerHTML = '';
-  const hasTabs = tabs.size > 0;
-  ui.emptyState.style.display = hasTabs ? 'none' : 'flex';
-  for (const t of tabs.values()) {
+  const visible = visibleTabs(); // 后台会话不占会话条（FR-058）
+  const bgCount = tabs.size - visible.length;
+  ui.emptyState.style.display = visible.length ? 'none' : 'flex';
+  const hint = ui.emptyState.querySelector('div:last-child');
+  if (hint) {
+    hint.textContent = visible.length
+      ? ''
+      : bgCount
+        ? `${bgCount} 个会话在后台运行`
+        : '在左侧选择主机开始连接';
+  }
+  ui.tabbar.classList.toggle('has-bg', bgCount > 0);
+  ui.tabbar.classList.toggle('has-detached', detachedSessions.length > 0);
+  const dtCountEl = ui.tabbar.querySelector('#dt-count');
+  if (dtCountEl) dtCountEl.textContent = detachedSessions.length ? String(detachedSessions.length) : '';
+  const bgCountEl = ui.tabbar.querySelector('#bg-count');
+  if (bgCountEl) bgCountEl.textContent = bgCount ? String(bgCount) : '';
+  for (const t of visible) {
     const el = document.createElement('div');
     el.className = 'tab' + (t.id === activeTabId ? ' active' : '');
     el.dataset.tabId = t.id;
     const isOpen = t.ws?.readyState === WebSocket.OPEN;
     el.innerHTML = `
       <span class="tab-status ${isOpen ? 'open' : ''}" title="${isOpen ? '已连接' : '连接中/已断开'}"></span>
-      <span class="tab-label" title="双击修改备注名&#10;会话 ID: ${t.sessionKey}${t.tmux ? `&#10;tmux 会话: ${t.tmux.state === 'active' ? t.tmux.name : '探测中/不可用'}` : ''}"></span>
+      <span class="tab-label" title="双击修改备注名&#10;本地会话: ${t.sessionKey}${t.serverSessionId ? `&#10;服务端会话: ${t.serverSessionId}（审计中以此 ID 查）` : ''}${t.tmux ? `&#10;tmux 会话: ${t.tmux.state === 'active' ? t.tmux.name : '探测中/不可用'}` : ''}"></span>
       <button class="tab-close" title="关闭终端">${icon('x', 11)}</button>`;
     el.querySelector('.tab-label').textContent = t.label ?? t.host.name;
     el.addEventListener('click', (e) => {
@@ -536,13 +784,106 @@ function renderTabbar() {
     el.querySelector('.tab-close').addEventListener('click', () => closeTab(t.id));
     bar.appendChild(el);
   }
-  // FR-052：tab 栏末尾「新建会话」入口
-  const addBtn = document.createElement('button');
-  addBtn.className = 'tab new-session';
-  addBtn.title = '新建会话';
-  addBtn.innerHTML = icon('plus', 14);
-  addBtn.addEventListener('click', () => openSessionPicker());
-  bar.appendChild(addBtn);
+  layoutTabs(); // 「新建会话」按钮常驻右侧工具区（见 buildTabbar）
+}
+
+/** 左右切换会话：dir = -1 向左 / 1 向右，越界由 layoutTabs 收敛 */
+function shiftTabs(dir) {
+  tabOffset += dir;
+  layoutTabs();
+}
+
+/** 从 from 开始按可用宽度贪心计算可容纳的会话数量（至少 1 个） */
+function capacityFrom(widths, avail, from) {
+  let count = 0;
+  let used = 0;
+  for (let i = from; i < widths.length; i++) {
+    if (used + widths[i] > avail) break;
+    used += widths[i];
+    count++;
+  }
+  return Math.max(1, count);
+}
+
+/**
+ * 按窗口宽度决定当前展示的会话数量：容纳得下则全部展示；容纳不下则隐藏溢出会话卡
+ * 并启用右侧左右切换（不出现横向滚动条）。活动会话始终保证可见。
+ */
+function layoutTabs() {
+  if (!ui?.tabStrip) return;
+  const strip = ui.tabStrip;
+  const els = [...strip.querySelectorAll('.tab')];
+  if (!els.length) {
+    ui.tabbar.classList.remove('overflowing');
+    tabOffset = 0;
+    pinnedTabId = null;
+    return;
+  }
+  // 先全部显示以量取自然宽度（.tab 为 flex:none，不会被压缩）
+  els.forEach((el) => el.classList.remove('hidden'));
+  const GAP = 4; // .tab 左右各 2px 外边距
+  const widths = els.map((el) => el.offsetWidth + GAP);
+  const avail = strip.clientWidth;
+  const total = widths.reduce((a, b) => a + b, 0);
+  if (total <= avail) {
+    ui.tabbar.classList.remove('overflowing');
+    tabOffset = 0;
+    updateNavButtons(els.length, els.length);
+    return;
+  }
+  ui.tabbar.classList.add('overflowing');
+  tabOffset = Math.max(0, Math.min(tabOffset, els.length - 1));
+  // 活动会话必须在窗口内：越界时以它作为最后一个可见项向左回退
+  // 仅活动会话发生变化时定位一次，用户手动左右滑动后不再强行拉回
+  const activeIdx = els.findIndex((el) => el.dataset.tabId === activeTabId);
+  if (activeIdx >= 0 && activeTabId !== pinnedTabId) {
+    pinnedTabId = activeTabId;
+    let visible = capacityFrom(widths, avail, tabOffset);
+    if (activeIdx < tabOffset || activeIdx >= tabOffset + visible) {
+      let start = activeIdx;
+      let used = widths[activeIdx];
+      for (let i = activeIdx - 1; i >= 0; i--) {
+        if (used + widths[i] > avail) break;
+        used += widths[i];
+        start = i;
+      }
+      tabOffset = start;
+      visible = capacityFrom(widths, avail, tabOffset);
+    }
+  }
+  let capacity = capacityFrom(widths, avail, tabOffset);
+  // 已滑到末尾时向左回退填满：窗口变宽后要把空出来的位置补上，不能只留尾部几个
+  if (tabOffset + capacity >= els.length) {
+    let start = els.length - 1;
+    let used = widths[els.length - 1];
+    for (let i = els.length - 2; i >= 0; i--) {
+      if (used + widths[i] > avail) break;
+      used += widths[i];
+      start = i;
+    }
+    tabOffset = start;
+    capacity = capacityFrom(widths, avail, tabOffset);
+  }
+  els.forEach((el, i) => el.classList.toggle('hidden', i < tabOffset || i >= tabOffset + capacity));
+  updateNavButtons(tabOffset + capacity, els.length);
+}
+
+function updateNavButtons(visibleEnd, total) {
+  const prev = ui.tabbar.querySelector('#tab-nav-prev');
+  const next = ui.tabbar.querySelector('#tab-nav-next');
+  if (prev) prev.disabled = tabOffset <= 0;
+  if (next) next.disabled = visibleEnd >= total;
+}
+
+/** 保证指定会话卡可见（宽度不足时先滑到它再操作，如双击改名） */
+function ensureTabVisible(id) {
+  if (!ui?.tabStrip) return;
+  const el = ui.tabStrip.querySelector(`.tab[data-tab-id="${id}"]`);
+  if (el && el.classList.contains('hidden')) {
+    const els = [...ui.tabStrip.querySelectorAll('.tab')];
+    tabOffset = els.indexOf(el);
+    layoutTabs();
+  }
 }
 
 /** 新建会话：弹出主机选择（连接需要选定主机） */
@@ -570,7 +911,7 @@ async function openSessionPicker() {
       m.close();
       const host = hosts.find((h) => h.id === b.dataset.id);
       const tmux = m.root.querySelector('#picker-tmux')?.checked ?? false;
-      if (host) connectHost(host, { forceNew: tmux, tmux });
+      if (host) connectHost(host, { tmux });
     })
   );
 }
@@ -586,6 +927,7 @@ function hasNameConflict(tab, name) {
 
 /** 双击会话卡修改备注名：本地存储，按会话临时 ID 关联（FR-051） */
 function startRename(tab) {
+  ensureTabVisible(tab.id); // 会话卡被宽度隐藏时先滑到可见位置再进入编辑态
   const labelEl = ui.tabbar.querySelector(`.tab[data-tab-id="${tab.id}"] .tab-label`);
   if (!labelEl) return;
   const input = document.createElement('input');
@@ -593,6 +935,9 @@ function startRename(tab) {
   input.maxLength = 64;
   input.value = tab.label ?? tab.host.name;
   input.className = 'tab-rename';
+  // 沿用标签实测宽度：进入编辑态时会话卡宽度保持不变（超出宽度的文本在输入框内滚动）
+  input.style.minWidth = '0';
+  input.style.width = `${labelEl.offsetWidth}px`;
   labelEl.replaceWith(input);
   input.focus();
   input.select();
@@ -631,7 +976,7 @@ function startRename(tab) {
 function showSessionMenu(tab, x, y) {
   const dupTmux = tab.tmux?.state === 'active';
   showContextMenu(x, y, {
-    meta: `会话 ${tab.sessionKey}${tab.tmux ? ` · tmux: ${tab.tmux.name}` : ''}`,
+    meta: `会话 ${tab.sessionKey}${tab.serverSessionId ? ` · 服务端 ${tab.serverSessionId}` : ''}${tab.tmux ? ` · tmux: ${tab.tmux.name}` : ''}`,
     items: [
       {
         label: dupTmux ? '复制会话（tmux 同步）' : '复制会话',
@@ -643,6 +988,7 @@ function showSessionMenu(tab, x, y) {
         },
       },
       { label: '重命名', onClick: () => startRename(tab) },
+      { label: '后台运行', onClick: () => backgroundTab(tab) },
       'sep',
       { label: '关闭会话', danger: true, onClick: () => closeTab(tab.id) },
     ],

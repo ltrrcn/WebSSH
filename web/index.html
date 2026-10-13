@@ -203,9 +203,44 @@
     #tabbar {
       display: flex; align-items: stretch; height: 40px; min-height: 40px;
       background: var(--bg-panel); border-bottom: 1px solid var(--border);
-      overflow-x: auto; padding: 0 4px;
+      overflow: hidden; padding: 0 4px;
       position: relative; z-index: 2; /* 置于空态遮罩之上，保证「新增」按钮可点击 */
     }
+    /* 会话条：按窗口宽度容纳会话卡，放不下的隐藏（不出现滚动条），改由右侧 ‹ › 左右切换 */
+    .tab-strip { flex: 1; min-width: 0; display: flex; align-items: stretch; overflow: hidden; }
+    .tab-strip .tab { flex: none; }
+    .tab-tools { display: flex; align-items: center; gap: 2px; flex: none; margin-left: 4px; }
+    .tab-nav-btn {
+      display: none; align-items: center; justify-content: center;
+      width: 24px; height: 24px; flex: none; border: none; border-radius: var(--radius-sm);
+      background: transparent; color: var(--text-dim); cursor: pointer;
+    }
+    /* 仅在会话卡溢出（容纳不下）时才出现左右切换按钮 */
+    #tabbar.overflowing .tab-nav-btn { display: inline-flex; }
+    /* 后台运行入口：仅在存在后台会话时出现（FR-058） */
+    .tab-bg-btn {
+      display: none; align-items: center; justify-content: center; gap: 3px;
+      height: 24px; min-width: 24px; padding: 0 6px; flex: none; font-size: 11px;
+      border: 1px solid var(--border); border-radius: var(--radius-sm);
+      background: transparent; color: var(--text-dim); cursor: pointer;
+    }
+    #tabbar.has-bg .tab-bg-btn { display: inline-flex; }
+    #tabbar.has-detached .tab-detached-btn { display: inline-flex; }
+    .tab-detached-btn {
+      display: none; align-items: center; justify-content: center; gap: 3px;
+      height: 24px; min-width: 24px; padding: 0 6px; flex: none; font-size: 11px;
+      border: 1px solid var(--accent); border-radius: var(--radius-sm);
+      background: transparent; color: var(--accent); cursor: pointer;
+    }
+    .tab-detached-btn:hover { background: var(--accent-soft); }
+    .tab-detached-btn #dt-count { font-weight: 600; }
+    .tab-detached-btn #dt-count:empty { display: none; }
+    .tab-bg-btn:hover { background: var(--bg-hover); color: var(--text); border-color: var(--border-strong); }
+    .tab-bg-btn #bg-count { font-weight: 600; }
+    .tab-bg-btn #bg-count:empty { display: none; }
+    .tab-nav-btn:hover { background: var(--bg-hover); color: var(--text); }
+    .tab-nav-btn[disabled] { opacity: .35; cursor: default; }
+    .tab-nav-btn[disabled]:hover { background: transparent; color: var(--text-dim); }
     .tab {
       display: flex; align-items: center; gap: 8px; padding: 0 6px 0 12px; margin: 6px 2px 0;
       border-radius: var(--radius-md) var(--radius-md) 0 0; cursor: pointer; font-size: 13px;
@@ -236,10 +271,11 @@
       padding: 3px 5px; border-radius: var(--radius-sm); font-size: 12px; line-height: 1;
     }
     .tab .tab-close:hover { background: var(--danger-soft); color: var(--danger); }
+    /* 宽度由 JS 按原标签实测值设置，保证进入编辑态时会话卡宽度不变 */
     .tab-rename {
       background: var(--bg-input); color: var(--text); border: 1px solid var(--accent);
-      border-radius: var(--radius-sm); font-size: 13px; padding: 2px 8px; width: 130px;
-      outline: none; box-shadow: 0 0 0 3px var(--accent-soft);
+      border-radius: var(--radius-sm); font-size: 13px; padding: 2px 6px; width: 130px;
+      font-family: inherit; outline: none; box-shadow: 0 0 0 3px var(--accent-soft);
     }
     .tab-rename.conflict { border-color: var(--danger); box-shadow: 0 0 0 3px var(--danger-soft); }
     .tab.new-session {
@@ -247,6 +283,8 @@
       background: transparent; font-size: 15px;
     }
     .tab.new-session:hover { color: var(--accent); background: var(--accent-soft); }
+    /* 「新建会话」位于右侧工具区：去掉会话卡的上下外边距，与切换按钮垂直居中对齐 */
+    .tab-tools .tab.new-session { height: 28px; margin: 0; padding: 0; flex: none; }
     /* 新建会话主机选择（FR-052） */
     .picker-list { display: flex; flex-direction: column; gap: 6px; }
     /* R001 tmux 模式选项（新建会话弹窗顶部） */
@@ -364,6 +402,8 @@
     }
     .modal-head .icon-btn { font-size: 14px; padding: 5px 8px; }
     .modal-body { padding: 12px 20px 20px; }
+    /* 确认弹窗宽度：必须早于 .settings-modal，避免同优先级下覆盖设置弹窗的 960px */
+    .modal.confirm-modal { width: 400px; min-width: 320px; max-width: 92vw; }
     /* 设置弹窗：固定尺寸（仅设置，不影响表单等其他弹窗） */
     .modal.settings-modal { width: 960px; height: 620px; display: flex; flex-direction: column; max-width: 95vw; max-height: 90vh; }
     .modal.settings-modal .modal-body { flex: 1; display: flex; overflow: hidden; padding: 16px 20px 20px 12px; }
@@ -394,6 +434,19 @@
     .btn.primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
     .btn.primary:hover { filter: brightness(1.08); box-shadow: 0 4px 14px var(--accent-soft); }
     .btn.danger-text { color: var(--danger); }
+    .btn.danger-solid { background: var(--danger); color: #fff; border-color: var(--danger); }
+    .btn.danger-solid:hover { filter: brightness(1.08); box-shadow: 0 4px 14px var(--danger-soft); }
+    /* 通用确认弹窗（替代原生 confirm）：宽度规则见 .modal.settings-modal 之前 */
+    .confirm-head { display: flex; gap: 12px; align-items: flex-start; }
+    .confirm-badge {
+      width: 32px; height: 32px; flex: none; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      background: var(--accent-soft); color: var(--accent);
+    }
+    .confirm-badge.danger { background: var(--danger-soft); color: var(--danger); }
+    .confirm-text { margin: 0; font-size: 13px; line-height: 1.7; }
+    .confirm-note { margin: 10px 0 0; font-size: 12px; color: var(--text-dim); line-height: 1.6; }
+    .confirm-actions { margin-top: 18px; }
     .form-note { font-size: 11px; color: var(--text-faint); margin: 2px 0 0; }
     .icon { display: inline-block; vertical-align: -0.18em; flex: none; }
     button .icon { margin-right: 2px; }
@@ -691,11 +744,21 @@
     /* 命令审计：会话聚合视图 */
     .session-item { border-bottom: 1px solid var(--border); }
     .session-item:last-child { border-bottom: none; }
-    .session-row {
-      display: flex; align-items: center; gap: 10px; padding: 10px 16px;
-      font-size: 12px; cursor: pointer; user-select: none;
+    /* 表头与数据行共用 grid 模板，保证列对齐
+       列：展开 / 状态 / 会话 ID / 主机名 / 创建时间 / 标记 / 命令数 / 操作 */
+    .session-head, .session-row {
+      display: grid; align-items: center; gap: 10px; padding: 10px 16px;
+      grid-template-columns: 18px 58px minmax(110px, 1.15fr) minmax(80px, 1fr) 104px 92px 78px 84px;
+      font-size: 12px;
     }
+    .session-head {
+      font-size: 11px; color: var(--text-faint); letter-spacing: .05em;
+      background: var(--bg-hover); border-bottom: 1px solid var(--border);
+      position: sticky; top: 0; z-index: 2;
+    }
+    .session-row { cursor: pointer; user-select: none; }
     .session-row:hover { background: var(--bg-hover); }
+    .session-row.mcp .session-host { grid-column: 3 / 7; }
     .session-toggle {
       color: var(--text-faint); width: 18px; height: 18px; flex-shrink: 0;
       display: inline-flex; align-items: center; justify-content: center;
@@ -704,10 +767,24 @@
     .session-toggle .icon { transition: transform .18s ease; }
     .session-row:hover .session-toggle { background: var(--accent-soft); color: var(--accent); }
     .session-item.open .session-toggle .icon { transform: rotate(90deg); }
-    .session-sid { font-family: Menlo, monospace; font-size: 11px; color: var(--accent); }
-    .session-host { font-family: Menlo, monospace; font-size: 11.5px; color: var(--text); }
-    .session-time { color: var(--text-faint); font-size: 11px; font-family: Menlo, monospace; }
-    .session-count { margin-left: auto; color: var(--text-dim); font-size: 11.5px; white-space: nowrap; }
+    .session-sid {
+      font-family: Menlo, monospace; font-size: 11px; color: var(--accent);
+      min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .session-host {
+      font-family: Menlo, monospace; font-size: 11.5px; color: var(--text);
+      min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .session-time {
+      color: var(--text-faint); font-size: 11px; font-family: Menlo, monospace;
+      min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    /* 标记列：连接失败 / 后台运行（数量不定，容器占位保证列对齐） */
+    .session-flags { display: flex; gap: 6px; min-width: 0; overflow: hidden; }
+    .session-count { text-align: right; color: var(--text-dim); font-size: 11.5px; white-space: nowrap; }
+    /* 会话行操作：继续连接 / 转到会话 / 已结束（FR-058） */
+    .session-act { white-space: nowrap; font-size: 11.5px; justify-self: start; }
+    .session-act.disabled { color: var(--text-faint); font-size: 11.5px; cursor: default; }
     .tag.closed { background: var(--bg-hover); color: var(--text-faint); }
     .session-cmds { background: var(--bg); border-top: 1px dashed var(--border); padding: 4px 0; }
     .cmd-sublist { padding: 2px 0; }

@@ -12,6 +12,8 @@ const EVENT_LABEL = {
   'file-read': '文件读取',
   'file-write': '文件写入',
   disconnect: '断开连接',
+  detach: '会话挂起',
+  resume: '会话恢复',
   'group_create': '分组新建',
   'group_rename': '分组重命名',
   'group_delete': '分组删除',

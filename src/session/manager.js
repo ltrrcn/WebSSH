@@ -1,13 +1,10 @@
 // 会话生命周期管理（FR-013/014/019 + data-model Session）
 // 状态机：connecting → ready | failed；ready → closing → closed
 // 进入 closed 必须释放全部资源（SC-005：残留进程数为 0）
-import { randomBytes } from 'node:crypto';
 import { connectShell } from '../ssh/client.js';
 import { appendKnownHost } from '../ssh/hostkey.js';
 import { decryptSecret } from '../crypto/secret.js';
 import { bridgeSession } from './bridge.js';
-
-const SHORT_ID_CHARS = 'abcdefghijklmnopqrstuvwxyz0123456789';
 
 /**
  * @param {{config: object, store: object, audit: object, masterKey: Buffer, runtime: object}} deps
@@ -17,6 +14,7 @@ export function createSessionManager({ config, store, audit, masterKey, runtime 
   const sessionsPerUser = limits.sessionsPerUser ?? 10;
   const connectTimeoutMs = limits.connectTimeoutMs ?? 10000;
   const idleTimeoutMs = limits.idleTimeoutMs ?? 1800000;
+  const detachedTtlMs = limits.detachedTtlMs ?? 600000;
 
   /** @type {Map<string, object>} sessionId -> session */
   const sessions = new Map();
@@ -50,7 +48,9 @@ export function createSessionManager({ config, store, audit, masterKey, runtime 
   function listSessions(ownerId) {
     return [...sessions.values()]
       .filter((s) => s.ownerId === ownerId)
-      .map(({ id, hostId, startedAt, state }) => ({ id, hostId, startedAt, state }));
+      .map(({ id, hostId, hostAddress, startedAt, state }) => ({
+        id, hostId, hostAddress, startedAt, state,
+      }));
   }
 
   function auditBase(session, over = {}) {
@@ -68,11 +68,20 @@ export function createSessionManager({ config, store, audit, masterKey, runtime 
   /**
    * 创建会话：审计 connect-attempt → SSH 连接 → 桥接；失败审计 connect-failure。
    */
-  /** 会话 ID：s_ + 4 位 base36 随机，与存活会话冲突时重试 */
+  /**
+   * 会话 ID：S + 连接时刻的年月日时分秒（YYYYMMDDHHmmss，例：2026-10-13 15:30:45 → S20261013153045）。
+   * 同一秒内的第 2 个及以后的会话追加序号（-2、-3…）保证进程内唯一。
+   */
   function newSessionId() {
-    for (let i = 0; i < 32; i++) {
-      const id = `s_${[...randomBytes(4)].map((b) => SHORT_ID_CHARS[b % 36]).join('')}`;
+    const d = new Date();
+    const p = (n) => String(n).padStart(2, '0');
+    const stamp =
+      `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}` +
+      `${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
+    let id = `S${stamp}`;
+    for (let i = 2; i <= 99; i++) {
       if (!sessions.has(id)) return id;
+      id = `S${stamp}-${i}`;
     }
     throw new Error('会话 ID 生成冲突超限');
   }
@@ -150,13 +159,15 @@ export function createSessionManager({ config, store, audit, masterKey, runtime 
       return session;
     }
 
-    bridgeSession({
+    session.bridge = bridgeSession({
       ws,
       stream,
       session,
       idleTimeoutMs,
+      detachedTtlMs,
       audit,
       config,
+      onDetach: () => detachSession(session),
       onSessionEnd: (endReason, closeCode) => closeSession(session, endReason, closeCode),
     });
 
@@ -165,6 +176,8 @@ export function createSessionManager({ config, store, audit, masterKey, runtime 
 
   function closeSession(session, endReason, wsCloseCode = 1000) {
     if (session.state === 'closing' || session.state === 'closed') return;
+    if (session.detachTimer) clearTimeout(session.detachTimer); // 挂起中的保活定时器一并撤销
+    session.detachTimer = null;
     session.state = 'closing';
     session.endReason = endReason;
 
@@ -214,6 +227,38 @@ export function createSessionManager({ config, store, audit, masterKey, runtime 
     }
   }
 
+  /**
+   * 挂起（FR-059）：WS 非主动断开后保留 SSH 连接，等待同一用户重新接管。
+   * TTL 到期或远端通道关闭时由 closeSession 回收，保证无残留进程（SC-005）。
+   */
+  function detachSession(session) {
+    if (session.state === 'closing' || session.state === 'closed' || session.state === 'detached') return;
+    session.state = 'detached';
+    audit.log(auditBase(session, { event: 'detach', result: 'success', reason: 'network' }));
+    session.detachTimer = setTimeout(() => {
+      closeSession(session, 'detach-timeout', 1000);
+    }, detachedTtlMs);
+    session.detachTimer.unref?.();
+  }
+
+  /**
+   * 重新接管挂起会话（FR-059）：校验归属与状态后把新 WS 接到既有 SSH 连接上。
+   * @returns {boolean} false = 会话不存在 / 不属本人 / 非挂起态（调用方以 4007 关闭）
+   */
+  function attachSession({ sessionId, ownerId, ws }) {
+    const s = sessions.get(sessionId);
+    if (!s || s.ownerId !== ownerId) return false;
+    if (s.state !== 'detached') return false;
+    if (s.detachTimer) clearTimeout(s.detachTimer);
+    s.detachTimer = null;
+    s.ws = ws;
+    s.state = 'ready';
+    const ok = s.bridge?.attach(ws) ?? false;
+    if (!ok) return false;
+    audit.log(auditBase(s, { event: 'resume', result: 'success' }));
+    return true;
+  }
+
   /** 终止指定会话（US3 的 DELETE /api/sessions/{id} 使用） */
   function killSession(id, ownerId) {
     const s = sessions.get(id);
@@ -235,6 +280,7 @@ export function createSessionManager({ config, store, audit, masterKey, runtime 
     countByOwner,
     listSessions,
     createSession,
+    attachSession,
     killSession,
     killAll,
     tryReserve,

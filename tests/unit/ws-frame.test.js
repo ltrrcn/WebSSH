@@ -3,7 +3,7 @@
 // 本模块为前后端共享的唯一帧定义（宪法 IV：共享类型定义）。
 import { test } from 'node:test';
 import assert from 'node:assert';
-import { FrameType, encodeDataFrame, parseClientFrame } from '../../web/src/protocol/frames.js';
+import { FrameType, encodeDataFrame, encodeMetaFrame, parseClientFrame } from '../../web/src/protocol/frames.js';
 
 test('0x00 数据帧：任意二进制字节原样透传', () => {
   const payload = Buffer.from([0xff, 0x00, 0x0a, 0x1b, 0x5b, 0x41, 0xe4, 0xb8, 0xad]);
@@ -47,6 +47,14 @@ test('0x02 signal 帧：白名单内（INT）通过，其他拒绝', () => {
   assert.equal(ok.signal, 'INT');
   assert.equal(parseClientFrame(mk('KILL')).type, 'invalid');
   assert.equal(parseClientFrame(mk('SIGKILL')).type, 'invalid');
+});
+
+test('0x03 会话元信息帧（S→C）：首字节 0x03 + JSON sessionId，客户端按忽略处理', () => {
+  const frame = encodeMetaFrame({ sessionId: 's_ab12' });
+  assert.equal(frame[0], FrameType.SESSION);
+  assert.deepEqual(JSON.parse(Buffer.from(frame.subarray(1)).toString('utf8')), { sessionId: 's_ab12' });
+  // 契约要求：客户端收到未识别帧忽略——0x03 不得被解析为上行帧的有效类型
+  assert.equal(parseClientFrame(frame).type, 'invalid');
 });
 
 test('未知帧类型 / 空帧 → invalid', () => {

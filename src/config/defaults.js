@@ -5,6 +5,8 @@ export const DEFAULT_CONFIG = {
     sessionsPerUser: 10,
     connectTimeoutMs: 10000,
     idleTimeoutMs: 1800000,
+    // 断线保活：WS 非主动关闭（刷新/关窗口/网络掉线）后会话挂起保留的时长，超时回收
+    detachedTtlMs: 600000,
     execTimeoutMs: 60000,
     tokenRateLimitPerMinute: 60,
     outputDigestBytes: 2048,

@@ -101,7 +101,7 @@ export async function renderHostList(container, { onConnect, connectedIds = [], 
   container.querySelectorAll('.host-item').forEach((item) => {
     const host = hosts.find((h) => h.id === item.dataset.id);
     if (!host) return;
-    // 主条目点击 = 连接（已连接则激活对应 tab）
+    // 主条目点击 = 连接（每次新建一个会话卡）
     item.addEventListener('click', () => onConnect(host));
     // FR-055：会话连接右键菜单
     item.addEventListener('contextmenu', (e) => {
@@ -115,7 +115,7 @@ export async function renderHostList(container, { onConnect, connectedIds = [], 
             label: '复制会话',
             onClick: async () => {
               // FR-056：服务端复制完整记录（含凭据密文）
-              await fetch(apiUrl(`hosts/${host.id}/duplicate`), { method: 'POST' });
+              await fetch(apiUrl(`hosts/${encodeURIComponent(host.id)}/duplicate`), { method: 'POST' });
               onChanged();
             },
           },
@@ -126,7 +126,7 @@ export async function renderHostList(container, { onConnect, connectedIds = [], 
             danger: true,
             onClick: async () => {
               if (!confirm(`确定删除「${host.name}」？其凭据将一并删除。`)) return;
-              await fetch(apiUrl(`hosts/${host.id}`), { method: 'DELETE' });
+              await fetch(apiUrl(`hosts/${encodeURIComponent(host.id)}`), { method: 'DELETE' });
               onChanged();
             },
           },
@@ -140,7 +140,7 @@ export async function renderHostList(container, { onConnect, connectedIds = [], 
     item.querySelector('.act-delete').addEventListener('click', async (e) => {
       e.stopPropagation();
       if (!confirm(`确定删除「${host.name}」？其凭据将一并删除。`)) return;
-      await fetch(apiUrl(`hosts/${host.id}`), { method: 'DELETE' });
+      await fetch(apiUrl(`hosts/${encodeURIComponent(host.id)}`), { method: 'DELETE' });
       onChanged();
     });
     const cf = item.querySelector('.act-confirm-fp');
@@ -221,7 +221,7 @@ export async function confirmFingerprintModal(host) {
       const btn = m.root.querySelector('#fp-trust');
       btn.disabled = true;
       btn.textContent = '确认中…';
-      const res = await fetch(apiUrl(`hosts/${host.id}/verify-hostkey`), {
+      const res = await fetch(apiUrl(`hosts/${encodeURIComponent(host.id)}/verify-hostkey`), {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ fingerprint: fp }),
@@ -327,7 +327,7 @@ export async function openHostFormModal(host, onSaved) {
       if (fd.get('passphrase')) body.passphrase = fd.get('passphrase');
     }
 
-    const res = await fetch(isEdit ? apiUrl(`hosts/${host.id}`) : apiUrl('hosts'), {
+    const res = await fetch(isEdit ? apiUrl(`hosts/${encodeURIComponent(host.id)}`) : apiUrl('hosts'), {
       method: isEdit ? 'PUT' : 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(body),

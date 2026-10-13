@@ -109,6 +109,13 @@ test('真实 sshd：指纹未确认时拒绝（4005），确认后全流程可�
   assert.ok(r2.open, `确认后应能打开终端，实际: ${JSON.stringify({ code: r2.code, reason: r2.reason })}`);
   const ws = r2.ws;
   const out = collect(ws);
+  // 0x03 会话元信息帧：服务端下发的会话 ID 用于审计页定位会话（FR-058）
+  let metaSessionId = null;
+  ws.on('message', (data, isBinary) => {
+    if (!isBinary) return;
+    const b = Buffer.from(data);
+    if (b[0] === FrameType.SESSION) metaSessionId = JSON.parse(b.subarray(1).toString('utf8')).sessionId;
+  });
 
   // 等待 shell 就绪（提示符因 shell 而异，以登录横幅做宽松探测）
   await out.wait('Last login').catch(() => {});
@@ -145,7 +152,8 @@ test('真实 sshd：指纹未确认时拒绝（4005），确认后全流程可�
   // 会话 ID：命令事件携带 sessionId，与同一会话的连接事件一致；可按会话筛选
   const cmdEv = cmds.items.find((e) => e.command === 'echo webssh-ok');
   assert.ok(cmdEv.sessionId, '命令事件应携带会话 ID');
-  assert.match(cmdEv.sessionId, /^s_[a-z0-9]{4}$/, '会话 ID 应为 s_ + 4 位字符');
+  assert.match(cmdEv.sessionId, /^S\d{14}(-\d+)?$/, '会话 ID 应为 S + YYYYMMDDHHmmss（同秒冲突追加序号）');
+  assert.equal(metaSessionId, cmdEv.sessionId, '下发的会话 ID 应与审计记录中的会话 ID 一致');
   const bySession = await (
     await fetch(`http://127.0.0.1:${app.port}/api/audit?sessionId=${cmdEv.sessionId}`)
   ).json();

@@ -44,7 +44,7 @@ test('POST /api/hosts 创建主机 → 201，响应不含 secret 与明文凭据
     assert.equal(res.status, 201);
     const body = await res.json();
     assert.ok(body.id, '应返回生成的 id');
-    assert.match(body.id, /^h_[a-z0-9]{4}$/, '主机 ID 应为 h_ + 4 位字符');
+    assert.equal(body.id, '测试主机', '设备 ID 应取会话名称');
     const text = JSON.stringify(body);
     assert.ok(!('secret' in body), '响应不得包含 secret 结构');
     assert.ok(!text.includes(SECRET_PW), '响应不得包含明文口令');
@@ -59,7 +59,7 @@ test('POST /api/hosts 创建主机 → 201，响应不含 secret 与明文凭据
   }
 });
 
-test('主机 ID 格式：h_ + 4 位短随机，多主机互不相同', async () => {
+test('设备 ID 取会话名称：同名追加序号，副本取副本名，多主机互不相同', async () => {
   const { app, cleanup, base } = await setup();
   try {
     const post = async () =>
@@ -70,14 +70,37 @@ test('主机 ID 格式：h_ + 4 位短随机，多主机互不相同', async () 
       })).json();
     const a = await post();
     const b = await post();
-    assert.match(a.id, /^h_[a-z0-9]{4}$/);
-    assert.match(b.id, /^h_[a-z0-9]{4}$/);
+    assert.equal(a.id, '测试主机', '设备 ID 取会话名称');
+    assert.equal(b.id, '测试主机-2', '同名设备追加序号保证唯一');
     assert.notEqual(a.id, b.id, 'ID 不得重复');
-    // 副本同样走短随机格式
-    const dup = await (await fetch(`${base}/api/hosts/${b.id}/duplicate`, { method: 'POST' })).json();
-    assert.match(dup.id, /^h_[a-z0-9]{4}$/);
+    // 副本 ID 取副本名
+    const dup = await (await fetch(`${base}/api/hosts/${encodeURIComponent(b.id)}/duplicate`, { method: 'POST' })).json();
+    assert.equal(dup.id, '测试主机-副本');
     assert.notEqual(dup.id, a.id);
     assert.notEqual(dup.id, b.id);
+  } finally {
+    await app.close();
+    await cleanup();
+  }
+});
+
+test('设备 ID 全局唯一：他人已占用同名 ID 时追加序号（跨用户不重复）', async () => {
+  const { app, cleanup, base } = await setup();
+  try {
+    await seedHost({
+      configDir: app.runtime.paths.config,
+      id: '测试主机',
+      ownerId: 'someone-else',
+      password: 'their-pw',
+    });
+    const res = await fetch(`${base}/api/hosts`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(createBody()),
+    });
+    assert.equal(res.status, 201);
+    const body = await res.json();
+    assert.equal(body.id, '测试主机-2', '他人已占用该设备 ID 时必须另取，不得重复');
   } finally {
     await app.close();
     await cleanup();

@@ -65,9 +65,9 @@ export function attachUpgrade(httpServer, deps) {
       return rejectHandshake(socket, 400, 'Bad Request', req);
     }
 
-    // 契约：查询参数只允许 hostId / version / ticket（不接受客户端指定 host/port/凭据）
+    // 契约：查询参数只允许 hostId / version / ticket / sessionId（不接受客户端指定 host/port/凭据）
     const extra = [...url.searchParams.keys()].filter(
-      (k) => k !== 'hostId' && k !== 'version' && k !== 'ticket'
+      (k) => k !== 'hostId' && k !== 'version' && k !== 'ticket' && k !== 'sessionId'
     );
     if (extra.length > 0) {
       return rejectHandshake(socket, 400, 'Bad Request', req);
@@ -114,6 +114,17 @@ export function attachUpgrade(httpServer, deps) {
 async function handleTerminal(ws, identity, url, deps) {
   const { store, audit, sessionManager } = deps;
   const hostId = url.searchParams.get('hostId');
+  const sessionId = url.searchParams.get('sessionId');
+
+  // FR-059 重新接管挂起的会话：会话已存在（不占新的并发名额），归属由 attachSession 校验
+  if (sessionId) {
+    const ok = sessionManager.attachSession({ sessionId, ownerId: identity.id, ws });
+    if (!ok) {
+      auditDenied(audit, identity, hostId, 'session_not_attachable');
+      return ws.close(4007, 'session_not_attachable');
+    }
+    return;
+  }
 
   // 并发会话上限（FR-019）：在任何异步操作之前【同步】预留名额——
   // 升级检查与注册之间的异步窗口会被并发连接绕过（session-limits 挂起的根因）

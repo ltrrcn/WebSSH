@@ -22,7 +22,7 @@
 
 | 字段 | 类型 | 说明 | 校验规则 |
 |---|---|---|---|
-| `id` | string | 稳定唯一标识 | 非空，全局唯一，创建后不可变 |
+| `id` | string | 稳定唯一标识（设备 ID）：取主机名称净化后的值，冲突时追加 `-2`、`-3`… | 非空，全局唯一（不区分归属），创建后不可变 |
 | `name` | string | 显示名称 | 1–64 字符，非空 |
 | `host` | string | 主机地址 | 非空；仅允许域名或 IP 字面量，禁止含分隔符与空白 |
 | `port` | number | SSH 端口 | 1–65535，默认 22 |
@@ -54,12 +54,12 @@
 
 | 字段 | 类型 | 说明 |
 |---|---|---|
-| `id` | string | 会话唯一标识 |
+| `id` | string | 会话唯一标识（会话 ID）：`S` + 连接时刻 `YYYYMMDDHHmmss`，同秒冲突追加 `-2`… |
 | `ownerId` | string | 归属使用者 |
 | `hostId` | string | 目标主机 |
-| `state` | enum | `connecting` → `ready` → `closing` → `closed`；异常态 `failed` |
+| `state` | enum | `connecting` → `ready` → `closing` → `closed`；异常态 `failed`；断线保活态 `detached`（保留 SSH 连接等待接管，FR-059） |
 | `startedAt` / `endedAt` | string \| null | 起止时间 |
-| `endReason` | enum \| null | `user` \| `network` \| `idle-timeout` \| `exec-timeout` \| `error` |
+| `endReason` | enum \| null | `user` \| `network` \| `idle-timeout` \| `exec-timeout` \| `detach-timeout` \| `error` |
 
 **状态迁移**：`connecting` → `ready` | `failed`；`ready` → `closing`（收到关闭、网络断开、空闲超时、执行超时）→ `closed`。**进入 `closed` 必须释放全部资源**（对应 SC-005：残留进程数为 0）。
 
@@ -77,7 +77,7 @@
 | `tokenId` | string \| null | 经由令牌时填写（FR-027） |
 | `hostId` / `hostAddress` | string | 目标主机 |
 | `authType` | string | 认证方式 |
-| `event` | enum | `connect-attempt` \| `connect-success` \| `connect-failure` \| `command` \| `file-read` \| `file-write` \| `disconnect` |
+| `event` | enum | `connect-attempt` \| `connect-success` \| `connect-failure` \| `command` \| `file-read` \| `file-write` \| `disconnect` \| `detach` \| `resume` |
 | `result` | enum | `success` \| `denied` \| `error` |
 | `reason` | string \| null | 失败/拒绝/断开原因 |
 | `durationMs` | number \| null | 时长 |

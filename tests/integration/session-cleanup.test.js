@@ -117,7 +117,20 @@ test('主动关闭标签页 → 服务端会话清空、sshd 子进程归零（S
   assert.ok(await waitChildrenZero(sshd.proc.pid), 'sshd 侧不应残留子进程');
 });
 
-test('网络断开（terminate）→ 同样零残留（FR-013）', async (t) => {
+/** 轮询等待出现指定状态的会话（FR-059：异常断线后进入 detached 保活） */
+async function waitSessionsState(app, state, timeoutMs = 5000) {
+  const base = `http://127.0.0.1:${app.port}`;
+  const end = Date.now() + timeoutMs;
+  while (Date.now() < end) {
+    const list = await (await fetch(`${base}/api/sessions`)).json();
+    const hit = list.find((s) => s.state === state);
+    if (hit) return hit;
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  return null;
+}
+
+test('网络断开（terminate）→ 会话挂起保活，主动终止后零残留（FR-013/FR-059）', async (t) => {
   const { app, cleanup, sshd, wsBase } = await setup();
   const origin = `http://127.0.0.1:${app.port}`;
   t.after(async () => {
@@ -132,7 +145,12 @@ test('网络断开（terminate）→ 同样零残留（FR-013）', async (t) => 
   await waitSessions(app, 1);
   await new Promise((r2) => setTimeout(r2, 500));
   r.ws.terminate(); // 模拟网络闪断（不发送关闭帧）
-  assert.ok(await waitSessionsEmpty(app), '网络断开后会话应被清理');
+  // FR-059：异常断线不再立即释放，会话挂起保活，等待同一用户重新接管
+  const held = await waitSessionsState(app, 'detached');
+  assert.ok(held, '网络断开后会话应挂起为 detached');
+  const del = await fetch(`${origin}/api/sessions/${held.id}`, { method: 'DELETE' });
+  assert.equal(del.status, 200, '保活中的会话应可被主动终止');
+  assert.ok(await waitSessionsEmpty(app), '主动终止后会话应被清理');
   assert.ok(await waitChildrenZero(sshd.proc.pid), 'sshd 侧不应残留子进程');
 });
 

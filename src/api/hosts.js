@@ -9,17 +9,39 @@ import { appendKnownHost } from '../ssh/hostkey.js';
 
 const SHORT_ID_CHARS = 'abcdefghijklmnopqrstuvwxyz0123456789';
 
-/** 4 位短随机后缀（base36，36^4≈168 万组合） */
+/** 4 位短随机后缀（base36，36^4≈168 万组合）：仅在名称无法用作 ID 时兜底 */
 function shortSuffix() {
   return [...randomBytes(4)].map((b) => SHORT_ID_CHARS[b % 36]).join('');
 }
 
-/** 主机 ID 生成：h_ + 4 位随机字符，冲突重试 */
-async function nextHostId(store, ownerId) {
-  const used = new Set((await store.listHosts(ownerId)).map((h) => h.id));
-  for (let i = 0; i < 32; i++) {
-    const id = `h_${shortSuffix()}`;
-    if (!used.has(id)) return id;
+/**
+ * 设备 ID（主机 ID）：以会话名称（主机名称）为基准。
+ * - 空白折叠为 `-`，去掉 URL 路径不安全的字符（/ \ ? # % & : 等），保留中英文、数字、. _ -
+ * - 名称净化后为空 → 回退 h_ + 随机后缀
+ * - 与既有设备 ID 冲突 → 追加 -2、-3…（ID 一经分配即固定，后续改名不影响）
+ * - 唯一性按全量主机判定（不区分归属），确保设备 ID 全局不重复
+ */
+const ID_UNSAFE_RE = /[/\?#%&:\\\s]+/g;
+function slugifyName(name) {
+  return String(name ?? '')
+    .trim()
+    .replace(ID_UNSAFE_RE, '-')
+    .replace(/-{2,}/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+async function nextHostId(store, name) {
+  const base = slugifyName(name) || `h_${shortSuffix()}`;
+  const free = async (id) => !(await store.getHostById(id)); // 全量主机：跨用户也保证不重复
+  let id = base;
+  for (let i = 2; i <= 999; i++) {
+    if (await free(id)) return id;
+    id = `${base}-${i}`;
+  }
+  for (let i = 0; i < 8; i++) {
+    // 序号耗尽后回退随机后缀，仍保证唯一
+    const rand = `${base}-${shortSuffix()}`;
+    if (await free(rand)) return rand;
   }
   throw new Error('主机 ID 生成冲突超限');
 }
@@ -183,7 +205,7 @@ export function hostsRoutes(deps) {
         }
         const now = new Date().toISOString();
         const entry = {
-          id: await nextHostId(store, identity.id),
+          id: await nextHostId(store, value.name), // 设备 ID = 会话名称
           name: value.name,
           host: value.host,
           port: value.port,
@@ -299,7 +321,7 @@ export function hostsRoutes(deps) {
         // FR-056：加密凭据密文原样复制（无需解密），副本为完全独立条目
         const copy = {
           ...host,
-          id: await nextHostId(store, identity.id),
+          id: await nextHostId(store, `${host.name} 副本`),
           name: `${host.name} 副本`,
           createdAt: now,
           updatedAt: now,

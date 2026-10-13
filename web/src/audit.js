@@ -5,6 +5,8 @@
 //   展开会话可查看该会话执行过的全部命令；MCP 令牌调用归入「无会话」组
 import { apiUrl } from './base.js';
 import { icon } from './icons.js';
+import { closeModal } from './modal.js';
+import { activateTab, restoreTab, findLocalTab } from './terminal.js';
 
 const EVENT_LABEL = {
   'connect-attempt': '连接尝试',
@@ -14,6 +16,8 @@ const EVENT_LABEL = {
   'file-read': '文件读取',
   'file-write': '文件写入',
   disconnect: '断开连接',
+  detach: '会话挂起',
+  resume: '会话恢复',
   'group_create': '分组新建',
   'group_rename': '分组重命名',
   'group_delete': '分组删除',
@@ -28,6 +32,19 @@ const NOTE = {
     点击展开可查看该会话执行过的全部命令（含 MCP 令牌的 run_command 调用，归入「MCP 令牌调用」组）。
     支持按会话创建时间范围与主机过滤。`,
 };
+
+// 命令审计：会话表头（与数据行共用 grid 模板，保证列对齐）
+const SESSION_HEAD = `
+  <div class="session-head">
+    <span></span>
+    <span>状态</span>
+    <span>会话 ID</span>
+    <span>主机名</span>
+    <span>创建时间</span>
+    <span>标记</span>
+    <span class="session-count">命令数</span>
+    <span>操作</span>
+  </div>`;
 
 // 可筛选条件（key 与 state 字段同名；time 对应 from/to 一对）
 const CONDS = [
@@ -520,6 +537,7 @@ async function loadSessions(el) {
   }
 
   list.innerHTML =
+    SESSION_HEAD +
     sessions
       .map(
         (s) => `<div class="session-item" data-sid="${escapeHtml(s.sessionId)}">
@@ -529,8 +547,11 @@ async function loadSessions(el) {
             <span class="session-sid" title="会话 ID">${escapeHtml(s.sessionId)}</span>
             <span class="session-host" title="${escapeHtml(s.hostAddress ?? '')}">${escapeHtml(s.hostId ?? '-')}</span>
             <span class="session-time">${formatTime(s.createdAt)} 创建</span>
+            <span class="session-flags">${s.failed ? '<span class="tag warn">连接失败</span>' : ''}${
+              localTabOf(s)?.bg ? '<span class="tag warn">后台运行</span>' : ''
+            }</span>
             <span class="session-count">${s.commandCount} 条命令</span>
-            ${s.failed ? '<span class="tag warn">连接失败</span>' : ''}
+            ${sessionActionHtml(s)}
           </div>
           <div class="session-cmds" hidden></div>
         </div>`
@@ -538,14 +559,22 @@ async function loadSessions(el) {
       .join('') +
     // MCP 令牌调用（无会话）归入末尾虚拟组
     `<div class="session-item" data-sid="__mcp__">
-      <div class="session-row">
+      <div class="session-row mcp">
         <span class="session-toggle">${icon('chevron', 13)}</span>
         <span class="tag">MCP</span>
-        <span class="session-host" style="flex:1">MCP 令牌调用（无会话）</span>
+        <span class="session-host">MCP 令牌调用（无会话）</span>
         <span class="session-count"></span>
       </div>
       <div class="session-cmds" hidden></div>
     </div>`;
+
+  // 「继续连接 / 转到会话 / 重新连接」：把审计里的会话接回终端区（FR-058）
+  list.querySelectorAll('.session-act[data-act]').forEach((b) => {
+    b.addEventListener('click', (e) => {
+      e.stopPropagation(); // 行点击是展开命令列表，操作按钮不触发展开
+      if (b.dataset.act === 'goto') resumeSession(b.dataset.sid, b.dataset.host);
+    });
+  });
 
   // 展开/折叠
   list.querySelectorAll('.session-item').forEach((item) => {
@@ -561,6 +590,34 @@ async function loadSessions(el) {
       loadSessionCommands(panel, item.dataset.sid);
     });
   });
+}
+
+/** 在线会话才可能与本页会话卡对应；已结束的会话一律走「重新连接」 */
+function localTabOf(s) {
+  return s.online ? findLocalTab(s.sessionId, s.hostId) : null;
+}
+
+/** 会话行操作按钮：仅本页还在的会话可「继续连接/转到会话」；已结束的会话不可恢复，不再给出入口 */
+function sessionActionHtml(s) {
+  const tab = localTabOf(s);
+  if (tab) {
+    const bg = Boolean(tab.bg);
+    return `<button class="audit-view session-act" type="button" data-act="goto" data-sid="${escapeHtml(s.sessionId)}" data-host="${escapeHtml(s.hostId ?? '')}"
+      title="${bg ? '该会话正在后台运行：恢复到会话条并继续操作' : '切换到该会话'}">${bg ? '继续连接' : '转到会话'}</button>`;
+  }
+  if (s.online) {
+    return `<span class="session-act disabled" title="该会话不在当前页面（其他标签页或设备），无法在此接入">其他页面</span>`;
+  }
+  return '<span class="session-act disabled" title="会话已结束，现场不可恢复">已结束</span>';
+}
+
+/** 回到终端：后台会话恢复、前台会话直接激活，并关闭设置弹窗露出终端 */
+function resumeSession(sid, hostId) {
+  const tab = findLocalTab(sid, hostId);
+  if (!tab) return;
+  if (tab.bg) restoreTab(tab.id);
+  else activateTab(tab.id);
+  closeModal();
 }
 
 /** 展开会话：加载该会话执行的命令（倒序），MCP 组加载全部令牌命令 */

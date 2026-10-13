@@ -7,6 +7,7 @@ export const FrameType = {
   DATA: 0x00, // 双向：终端数据（原始字节流，不解析为文本）
   RESIZE: 0x01, // C→S：窗口尺寸变更 {cols, rows}
   SIGNAL: 0x02, // C→S：信号 {signal: "INT"}
+  SESSION: 0x03, // S→C：会话元信息 {sessionId}（下发一次，用于与审计记录对应）
 };
 
 /** 服务端版本（握手 version 参数必须等于该值） */
@@ -35,6 +36,15 @@ export function encodeDataFrame(payload) {
   const body = toBytes(payload);
   const out = new Uint8Array(1 + body.length);
   out[0] = FrameType.DATA;
+  out.set(body, 1);
+  return out;
+}
+
+/** 编码 0x03 会话元信息帧（S→C，建连就绪后下发一次） */
+export function encodeMetaFrame(meta) {
+  const body = encoder.encode(JSON.stringify(meta ?? {}));
+  const out = new Uint8Array(1 + body.length);
+  out[0] = FrameType.SESSION;
   out.set(body, 1);
   return out;
 }

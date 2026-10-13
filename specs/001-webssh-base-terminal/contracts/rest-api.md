@@ -41,7 +41,7 @@
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| `GET` | `/api/sessions` | 当前用户的活动会话列表（id、hostId、startedAt、state） |
+| `GET` | `/api/sessions` | 当前用户的活动会话列表（id、hostId、hostAddress、startedAt、state）；`state=detached` 为断线保活中、可接管的会话（FR-059） |
 | `DELETE` | `/api/sessions/{id}` | 终止指定会话并释放资源 |
 
 ## MCP 令牌
