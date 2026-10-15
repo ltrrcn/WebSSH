@@ -5,6 +5,7 @@ import { icon } from './icons.js';
 import { getPrefs, setPref } from './prefs.js';
 import { apiUrl } from './base.js';
 import { renderQuickCommandsPane } from './quick-commands-ui.js';
+import { renderDocs } from './docs.js';
 
 /**
  * 打开设置弹窗。
@@ -24,6 +25,7 @@ export function openSettingsModal({ renderAudit, renderTokens, renderTokenConfig
         <button data-pane="tokens">${icon('key')} 令牌管理</button>
         <button data-pane="tokenConfig">${icon('shield')} 令牌配置</button>
         <button data-pane="permPolicy">${icon('ban')} 权限策略</button>
+        <button data-pane="docs">${icon('file')} 使用文档</button>
       </div>
       <div id="settings-pane" class="settings-content"></div>
     </div>`,
@@ -190,6 +192,7 @@ export function openSettingsModal({ renderAudit, renderTokens, renderTokenConfig
     },
     // R002：快捷命令管理（从侧栏独立弹窗迁入设置）
     quickCmds: () => renderQuickCommandsPane(pane),
+    docs: () => renderDocs(pane),
   };
 
   nav.querySelectorAll('button').forEach((btn) =>
