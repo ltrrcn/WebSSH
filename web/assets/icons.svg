@@ -3,7 +3,8 @@
        统一 stroke 风格、currentColor 继承文字色，经 <use href="assets/icons.svg#id"/> 引用。
        适量原则：仅为功能操作与导航提供图标。 -->
   <symbol id="plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/></symbol>
-  <symbol id="x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/></symbol>
+  <symbol id="check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/></symbol>
+<symbol id="x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/></symbol>
   <symbol id="gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2" stroke="currentColor" stroke-width="2" fill="none"/><path d="M12 2.8l1 2.4 2.5-.7 1.1 2.3 2.4.9-.5 2.5 1.7 1.8-1.7 1.8.5 2.5-2.4.9-1.1 2.3-2.5-.7-1 2.4-1-2.4-2.5.7-1.1-2.3-2.4-.9.5-2.5L2.8 12l1.7-1.8-.5-2.5 2.4-.9L7.5 4.5l2.5.7z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" fill="none"/></symbol>
   <symbol id="play" viewBox="0 0 24 24"><path d="M8 5.5v13l10-6.5z" stroke="currentColor" stroke-width="2" stroke-linejoin="round" fill="none"/></symbol>
   <symbol id="pencil" viewBox="0 0 24 24"><path d="M4 20l1-4L16.5 4.5a2.1 2.1 0 013 3L8 19z" stroke="currentColor" stroke-width="2" stroke-linejoin="round" fill="none"/></symbol>

@@ -20,7 +20,7 @@ export async function renderGroups(el, { onChanged } = {}) {
   };
 
   el.innerHTML = `
-    <div class="audit-list">
+    <div class="audit-list group-list">
       <div class="group-head">
         <span>分组名</span>
         <span>主机数</span>
@@ -59,44 +59,65 @@ export async function renderGroups(el, { onChanged } = {}) {
         </div>`;
       })
       .join('')}</div>
-    <div class="group-add-row">
-      <button class="btn" id="group-add" title="新建一个自定义分组">${icon('plus', 13)} 新增分组</button>
-    </div>`;
+    <div class="qc-add-box" id="group-add" title="点击展开新增表单">${icon('plus', 12)} 新增分组</div>`;
 
-  // 新增分组：在列表末尾插入一行，行内填名称，回车/点击别处保存，Esc 取消
+  // 新增分组：点击底部新增框，在列表末尾「长」出一行编辑行（包装层高度过渡，新增框被丝滑推下移），
+  // 与快捷命令同款交互：✓/Enter 保存，✗/Esc 取消并收起上移；成功后行闪绿再整页刷新
   const list = el.querySelector('.audit-list');
-  const addBtn = el.querySelector('#group-add');
-  addBtn.addEventListener('click', () => {
-    const existing = list.querySelector('.group-row-new');
-    if (existing) return existing.querySelector('input')?.focus(); // 已有新增行则直接聚焦
+  const addBox = el.querySelector('#group-add');
+  let editWrap = null; // 展开/收起动画的包装层（高度过渡，内容不变形）
+  const collapseEditRow = () => {
+    if (!editWrap) return;
+    editWrap.style.height = `${editWrap.offsetHeight}px`;
+    requestAnimationFrame(() => {
+      editWrap.style.height = '0px';
+    });
+    editWrap.addEventListener('transitionend', function onEnd(e) {
+      if (e.propertyName !== 'height') return;
+      editWrap.removeEventListener('transitionend', onEnd);
+      editWrap.remove();
+      editWrap = null;
+    });
+  };
+  addBox.addEventListener('click', () => {
+    if (editWrap) return editWrap.querySelector('input')?.focus(); // 已展开则聚焦
     const row = document.createElement('div');
     row.className = 'audit-row group-row group-row-new';
+    // 与列表行同网格：名称输入(1.2fr) | 空 | 空 | 操作列(56px，对勾+叉) | 空
     row.innerHTML = `<span class="group-name-cell">
-        <input type="text" class="group-name-input" maxlength="64" placeholder="新分组名称" title="回车或点击别处保存，Esc 取消" />
-      </span><span></span><span></span><span></span><span></span>`;
-    list.appendChild(row);
+        <input type="text" class="group-name-input" maxlength="64" placeholder="新分组名称" title="回车或点对勾保存，Esc 取消" />
+      </span><span></span><span></span>
+      <span class="qc-ops">
+        <button class="icon-btn group-new-ok" title="添加">${icon('check', 12)}</button>
+        <button class="icon-btn group-new-cancel" title="取消">${icon('x', 12)}</button>
+      </span><span></span>`;
+    editWrap = document.createElement('div');
+    editWrap.className = 'qc-edit-wrap';
+    editWrap.appendChild(row);
+    list.appendChild(editWrap); // 追加为列表最后一行，与上行共用边线
+    editWrap.style.height = '0px';
+    const h = row.offsetHeight;
+    requestAnimationFrame(() => {
+      editWrap.style.height = `${h}px`;
+    });
+    editWrap.addEventListener('transitionend', function onEnd(e) {
+      if (e.propertyName === 'height' && editWrap) editWrap.style.height = ''; // 展开完成后交给 auto
+      editWrap.removeEventListener('transitionend', onEnd);
+    });
     const input = row.querySelector('input');
     input.focus();
     let done = false;
-    // 退出动画结束后再移除，避免生硬消失
-    const dismiss = () => {
-      row.classList.add('leaving');
-      setTimeout(() => {
-        row.remove();
-        addBtn.focus();
-      }, 180);
-    };
     const cancel = () => {
       if (done) return;
       done = true;
-      dismiss();
+      collapseEditRow();
     };
     const submit = async () => {
       if (done) return;
       const name = input.value.trim();
-      if (!name) return cancel();
+      if (!name) return input.focus(); // 名称为空不提交，继续编辑
       done = true;
-      input.disabled = true; // 提交期间锁定，防止 blur 重复触发
+      input.disabled = true; // 提交期间锁定，防止重复触发
       const res = await fetch(apiUrl('groups'), {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
@@ -105,7 +126,7 @@ export async function renderGroups(el, { onChanged } = {}) {
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
         alert(`新建失败：${err.error?.message ?? res.statusText}`);
-        done = false; // 保留这一行，改完名称可再次回车提交
+        done = false; // 保留这一行，改完名称可再次提交
         input.disabled = false;
         input.focus();
         input.select();
@@ -125,7 +146,8 @@ export async function renderGroups(el, { onChanged } = {}) {
         cancel();
       }
     });
-    input.addEventListener('blur', () => submit());
+    row.querySelector('.group-new-ok').addEventListener('click', submit);
+    row.querySelector('.group-new-cancel').addEventListener('click', cancel);
   });
 
   // 展开/不展开（chevron 矢量图标，与侧栏同款）：与侧栏共享 localStorage 状态，切换后立即刷新侧栏

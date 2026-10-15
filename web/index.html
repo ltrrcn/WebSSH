@@ -338,6 +338,20 @@
       transition: all .12s ease;
     }
     .quick-cmd:hover { color: var(--text); border-color: var(--accent); background: var(--accent-soft); }
+    /* 删除叉号：悬停命令时在右上角浮现；两段式确认——首次点击变红（确认态），2s 内再点才删 */
+    .quick-cmd-wrap { position: relative; display: inline-flex; }
+    .quick-cmd-del {
+      position: absolute; top: -7px; right: -7px; width: 16px; height: 16px;
+      display: flex; align-items: center; justify-content: center; padding: 0;
+      border: 1px solid var(--border); border-radius: 50%;
+      background: var(--bg-elevated); color: var(--text-faint); cursor: pointer;
+      opacity: 0; pointer-events: none; transition: opacity .15s, color .15s, background .15s;
+      z-index: 1;
+    }
+    .quick-cmd-del .icon { margin: 0; } /* 覆盖 button .icon 的 2px 右边距，保证居中 */
+    .quick-cmd-wrap:hover .quick-cmd-del { opacity: 1; pointer-events: auto; }
+    .quick-cmd-del:hover { color: var(--danger); background: var(--danger-soft); border-color: var(--danger); }
+    .quick-cmd-del.confirming { color: #fff; background: var(--danger); border-color: var(--danger); opacity: 1; pointer-events: auto; }
     .quick-empty { font-size: 11px; color: var(--text-faint); padding: 2px 0; }
     /* 设置页快捷命令管理 */
     .pref-input {
@@ -345,14 +359,59 @@
       border: 1px solid var(--border); border-radius: var(--radius-md); padding: 6px 10px; font-size: 12.5px;
     }
     .pref-input:focus { outline: none; border-color: var(--accent); }
-    #qc-list { margin-top: 10px; }
-    .qc-row {
-      display: flex; align-items: center; gap: 10px; padding: 7px 10px;
-      border: 1px solid var(--border); border-radius: var(--radius-md); margin-bottom: 6px;
-      background: var(--bg-input); font-size: 12px;
+    #qc-list {
+      border: 1px solid var(--border);
+      border-top-left-radius: var(--radius-md); border-top-right-radius: var(--radius-md);
+      border-bottom: none; /* 底部圆角与边线移交给下方新增框，列表与新增框连成一体 */
+      background: var(--bg-input); overflow: hidden; /* 分组管理同款：连续列表，行间无空隙 */
+    }
+    /* 列表表头与行同网格（名称/命令/操作），列宽两处必须同步改 */
+    .qc-head, .qc-row { display: grid; grid-template-columns: 140px 1fr 56px; gap: 10px; align-items: center; }
+    .qc-head {
+      padding: 8px 10px; font-size: 11px; color: var(--text-faint); letter-spacing: .05em;
+      background: var(--bg-hover);
+      border-bottom: 1px solid var(--border);
+    }
+    .qc-head-ops { text-align: center; }
+    .qc-row { padding: 7px 10px; font-size: 12px; border-bottom: 1px solid var(--border); }
+    .qc-row:last-child { border-bottom: none; }
+    .qc-ops { display: flex; align-items: center; justify-content: center; gap: 2px; }
+    /* 行内编辑：名称/命令与各自铅笔同格，铅笔平时淡化、悬停行时显现；点铅笔进入编辑态 */
+    .qc-inline { display: flex; align-items: center; gap: 6px; min-width: 0; }
+    .qc-inline > * { min-width: 0; }
+    .qc-inline .icon-btn { flex: none; padding: 3px; opacity: .45; }
+    .qc-row:hover .qc-inline .icon-btn { opacity: 1; }
+    .qc-inline-input { margin-top: 0; flex: 1; padding: 4px 8px; font-size: 12px; }
+    /* 底部新增框：收起态紧贴列表（无边框缝）；点击后在其上方插入编辑行，新增框被推下移 */
+    .qc-add-box {
+      display: flex; align-items: center; justify-content: center; gap: 6px;
+      min-height: 34px; padding: 7px 10px; overflow: hidden;
+      border: 1px dashed var(--border); /* 顶边即列表与新增框之间的分隔线（列表已无底边） */
+      border-bottom-left-radius: var(--radius-md); border-bottom-right-radius: var(--radius-md);
+      background: var(--bg-input); color: var(--text-faint); font-size: 12px;
+      cursor: pointer; box-sizing: border-box;
+      transition: border-color .18s, color .18s, background .18s;
+    }
+    .qc-add-box:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+    /* 编辑行包装层：追加在列表容器内末尾，高度过渡动画（0→auto），内容不变形 */
+    .qc-edit-wrap { overflow: hidden; transition: height .22s ease; }
+    /* 编辑行与列表行完全同网格、同 padding：就像列表多长出一行（上行 border-bottom 即分隔线） */
+    .qc-edit-row {
+      display: grid; grid-template-columns: 140px 1fr 56px; gap: 10px; align-items: center;
+      padding: 7px 10px; background: var(--accent-soft);
+    }
+    .qc-edit-row .pref-input { margin-top: 0; }
+    .qc-edit-row .icon-btn { font-size: 12px; padding: 4px 6px; } /* 与列表行图标按钮同尺寸 */
+    .qc-edit-row .qce-ok:hover { color: var(--ok); background: var(--ok-soft); }
+    /* 新增成功后新行丝滑淡入 */
+    .qc-row-in { animation: qc-row-in .28s ease; }
+    @keyframes qc-row-in {
+      from { opacity: 0; transform: translateY(-4px); }
+      to { opacity: 1; transform: translateY(0); }
     }
     .qc-name { font-weight: 500; white-space: nowrap; max-width: 140px; overflow: hidden; text-overflow: ellipsis; }
-    .qc-cmd { flex: 1; font-family: Menlo, monospace; font-size: 11px; color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .qc-cmd { font-family: Menlo, monospace; font-size: 11px; color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .qc-inline .qc-cmd { flex: none; } /* 打码不撑满列：铅笔紧跟其后，不推到最右 */
     .qc-empty { font-size: 12px; color: var(--text-faint); padding: 8px 2px; }
     /* R002 快捷命令编辑弹框（居中 modal 内容） */
     .qc-edit-form { display: flex; flex-direction: column; gap: 12px; }
@@ -749,26 +808,15 @@
     /* 图标列标题与图标同为居中，保证表头与行内图标严格对齐 */
     .group-head-expand, .group-head-move, .group-head-del { text-align: center; }
     .group-expand-cell { min-width: 52px; text-align: center; }
-    /* 新增分组：底部居中虚线胶囊按钮；点击后在列表末尾追加一行填写名称 */
-    .group-add-row { display: flex; justify-content: center; margin-top: 12px; }
-    #group-add {
-      border: 1px dashed var(--border); border-radius: 999px; padding: 6px 18px;
-      background: transparent; color: var(--text-dim); align-items: center;
-      transition: border-color .18s, color .18s, background .18s, box-shadow .18s, transform .18s;
+    /* 分组管理：列表与底部新增框连成一体（同快捷命令：列表去底边/底圆角，新增框 .qc-add-box 补底圆角） */
+    .audit-list.group-list {
+      border-bottom: none;
+      border-bottom-left-radius: 0; border-bottom-right-radius: 0;
     }
-    #group-add:hover {
-      border-style: solid; border-color: var(--accent); color: var(--accent);
-      background: var(--accent-soft); box-shadow: 0 0 0 4px var(--accent-soft);
-      transform: translateY(-1px);
-    }
-    @keyframes group-row-in { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: none; } }
-    @keyframes group-row-out { to { opacity: 0; transform: translateY(-8px); } }
-    .group-row-new {
-      animation: group-row-in .22s ease-out;
-      background: var(--bg-hover); box-shadow: inset 3px 0 0 var(--accent);
-    }
-    .group-row-new.leaving { animation: group-row-out .18s ease-in forwards; }
-    .group-row-new.ok { background: var(--ok-soft); box-shadow: inset 3px 0 0 var(--ok); transition: background .25s, box-shadow .25s; }
+    /* 新增分组编辑行：追加在列表末尾，淡 accent 底色表示编辑态；保存成功闪绿 */
+    .group-row-new { background: var(--accent-soft); }
+    .group-row-new.ok { background: var(--ok-soft); transition: background .25s; }
+    .group-row-new .group-new-ok:hover { color: var(--ok); background: var(--ok-soft); }
     /* 使用文档页：分节标题 + 条目表（名称 / 作用+操作 两栏） */
     .doc-lead { margin: 0 0 16px; font-size: 12px; color: var(--text-dim); line-height: 1.7; }
     .doc-section { margin-bottom: 20px; }

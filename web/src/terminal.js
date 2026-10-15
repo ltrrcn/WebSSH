@@ -453,13 +453,17 @@ async function runQuickCommand(tab, cmd) {
   if (tab.ws?.readyState === WebSocket.OPEN) tab.ws.send(encodeDataFrame('\r'));
 }
 
-/** 快捷命令栏：点击掩码执行（独立 exec 通道，终端只显示等长 * 与输出） */
+/** 快捷命令栏：点击掩码执行（独立 exec 通道，终端只显示等长 * 与输出）；
+ *  删除入口为按钮右上角叉号（悬停显现，点击直接删，无二次确认） */
 function renderQuickBar(barEl, tab) {
   const cmds = getQuickCommands();
   barEl.innerHTML = cmds.length
     ? cmds
         .map(
-          (c) => `<button class="quick-cmd" data-id="${escapeHtml(c.id)}" title="点击执行（命令不回显，显示等长 *）">${escapeHtml(c.name)}</button>`
+          (c) => `<span class="quick-cmd-wrap">
+            <button class="quick-cmd" data-id="${escapeHtml(c.id)}" title="点击执行（命令不回显，显示等长 *）">${escapeHtml(c.name)}</button>
+            <button class="quick-cmd-del" data-id="${escapeHtml(c.id)}" title="删除该快捷命令">${icon('x', 10)}</button>
+          </span>`
         )
         .join('')
     : '<span class="quick-empty">右键终端选中文字可「保存为快捷命令」，或在设置中管理</span>';
@@ -471,22 +475,20 @@ function renderQuickBar(barEl, tab) {
       tab.term.focus();
     })
   );
-  // 命令栏右键仅删除（不提供编辑入口：编辑框会回填明文，与"防逆向"目标冲突）
-  barEl.querySelectorAll('.quick-cmd').forEach((b) =>
-    b.addEventListener('contextmenu', (e) => {
-      e.preventDefault();
-      const c = cmds.find((x) => x.id === b.dataset.id);
-      if (!c) return;
-      showContextMenu(e.clientX, e.clientY, {
-        meta: c.name,
-        items: [
-          {
-            label: '删除',
-            danger: true,
-            onClick: () => removeQuickCommand(c.id), // 直接删除，不二次确认
-          },
-        ],
-      });
+  // 两段式删除：首次点击变红进入确认态（2s 超时自动退出），再点一次才真正删除
+  barEl.querySelectorAll('.quick-cmd-del').forEach((b) =>
+    b.addEventListener('click', () => {
+      if (b.classList.contains('confirming')) {
+        clearTimeout(b._confirmTimer);
+        removeQuickCommand(b.dataset.id); // onQuickCommandsChange 会重渲染命令栏
+        return;
+      }
+      b.classList.add('confirming');
+      b.title = '再点一次确认删除';
+      b._confirmTimer = setTimeout(() => {
+        b.classList.remove('confirming');
+        b.title = '删除该快捷命令';
+      }, 2000);
     })
   );
 }
