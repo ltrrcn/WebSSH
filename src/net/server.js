@@ -22,6 +22,7 @@ import { auditRoutes } from '../api/audit.js';
 import { auditSettingsRoutes } from '../api/audit-settings.js';
 import { tokensRoutes } from '../api/tokens.js';
 import { mcpDirectRoutes } from '../api/mcp-direct.js';
+import { quickExecRoutes } from '../api/quick-exec.js';
 import { authenticateToken } from '../mcp/tokens.js';
 import { handleMcpCall } from '../mcp/server.js';
 import { checkRateLimit } from '../mcp/rate-limit.js';
@@ -146,6 +147,7 @@ export async function startApp(opts = {}) {
     ...auditSettingsRoutes(deps),
     ...tokensRoutes(deps),
     ...mcpDirectRoutes(deps),
+    ...quickExecRoutes(deps),
   ];
 
   const router = createRouter({

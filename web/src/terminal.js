@@ -9,8 +9,8 @@ import { showContextMenu } from './contextmenu.js';
 import { wsUrl, apiUrl } from './base.js';
 import { icon } from './icons.js';
 import { getPrefs, onPrefsChange } from './prefs.js';
-import { getQuickCommands, addQuickCommand, onQuickCommandsChange, updateQuickCommand, removeQuickCommand } from './quick-commands.js';
-import { openQuickCommandEditor } from './quick-commands-ui.js';
+import { getQuickCommands, addQuickCommand, nextQuickCommandName, onQuickCommandsChange, removeQuickCommand } from './quick-commands.js';
+import { openQuickCommandNamer } from './quick-commands-ui.js';
 import {
   sanitizeTmuxSessionName,
   buildTmuxProbeCommand,
@@ -221,10 +221,8 @@ async function createTab(host, { tmux = false, attachId = '' } = {}) {
         },
         {
           label: '保存为快捷命令',
-          onClick: () => {
-            const name = prompt('快捷命令名称：', sel.length > 12 ? sel.slice(0, 12) : sel);
-            if (name?.trim()) addQuickCommand(name.trim(), sel);
-          },
+          // 命名弹窗只收名称（命令不回填，防泄露）；留空保存则用「快捷命令N」自动编号
+          onClick: () => openQuickCommandNamer(nextQuickCommandName(), (name) => addQuickCommand(name, sel)),
         },
       ],
     });
@@ -420,51 +418,72 @@ function reconnectTab(tab) {
   connectWs(tab);
 }
 
-/** 快捷命令栏：点击即向终端发送命令并执行（命令+回车） */
+/** 掩码执行（快捷命令）：走 /api/quick-exec 独立 exec 通道，命令不经过终端输入流——
+ *  屏幕只有本地画的等长星号与执行结果，远端 shell 无感知、历史无记录。
+ *  （回显操纵方案在 zsh 语法高亮/重绘下不可靠，已放弃；exec 通道的代价是
+ *   与当前 shell 不共享 cd/环境变量、不支持交互式命令） */
+async function runQuickCommand(tab, cmd) {
+  const { term } = tab;
+  term.write(`${'*'.repeat(cmd.length)}\r\n\x1b[90m执行中…\x1b[0m`);
+  const erasePending = '\r\x1b[2K'; // 回行首并清掉「执行中…」
+  try {
+    const res = await fetch(apiUrl('quick-exec'), {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ hostId: tab.host.id, command: cmd }),
+    });
+    const data = await res.json().catch(() => ({}));
+    term.write(erasePending);
+    if (!res.ok) {
+      term.write(`\x1b[31m错误：${data.error?.message ?? res.statusText}\x1b[0m`);
+    } else {
+      let out = data.stdout ?? '';
+      if (data.stderr) {
+        if (out && !out.endsWith('\n')) out += '\n';
+        out += data.stderr;
+      }
+      out = out.replace(/\n+$/, ''); // 去尾换行：新行由下方空回车补出，避免多一个空行
+      term.write(out.replace(/\n/g, '\r\n'));
+      if (data.timedOut) term.write((out ? '\r\n' : '') + '\x1b[33m执行超时，已终止\x1b[0m');
+    }
+  } catch {
+    term.write(`${erasePending}\x1b[31m错误：网络异常，未执行\x1b[0m`);
+  }
+  // 空回车让远端 shell 打出新提示符，恢复可输入状态（无需手动按 Enter）
+  if (tab.ws?.readyState === WebSocket.OPEN) tab.ws.send(encodeDataFrame('\r'));
+}
+
+/** 快捷命令栏：点击掩码执行（独立 exec 通道，终端只显示等长 * 与输出） */
 function renderQuickBar(barEl, tab) {
   const cmds = getQuickCommands();
   barEl.innerHTML = cmds.length
     ? cmds
         .map(
-          (c) => `<button class="quick-cmd" data-id="${escapeHtml(c.id)}" title="${escapeHtml(c.cmd)}">${escapeHtml(c.name)}</button>`
+          (c) => `<button class="quick-cmd" data-id="${escapeHtml(c.id)}" title="点击执行（命令不回显，显示等长 *）">${escapeHtml(c.name)}</button>`
         )
         .join('')
     : '<span class="quick-empty">右键终端选中文字可「保存为快捷命令」，或在设置中管理</span>';
   barEl.querySelectorAll('.quick-cmd').forEach((b) =>
     b.addEventListener('click', () => {
-      if (tab.ws?.readyState !== WebSocket.OPEN) {
-        tab.setStatus?.('未连接，无法发送快捷命令', true);
-        return;
-      }
-      if (tab.tmux?.state === 'detecting') return; // R001 探测期不注入命令，防干扰
       const c = cmds.find((x) => x.id === b.dataset.id);
       if (!c) return;
-      tab.ws.send(encodeDataFrame(`${c.cmd}\r`));
+      runQuickCommand(tab, c.cmd); // 独立 exec 通道，与终端 WS 状态无关
       tab.term.focus();
     })
   );
-  // R002 命令栏右键：编辑（名称/命令）或删除（与设置页管理实时联动）
+  // 命令栏右键仅删除（不提供编辑入口：编辑框会回填明文，与"防逆向"目标冲突）
   barEl.querySelectorAll('.quick-cmd').forEach((b) =>
     b.addEventListener('contextmenu', (e) => {
       e.preventDefault();
       const c = cmds.find((x) => x.id === b.dataset.id);
       if (!c) return;
       showContextMenu(e.clientX, e.clientY, {
-        meta: `${c.name} — ${c.cmd}`,
+        meta: c.name,
         items: [
-          {
-            label: '编辑',
-            onClick: () =>
-              openQuickCommandEditor(c, ({ name, cmd }) => updateQuickCommand(c.id, { name, cmd })),
-          },
           {
             label: '删除',
             danger: true,
-            onClick: () => {
-              if (confirm(`删除快捷命令「${c.name}」？`)) {
-                removeQuickCommand(c.id);
-              }
-            },
+            onClick: () => removeQuickCommand(c.id), // 直接删除，不二次确认
           },
         ],
       });

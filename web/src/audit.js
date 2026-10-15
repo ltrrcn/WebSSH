@@ -13,6 +13,7 @@ const EVENT_LABEL = {
   'connect-success': '连接成功',
   'connect-failure': '连接失败',
   command: '命令执行',
+  'quick-exec': '快捷命令',
   'file-read': '文件读取',
   'file-write': '文件写入',
   disconnect: '断开连接',

@@ -1,5 +1,5 @@
 // 快捷命令（终端底部命令栏）：localStorage 持久化 + 变更订阅
-// 前端偏好（与主题/字号同级）；命令内容由用户自身保存，点击发送即执行（含回车）
+// 只增删不改：不提供更新接口（防逆向——任何编辑入口都会把明文带回界面）；点击发送为掩码执行
 const KEY = 'webssh-quick-cmds';
 const listeners = new Set();
 
@@ -27,21 +27,13 @@ export function removeQuickCommand(id) {
   persist(getQuickCommands().filter((c) => c.id !== id));
 }
 
-/** R002 编辑快捷命令：按 id 更新名称/命令，任一字段传 null 表示保持不变 */
-export function updateQuickCommand(id, { name, cmd }) {
+/** 自动编号名：快捷命令1、2、3…（跳过已被占用的编号） */
+export function nextQuickCommandName() {
   const list = getQuickCommands();
-  const item = list.find((c) => c.id === id);
-  if (!item) return false;
-  if (name != null) {
-    const v = String(name).trim();
-    if (v) item.name = v;
-  }
-  if (cmd != null) {
-    const v = String(cmd).trim();
-    if (v) item.cmd = v;
-  }
-  persist(list);
-  return true;
+  const names = new Set(list.map((c) => c.name));
+  let n = list.length + 1;
+  while (names.has(`快捷命令${n}`)) n++;
+  return `快捷命令${n}`;
 }
 
 export function onQuickCommandsChange(fn) {
