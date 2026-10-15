@@ -1,6 +1,7 @@
 // 快捷命令管理：设置弹窗内 pane 渲染（R002 从侧栏独立弹窗迁入设置）
 // 防逆向设计：命令打码展示，编辑入口只允许覆盖（不回填原值）——界面上没有任何入口能把已存命令翻出来
 // 行内编辑：名称/命令旁各一个小铅笔，点击进入编辑态，点击别处自动保存（与分组管理一致）
+import { openModal } from './modal.js';
 import { icon } from './icons.js';
 import { getQuickCommands, addQuickCommand, removeQuickCommand, updateQuickCommand } from './quick-commands.js';
 
