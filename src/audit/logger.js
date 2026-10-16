@@ -88,6 +88,7 @@ export function createAuditLogger({ logDir, config }) {
         command: null,
         outputDigest: null,
         path: event.path ?? null,
+        quickName: null, // 快捷命令备注名（event=quick-exec）：审计页展示备注名而非命令原文
         redacted: false,
       };
       if (event.command !== undefined && event.command !== null) {
@@ -103,6 +104,9 @@ export function createAuditLogger({ logDir, config }) {
       }
       if (event.outputDigest !== undefined && event.outputDigest !== null && needsRedaction(String(event.outputDigest))) {
         ev.redacted = true;
+      }
+      if (event.quickName !== undefined && event.quickName !== null) {
+        ev.quickName = redact(String(event.quickName));
       }
       const line = `${JSON.stringify(ev)}\n`;
       // MCP 独立审计流：令牌发起的机器调用写 audit-mcp-*，人工操作写 audit-*

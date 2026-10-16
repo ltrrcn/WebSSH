@@ -257,6 +257,16 @@ export function hostsRoutes(deps) {
           lastUsedAt: null,
         };
         await store.upsertHost(entry);
+        // 审计留痕：新建会话连接（主机记录）保存（FR-012 操作审计，与分组管理 group_* 同面）
+        audit?.log({
+          actor: identity.id,
+          actorType: 'user',
+          hostId: entry.id,
+          hostAddress: `${entry.host}:${entry.port}`,
+          authType: entry.authType,
+          event: 'host_create',
+          result: 'success',
+        });
         sendJson(res, 201, publicView(entry));
       },
     },
@@ -335,6 +345,15 @@ export function hostsRoutes(deps) {
           updated.fingerprintConfirmedAt = null;
         }
         await store.upsertHost(updated);
+        audit?.log({
+          actor: identity.id,
+          actorType: 'user',
+          hostId: id,
+          hostAddress: `${updated.host}:${updated.port}`,
+          authType: updated.authType,
+          event: 'host_update',
+          result: 'success',
+        });
         sendJson(res, 200, publicView(updated));
       },
     },
@@ -349,6 +368,15 @@ export function hostsRoutes(deps) {
         if (forbidden) return sendError(res, 403, 'forbidden', '无权访问该资源');
         if (!host) return sendError(res, 404, 'not_found', '主机不存在');
         await store.deleteHost(id, identity.id);
+        audit?.log({
+          actor: identity.id,
+          actorType: 'user',
+          hostId: id,
+          hostAddress: `${host.host}:${host.port}`,
+          authType: host.authType,
+          event: 'host_delete',
+          result: 'success',
+        });
         sendJson(res, 200, { ok: true });
       },
     },
@@ -374,6 +402,17 @@ export function hostsRoutes(deps) {
           lastUsedAt: null,
         };
         await store.upsertHost(copy);
+        // 审计留痕：复制会话（FR-056 duplicate），reason 溯源原主机 ID
+        audit?.log({
+          actor: identity.id,
+          actorType: 'user',
+          hostId: copy.id,
+          hostAddress: `${copy.host}:${copy.port}`,
+          authType: copy.authType,
+          event: 'host_duplicate',
+          result: 'success',
+          reason: `源:${host.id}`,
+        });
         sendJson(res, 200, publicView(copy));
       },
     },

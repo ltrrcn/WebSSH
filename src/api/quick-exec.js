@@ -27,6 +27,8 @@ export function quickExecRoutes(deps) {
         }
         const hostId = typeof body?.hostId === 'string' ? body.hostId : '';
         const command = typeof body?.command === 'string' ? body.command.trim() : '';
+        // 快捷命令备注名（前端定义）：随审计留痕，审计页展示备注名而非命令原文
+        const quickName = typeof body?.quickName === 'string' ? body.quickName.trim().slice(0, 100) : '';
         if (!hostId || !command) return sendError(res, 400, 'invalid', 'hostId 与 command 不能为空');
         if (command.length > 200) return sendError(res, 400, 'invalid', '命令超长（≤200 字符）');
 
@@ -50,6 +52,7 @@ export function quickExecRoutes(deps) {
             reason: out.timedOut ? 'timeout' : null,
             durationMs: Date.now() - t0,
             command,
+            quickName: quickName || null,
             outputDigest: digest.content,
           });
           sendJson(res, 200, {
@@ -69,6 +72,7 @@ export function quickExecRoutes(deps) {
             reason: e.message,
             durationMs: Date.now() - t0,
             command,
+            quickName: quickName || null,
           });
           sendError(res, 502, 'exec_failed', `执行失败：${e.message}`);
         }

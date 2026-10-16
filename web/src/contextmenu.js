@@ -62,7 +62,15 @@ export function showContextMenu(x, y, { profile, meta, section, above, minWidth,
   items.forEach((it, i) => {
     if (it === 'sep') return;
     const btn = menu.querySelector(`[data-idx="${i}"]`);
-    btn.textContent = it.label;
+    // 图标为代码内受控 id（非用户输入），可安全 innerHTML；label 恒为纯文本
+    if (it.icon) {
+      btn.classList.add('with-icon');
+      btn.insertAdjacentHTML(
+        'afterbegin',
+        `<svg class="icon" width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#${it.icon}"/></svg>`
+      );
+    }
+    btn.append(it.label);
     if (it.disabled) return; // 占位项：仅展示，不绑定行为
     btn.addEventListener('click', () => {
       hideContextMenu();

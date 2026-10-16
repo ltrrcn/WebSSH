@@ -484,13 +484,45 @@ export async function openHostFormModal(host, onSaved) {
       errEl.textContent = '请导入私钥文件（本地或从飞牛）';
       return;
     }
+    // —— 地址校验：合法 IPv4 / IPv6 / 域名（原生 required 之外的前端即时校验） ——
+    const rawHost = form.querySelector('[name=host]').value.trim();
+    {
+      // 纯数字四段 = 用户意图是 IPv4：强制逐段校验 0–255，不再落入域名分支放行（如 256.1.1.1）
+      const looksLikeIp = /^\d{1,3}(\.\d{1,3}){3}$/.test(rawHost);
+      const isV4 = looksLikeIp && rawHost.split('.').every((s) => Number(s) >= 0 && Number(s) <= 255);
+      const isV6 = rawHost.includes(':') && /^[0-9a-fA-F:]+$/.test(rawHost);
+      // 域名：点分结构（≥2 段），段内 1–63 字符（字母数字 - _，不首尾连字符），TLD 非纯数字；localhost 特例
+      const segs = rawHost.split('.');
+      const isDomain =
+        !looksLikeIp &&
+        (rawHost === 'localhost' ||
+          (segs.length >= 2 &&
+            /^[A-Za-z0-9_-]{1,63}(\.[A-Za-z0-9_-]{1,63})+$/.test(rawHost) &&
+            !/^\d+$/.test(segs[segs.length - 1]) &&
+            segs.every((s) => !s.startsWith('-') && !s.endsWith('-'))));
+      if (!rawHost || (!isV4 && !isV6 && !isDomain)) {
+        errEl.textContent = looksLikeIp
+          ? 'IP 地址格式不正确（每段必须为 0–255）'
+          : '地址必须是合法的 IP 或域名（如 192.168.1.1、example.com）';
+        form.querySelector('[name=host]').focus();
+        return;
+      }
+    }
+    // —— 端口校验：1–65535 整数（number input 的 min/max 在 preventDefault 提交下不生效） ——
+    const rawPort = String(form.querySelector('[name=port]').value ?? '').trim();
+    const port = rawPort === '' ? 22 : Number(rawPort);
+    if (!Number.isInteger(port) || port < 1 || port > 65535) {
+      errEl.textContent = '端口必须为 1–65535 的整数';
+      form.querySelector('[name=port]').focus();
+      return;
+    }
     submitBtn.disabled = true;
     submitBtn.textContent = isEdit ? '保存中…' : '创建中…';
     const fd = new FormData(form);
     const body = {
       name: fd.get('name').trim(),
-      host: fd.get('host').trim(),
-      port: Number(fd.get('port')) || 22,
+      host: rawHost,
+      port,
       username: fd.get('username').trim(),
       group: fd.get('group'),
       authType: fd.get('authType'),

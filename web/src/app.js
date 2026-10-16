@@ -75,10 +75,10 @@ document.getElementById('btn-user').addEventListener('click', (e) => {
       );
     },
     items: [
-      { label: '设置', onClick: () => openSettingsModal({ renderAudit, renderPermPolicy, renderGroups, onGroupsChanged: refreshHostList }) },
-      { label: '使用文档', onClick: () => openDocsModal() },
-      { label: '意见反馈', disabled: true },
-      { label: '检查更新', disabled: true },
+      { label: '设置', icon: 'gear', onClick: () => openSettingsModal({ renderAudit, renderPermPolicy, renderGroups, onGroupsChanged: refreshHostList }) },
+      { label: '使用文档', icon: 'file', onClick: () => openDocsModal() },
+      { label: '意见反馈', icon: 'message', disabled: true },
+      { label: '检查更新', icon: 'refresh', disabled: true },
     ],
   });
 });

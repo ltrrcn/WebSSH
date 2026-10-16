@@ -180,6 +180,8 @@ async function handleTerminal(ws, identity, url, deps) {
   // none（不记录凭据）主机：没有票据密码就无法认证，直接以 password_required 关闭让客户端弹输入框
   if (host.authType === 'none' && !password) {
     sessionManager.releaseReservation(identity.id);
+    // 审计留痕：新建 none 主机保存后首次连接必然走此分支，漏记会导致操作审计无连接记录
+    auditDenied(audit, identity, hostId, 'password_required');
     return ws.close(4006, 'password_required');
   }
 

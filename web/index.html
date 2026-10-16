@@ -1213,6 +1213,8 @@
       background: transparent; color: var(--text); font-size: 13px; border-radius: 7px; cursor: pointer;
     }
     .ctx-menu .ctx-item:hover { background: var(--bg-hover); }
+    .ctx-menu .ctx-item.with-icon { display: flex; align-items: center; gap: 7px; }
+    .ctx-menu .ctx-item.with-icon .icon { flex: none; }
     .ctx-menu .ctx-item:disabled { color: var(--text-faint); cursor: default; }
     .ctx-menu .ctx-item:disabled:hover { background: transparent; }
     .ctx-menu .ctx-item.danger { color: var(--danger); }

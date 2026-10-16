@@ -84,6 +84,7 @@
 | `command` | string \| null | 完整命令原文（仅令牌或需留痕场景，FR-041） |
 | `outputDigest` | string \| null | 输出摘要（前若干字节，超长标记截断） |
 | `path` | string \| null | 涉及的文件路径 |
+| `quickName` | string \| null | 快捷命令备注名（`event=quick-exec` 时填写；审计页展示备注名而非命令原文） |
 | `redacted` | boolean | 是否已执行脱敏（FR-042） |
 
 **校验规则**：明文凭据与私钥内容出现次数必须为 0（SC-010 / SC-021）；`command` 与 `outputDigest` 写入前必须过脱敏。

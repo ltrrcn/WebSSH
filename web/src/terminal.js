@@ -527,9 +527,11 @@ function reconnectTab(tab) {
 
 /** 掩码执行（快捷命令）：走 /api/quick-exec 独立 exec 通道，命令不经过终端输入流——
  *  屏幕只有本地画的等长星号与执行结果，远端 shell 无感知、历史无记录。
+ *  备注名随请求传给后端写入审计，审计页展示备注名而非命令原文。
  *  （回显操纵方案在 zsh 语法高亮/重绘下不可靠，已放弃；exec 通道的代价是
  *   与当前 shell 不共享 cd/环境变量、不支持交互式命令） */
-async function runQuickCommand(tab, cmd) {
+async function runQuickCommand(tab, qc) {
+  const cmd = qc.cmd;
   const { term } = tab;
   term.write(`${'*'.repeat(cmd.length)}\r\n\x1b[90m执行中…\x1b[0m`);
   const erasePending = '\r\x1b[2K'; // 回行首并清掉「执行中…」
@@ -537,7 +539,7 @@ async function runQuickCommand(tab, cmd) {
     const res = await fetch(apiUrl('quick-exec'), {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ hostId: tab.host.id, command: cmd }),
+      body: JSON.stringify({ hostId: tab.host.id, command: cmd, quickName: qc.name }),
     });
     const data = await res.json().catch(() => ({}));
     term.write(erasePending);
@@ -578,7 +580,7 @@ function renderQuickBar(barEl, tab) {
     b.addEventListener('click', () => {
       const c = cmds.find((x) => x.id === b.dataset.id);
       if (!c) return;
-      runQuickCommand(tab, c.cmd); // 独立 exec 通道，与终端 WS 状态无关
+      runQuickCommand(tab, c); // 独立 exec 通道，与终端 WS 状态无关
       tab.term.focus();
     })
   );

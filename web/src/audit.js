@@ -27,6 +27,11 @@ const EVENT_LABEL = {
   'connect-failure': '连接失败',
   command: '命令执行',
   'quick-exec': '快捷命令',
+  'host_create': '新建会话连接',
+  'host_update': '编辑会话连接',
+  'host_delete': '删除会话连接',
+  'host_duplicate': '复制会话连接',
+  'credential-update': '凭据更新',
   'file-read': '文件读取',
   'file-write': '文件写入',
   disconnect: '断开连接',
@@ -433,8 +438,9 @@ function renderRow(ev, idx, category) {
       ${status}${op}</div>`;
   }
 
-  // 操作审计：事件列副文本（时长 / 原因 / 令牌主体 / 会话）
+  // 操作审计：事件列副文本（快捷命令名 / 时长 / 原因 / 令牌主体 / 会话）
   const subs = [];
+  if (ev.event === 'quick-exec' && ev.quickName) subs.push(`快捷命令:${escapeHtml(ev.quickName)}`);
   if (ev.durationMs != null) subs.push(`时长 ${ev.durationMs}ms`);
   if (ev.reason) subs.push(escapeHtml(ev.reason));
   if (ev.actorType === 'token') subs.push(`令牌:${escapeHtml(ev.tokenId ?? '')}`);
@@ -451,6 +457,10 @@ function renderRow(ev, idx, category) {
  */
 function showEventDetail(ev) {
   const statusClass = ev.result === 'success' ? 'ok' : ev.result === 'denied' ? 'warn' : 'err';
+  // 快捷命令（quick-exec）：展示备注名而非命令原文（历史记录无 quickName 时回退原文）
+  const isQuick = ev.event === 'quick-exec' && !!ev.quickName;
+  const cmdTitle = isQuick ? '快捷命令' : '命令原文';
+  const cmdText = isQuick ? ev.quickName : ev.command;
   const meta = [
     ['来源', ev.actorType === 'token' ? `MCP 令牌（${ev.tokenId ?? '-'}）` : 'Web 终端（人工）'],
     ['主机', ev.hostId ? `${ev.hostId}${ev.hostAddress ? ` (${ev.hostAddress})` : ''}` : '-'],
@@ -476,10 +486,10 @@ function showEventDetail(ev) {
       <div class="detail-meta">
         ${meta.map(([k, v]) => `<div class="meta-item"><span class="meta-key">${escapeHtml(k)}</span><span class="meta-val">${escapeHtml(String(v))}</span></div>`).join('')}
       </div>
-      ${ev.command ? `
+      ${cmdText ? `
       <div class="detail-block">
-        <div class="block-title">命令原文<button class="detail-copy" data-copy="command" type="button">复制</button></div>
-        <pre class="detail-code"><code>${escapeHtml(ev.command)}</code></pre>
+        <div class="block-title">${cmdTitle}<button class="detail-copy" data-copy="command" type="button">复制</button></div>
+        <pre class="detail-code"><code>${escapeHtml(cmdText)}</code></pre>
       </div>` : ''}
       ${ev.outputDigest ? `
       <div class="detail-block">
@@ -504,7 +514,7 @@ function showEventDetail(ev) {
   overlay.querySelector('.detail-close').addEventListener('click', close);
   overlay.querySelectorAll('.detail-copy').forEach((b) => {
     b.addEventListener('click', () => {
-      const text = b.dataset.copy === 'command' ? ev.command : ev.outputDigest;
+      const text = b.dataset.copy === 'command' ? cmdText : ev.outputDigest;
       navigator.clipboard?.writeText(text ?? '').then(() => {
         b.textContent = '已复制';
         setTimeout(() => (b.textContent = '复制'), 1200);
