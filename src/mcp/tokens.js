@@ -14,7 +14,7 @@ export function hashToken(plain) {
  * 创建令牌记录（明文只返回这一次）。
  * @returns {{record: object, plaintext: string}}
  */
-export async function createTokenRecord(store, { ownerId, name, level, hostScope, permissions, expiresAt }) {
+export async function createTokenRecord(store, { ownerId, name, level, hostScope, hostGroups, allHosts, permissions, expiresAt }) {
   const plaintext = generateTokenPlain();
   const now = new Date().toISOString();
   const record = {
@@ -22,9 +22,14 @@ export async function createTokenRecord(store, { ownerId, name, level, hostScope
     name,
     ownerId,
     tokenHash: hashToken(plaintext),
-    tokenHint: plaintext.slice(-4),
+    // 提示片段：mcp_ 前缀 + 前两位随机 + * + 后四位随机（如 mcp_a1*1234）；随机部分仅暴露 24bit，无暴力面
+    tokenHint: `${plaintext.slice(0, 6)}*${plaintext.slice(-4)}`,
     level,
     hostScope,
+    // 按分组授权（动态）：分组下新增主机自动附带权限；分组按 name 引用（default 为内置）
+    hostGroups: Array.isArray(hostGroups) ? hostGroups : [],
+    // 动态授权：开启后授权本人全部主机（含后续新增），hostScope 仅作记录
+    allHosts: allHosts === true,
     permissions,
     expiresAt: expiresAt ?? null,
     status: 'active',
@@ -66,6 +71,8 @@ export function publicTokenView(t) {
     name: t.name,
     level: t.level,
     hostScope: t.hostScope,
+    hostGroups: t.hostGroups ?? [],
+    allHosts: t.allHosts === true,
     expiresAt: t.expiresAt,
     status: t.status,
     tokenHint: t.tokenHint,

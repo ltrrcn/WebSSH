@@ -37,7 +37,7 @@ test('T074：创建令牌——明文一次性返回、摘要不可逆、提示�
     });
     assert.match(plaintext, /^mcp_[0-9a-f]{48}$/);
     assert.equal(record.tokenHash, hashToken(plaintext));
-    assert.equal(record.tokenHint, plaintext.slice(-4));
+    assert.equal(record.tokenHint, `${plaintext.slice(0, 6)}*${plaintext.slice(-4)}`);
     assert.ok(!JSON.stringify(record).includes(plaintext), '令牌记录不得含明文');
     const view = publicTokenView(record);
     assert.ok(!('tokenHash' in view), '公开视图不含摘要');

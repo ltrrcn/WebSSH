@@ -206,6 +206,45 @@
     }
     /* standalone 模式（本地单用户）：灰色头像区分非飞牛部署 */
     .user-avatar.local { background: var(--bg-hover); color: var(--text-faint); }
+    /* 图片头像（R003）：背景图 cover 填充 */
+    .user-avatar.img { background-size: cover; background-position: center; }
+    /* 个人资料页大号预览 */
+    .user-avatar.big { width: 56px; height: 56px; font-size: 24px; }
+    .user-mgmt-avatar-row { display: flex; align-items: center; gap: 16px; padding: 4px 0 10px; }
+    .user-mgmt-avatar-actions { display: flex; flex-direction: column; gap: 6px; }
+    .user-mgmt-avatar-btns { display: flex; gap: 8px; }
+    .um-account-value { color: var(--text-dim); font-size: 13px; word-break: break-all; }
+    /* MCP 令牌列表（R003）：表头与行同为 grid、同列宽
+       （名称100 / 级别44 / 状态64 / 主机数1 / 令牌提示1 / 创建时间126 / 活跃时间126 / 操作84），
+       列宽两处必须同步改；表头风格同分组管理 .group-head */
+    #token-list .token-head,
+    #token-list .audit-row {
+      display: grid; grid-template-columns: 100px 44px 64px 1fr 1fr 126px 126px 84px; gap: 12px;
+      align-items: center;
+    }
+    /* 操作列按钮组：撤销中 = 撤销+眼睛；已撤销 = 恢复+删除+眼睛；已过期 = 删除+眼睛 */
+    #token-list .audit-row .token-ops { display: flex; align-items: center; gap: 4px; }
+    #token-list .token-head {
+      padding: 8px 16px; font-size: 10.5px; color: var(--text-faint); letter-spacing: .05em;
+      border-bottom: 1px solid var(--border); background: var(--bg-hover);
+      position: sticky; top: 0; z-index: 1;
+    }
+    /* 级别/状态列：表头与行内标签统一水平居中 */
+    #token-list .token-head-level,
+    #token-list .token-head-status,
+    #token-list .audit-row .tag { justify-self: center; }
+    /* 行内名称字号收敛（12px → 11.5px）；级别/状态标签同步收敛一档 */
+    #token-list .audit-row .audit-event { font-size: 11.5px; }
+    #token-list .audit-row .tag { font-size: 9.5px; padding: 1.5px 7px; }
+    /* 名称单元格：名称 + 铅笔同格，铅笔平时淡化、悬停行时显现（与分组管理重命名同款） */
+    #token-list .token-name-cell { display: flex; align-items: center; gap: 6px; min-width: 0; }
+    #token-list .token-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+    #token-list .token-name-cell .icon-btn { flex: none; padding: 4px; opacity: .5; }
+    #token-list .audit-row:hover .token-name-cell .icon-btn { opacity: 1; }
+    /* 主机数/令牌提示列内容左对齐（时间列用现成 .audit-time 样式） */
+    #token-list .audit-row .audit-detail { min-width: 0; }
+    #token-list .audit-row .audit-detail { min-width: 0; }
+    #token-list .token-head-op { text-align: center; }
     .user-name { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 
     /* ===== 右侧终端区（FR-044/045） ===== */
@@ -564,6 +603,8 @@
       display: flex; justify-content: space-between; align-items: center;
       padding: 16px 20px 2px; font-size: 15px; font-weight: 600; letter-spacing: .01em;
     }
+    /* 标题栏右侧操作按钮组（刷新 + 关闭）紧靠右上角，不参与 space-between 分散 */
+    .modal-head-actions { display: flex; align-items: center; gap: 4px; }
     .modal-head .icon-btn { font-size: 14px; padding: 5px 8px; }
     .modal-body { padding: 12px 20px 20px; }
     /* 确认弹窗宽度：必须早于 .settings-modal，避免同优先级下覆盖设置弹窗的 960px */

@@ -103,7 +103,6 @@ export async function renderAudit(el, category = 'operation') {
     <div class="audit-toolbar">
       ${filterBoxHtml()}
       <button class="btn" id="audit-export">导出</button>
-      <button class="btn" id="audit-refresh">刷新</button>
       ${infoTipHtml(NOTE.operation)}
     </div>
     <div class="audit-list audit-table">
@@ -131,7 +130,6 @@ export async function renderAudit(el, category = 'operation') {
     load(el);
   });
 
-  el.querySelector('#audit-refresh').addEventListener('click', () => load(el));
   el.querySelector('#audit-export').addEventListener('click', () => {
     const p = new URLSearchParams();
     if (state.source) p.set('source', state.source);
@@ -538,7 +536,6 @@ async function renderSessionView(el) {
     <div class="audit-toolbar">
       ${filterBoxHtml()}
       <button class="btn" id="audit-export">导出</button>
-      <button class="btn" id="audit-refresh">刷新</button>
       ${infoTipHtml(NOTE.sessions)}
     </div>
     <div class="audit-list" id="session-list"><div class="placeholder-box">加载中…</div></div>`;
@@ -546,7 +543,6 @@ async function renderSessionView(el) {
   // 统一筛选框：会话视图仅支持时间范围与主机
   setupFilter(el, ['time', 'hostId'], () => loadSessions(el));
 
-  el.querySelector('#audit-refresh').addEventListener('click', () => loadSessions(el));
   el.querySelector('#audit-export').addEventListener('click', () => {
     downloadAuditExport(new URLSearchParams({ source: 'user' }));
   });

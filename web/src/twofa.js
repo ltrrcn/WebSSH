@@ -270,7 +270,7 @@ function renderIntro(el) {
         </p>
         <div class="twofa-scope">
           <div class="twofa-scope-item">${icon('list', 15)}<span>命令审计（查看与设置）</span></div>
-          <div class="twofa-scope-item">${icon('key', 15)}<span>令牌管理（创建 / 撤销 / 删除）</span></div>
+          <div class="twofa-scope-item">${icon('key', 15)}<span>MCP 令牌（创建 / 撤销 / 删除）</span></div>
         </div>
         <button class="btn primary" id="twofa-start">${icon('shield')} 启用两步验证</button>
       </div>
@@ -435,7 +435,7 @@ function renderBound(el, status) {
           ${status.protectedActions.audit ? 'checked' : ''} ${locked ? 'disabled' : ''} /><span></span></label>
       </div>
       <div class="pref-row">
-        <div class="pref-label">令牌管理<div class="pref-desc">创建、撤销与永久删除 MCP 令牌</div></div>
+        <div class="pref-label">MCP 令牌<div class="pref-desc">创建、撤销与永久删除 MCP 令牌</div></div>
         <label class="switch"><input type="checkbox" id="twofa-act-tokens"
           ${status.protectedActions.tokens ? 'checked' : ''} ${locked ? 'disabled' : ''} /><span></span></label>
       </div>

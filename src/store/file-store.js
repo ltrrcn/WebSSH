@@ -32,11 +32,14 @@ export function createFileStore({ configDir, now = () => new Date().toISOString(
   const hostsFile = join(configDir, 'hosts.json');
   const tokensFile = join(configDir, 'tokens.json');
   const groupsFile = join(configDir, 'groups.json');
+  const usersFile = join(configDir, 'users.json');
+  const avatarsDir = join(configDir, 'avatars');
 
   // 进程内缓存：启动后读一次，写操作「改内存 + 排队落盘」
   let hostsCache = null;
   let tokensCache = null;
   let groupsCache = null;
+  let usersCache = null;
 
   async function loadHosts() {
     if (hostsCache) return hostsCache;
@@ -314,10 +317,87 @@ export function createFileStore({ configDir, now = () => new Date().toISOString(
     await persistTokens();
   }
 
+  // —— 用户资料（users.json：昵称/头像元数据，按 ownerId 隔离；R003）——
+
+  async function loadUsers() {
+    if (usersCache) return usersCache;
+    let data;
+    try {
+      data = await readJsonWithFallback(usersFile);
+    } catch (err) {
+      if (err.code === 'ENOENT') {
+        usersCache = [];
+        return usersCache;
+      }
+      throw err;
+    }
+    data = migrate(data, 'users.json');
+    usersCache = Array.isArray(data.users) ? data.users : [];
+    return usersCache;
+  }
+
+  async function persistUsers() {
+    usersCache = usersCache || [];
+    await atomicWriteFile(
+      usersFile,
+      JSON.stringify({ version: SCHEMA_VERSION, updatedAt: now(), users: usersCache }, null, 2)
+    );
+  }
+
+  /** 读取某用户资料记录；不存在返回 null（字段全空时也返回 null，调用方按缺省处理） */
+  async function getUserProfile(ownerId) {
+    const rec = (await loadUsers()).find((u) => u.ownerId === ownerId);
+    if (!rec) return null;
+    const empty = !rec.nickname && !rec.avatarExt;
+    return empty ? null : rec;
+  }
+
+  /**
+   * 昵称校验：null/undefined = 未设置；string trim 后 0–32 字符（空串=清除）。
+   * @returns {string|null} 规范化后的昵称
+   */
+  function normalizeNickname(nickname) {
+    if (nickname === undefined || nickname === null) return null;
+    if (typeof nickname !== 'string') throw new Error('nickname 必须为字符串');
+    const trimmed = nickname.trim();
+    if (trimmed.length > 32) throw new Error('nickname 长度不可超过 32 字符');
+    return trimmed === '' ? null : trimmed;
+  }
+
+  /**
+   * 写入用户资料（upsert by ownerId）。patch：{ nickname?, avatarExt?, avatarUpdatedAt? }
+   * nickname 走 normalize 校验；记录变为全空时从存储移除。
+   */
+  async function saveUserProfile(ownerId, patch = {}) {
+    if (!ownerId || typeof ownerId !== 'string') throw new Error('ownerId 无效');
+    if (patch.avatarExt !== undefined && patch.avatarExt !== null && typeof patch.avatarExt !== 'string') {
+      throw new Error('avatarExt 必须为字符串或 null');
+    }
+    const nickname =
+      patch.nickname !== undefined ? normalizeNickname(patch.nickname) : undefined;
+    const users = await loadUsers();
+    let rec = users.find((u) => u.ownerId === ownerId);
+    if (!rec) {
+      rec = { ownerId, nickname: null, avatarExt: null, avatarUpdatedAt: null, updatedAt: null };
+      users.push(rec);
+    }
+    if (nickname !== undefined) rec.nickname = nickname;
+    if (patch.avatarExt !== undefined) rec.avatarExt = patch.avatarExt;
+    if (patch.avatarUpdatedAt !== undefined) rec.avatarUpdatedAt = patch.avatarUpdatedAt;
+    rec.updatedAt = now();
+    // 全空记录不入盘（保持文件最小）
+    const idx = users.indexOf(rec);
+    if (!rec.nickname && !rec.avatarExt) users.splice(idx, 1);
+    await persistUsers();
+    return rec;
+  }
+
   return {
     hostsFile,
     tokensFile,
     groupsFile,
+    usersFile,
+    avatarsDir,
     listHosts,
     getHost,
     getHostById,
@@ -339,5 +419,7 @@ export function createFileStore({ configDir, now = () => new Date().toISOString(
     touchToken,
     deleteToken,
     saveTokens,
+    getUserProfile,
+    saveUserProfile,
   };
 }

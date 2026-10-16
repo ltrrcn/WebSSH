@@ -47,7 +47,14 @@ export function showContextMenu(x, y, { profile, meta, section, above, minWidth,
   if (profile) {
     const p = menu.querySelector('.ctx-profile');
     const avatar = p.querySelector('.user-avatar');
-    avatar.textContent = profile.avatarText;
+    // 图片头像（R003）：有 avatarUrl 时背景图渲染，回退首字 avatarText
+    if (profile.avatarUrl) {
+      avatar.textContent = '';
+      avatar.classList.add('img');
+      avatar.style.backgroundImage = `url("${profile.avatarUrl}")`;
+    } else {
+      avatar.textContent = profile.avatarText;
+    }
     if (profile.local) avatar.classList.add('local');
     p.querySelector('.ctx-profile-name').textContent = profile.name;
     p.addEventListener('click', () => {

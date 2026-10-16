@@ -114,6 +114,30 @@ test('list_hosts：仅返回 hostScope 内主机（FR-025）', async () => {
   }
 });
 
+test('按分组授权（动态）：分组下主机可访问，范围外拒绝；分组匹配按 group 字段（null=default）', async () => {
+  const { app, cleanup, base } = await setup({}, [
+    { id: 'h_g', name: '组内机', group: 'g1' },
+    { id: 'h_default', name: '默认机' },
+    { id: 'h_out', name: '组外机', group: 'g2' },
+  ]);
+  try {
+    const t = await createToken(base, { level: 'readonly', hostScope: [], hostGroups: ['g1', 'default'] });
+    assert.equal(t.status, 201);
+    const call = await rpc(base, t.body.token, 'tools/call', { name: 'list_hosts', arguments: {} });
+    const parsed = JSON.parse(call.body.result.content[0].text);
+    assert.deepEqual(parsed.hosts.map((h) => h.id).sort(), ['h_default', 'h_g']);
+
+    // read_file 目标判定同样按分组：组外主机拒绝
+    const denied = await rpc(base, t.body.token, 'tools/call', {
+      name: 'read_file',
+      arguments: { hostId: 'h_out', path: '/etc/hostname' },
+    });
+    assert.ok(denied.body.result?.isError || denied.body.error, '组外主机应被拒绝');
+  } finally {
+    await cleanup();
+  }
+});
+
 test('run_command 判定：语法/黑名单拒绝，hostScope 外拒绝（FR-033/034，目标不可达场景）', async () => {
   const { app, cleanup, base } = await setup({}, [{ id: 'h_dead', host: '127.0.0.1', port: 1 }]);
   try {

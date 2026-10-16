@@ -10,8 +10,8 @@ export function openModal(html, { onclose } = {}) {
   // modal 是单例：清掉上一弹窗留下的修饰类（settings-modal / confirm-modal），
   // 否则它们的 width 会叠加到新弹窗上（曾导致确认弹窗之后设置弹窗变窄）
   box.className = 'modal';
-  box.innerHTML = `<div class="modal-head"><span id="modal-title"></span>
-    <button class="icon-btn" id="modal-close">${icon('x', 13)}</button></div>
+  box.innerHTML = `<div class="modal-head"><span id="modal-title"></span><span class="modal-head-actions">
+    <button class="icon-btn" id="modal-close">${icon('x', 13)}</button></span></div>
     <div class="modal-body">${html}</div>`;
   root.classList.add('show');
   box.querySelector('#modal-close').addEventListener('click', closeModal);

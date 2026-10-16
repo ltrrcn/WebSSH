@@ -91,7 +91,6 @@ export async function renderPermPolicy(el) {
   el.innerHTML = `
     <div class="audit-toolbar">
       <span style="font-size:12px;color:var(--text-faint)">由管理员在配置文件维护（defaultPermissions / sensitivePaths），修改后重启生效；新令牌以默认矩阵初始化且只能收紧</span>
-      <button class="btn" id="pp-refresh">刷新</button>
     </div>
 
     <div class="tc-title">全局默认目录矩阵 <span class="tag">${perms.length} 条</span></div>
@@ -125,7 +124,6 @@ export async function renderPermPolicy(el) {
             .join('')}</div>`
         : '<div class="placeholder-box">未配置（建议在配置文件 security.sensitivePaths 中维护）。</div>'
     }`;
-  el.querySelector('#pp-refresh').addEventListener('click', () => renderPermPolicy(el));
 }
 
 async function load(el) {
@@ -190,7 +188,6 @@ async function load(el) {
   el.innerHTML = `
     <div class="audit-toolbar">
       <span style="font-size:12px;color:var(--text-faint)">新令牌以全局默认矩阵初始化，创建时只能收紧；修改默认需编辑配置文件后重启</span>
-      <button class="btn" id="tc-refresh">刷新</button>
     </div>
 
     ${directSection}
@@ -208,7 +205,6 @@ async function load(el) {
       <div class="audit-row"><span class="audit-event">命令超时</span><span class="audit-detail">${execSec} 秒，超时强制终止并返回已产生的输出摘要</span></div>
     </div>`;
 
-  el.querySelector('#tc-refresh').addEventListener('click', () => load(el));
 
   // —— MCP 客户端预设单选：切换展示对应配置（选中项持久化到 localStorage）——
   const presetBtns = el.querySelectorAll('.mcp-preset');
@@ -227,7 +223,7 @@ async function load(el) {
           <button class="btn" id="mcp-conf-copy">复制配置</button>
         </div>
         <pre class="mcp-conf">${escapeHtml(conf)}</pre>
-        <div class="pref-desc">端点：<code>${escapeHtml(mcpEndpoint)}</code>　令牌明文在「令牌管理」创建令牌时一次性显示，请先创建再填入。</div>
+        <div class="pref-desc">端点：<code>${escapeHtml(mcpEndpoint)}</code>　令牌明文在「MCP 令牌」创建令牌时一次性显示，请先创建再填入。</div>
       </div>`;
     presetPanel.querySelector('#mcp-conf-copy').addEventListener('click', () => {
       navigator.clipboard?.writeText(conf).then(() => {

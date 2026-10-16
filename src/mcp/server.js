@@ -173,10 +173,14 @@ async function dispatchTool(name, args, ctx) {
   const { token, config, store, masterKey } = ctx;
   setDigestBytes(config.limits.outputDigestBytes ?? 2048);
 
+  // 授权范围判定：allHosts（全部，含后续新增）或固定 hostScope 或按分组（分组下新增主机自动附带权限）
+  const inScope = (h) =>
+    token.allHosts === true ||
+    token.hostScope.includes(h.id) ||
+    (Array.isArray(token.hostGroups) && token.hostGroups.includes(h.group ?? 'default'));
+
   if (name === 'list_hosts') {
-    const hosts = (await store.listHosts(token.ownerId)).filter((h) =>
-      token.hostScope.includes(h.id)
-    );
+    const hosts = (await store.listHosts(token.ownerId)).filter(inScope);
     return {
       hosts: hosts.map((h) => ({ id: h.id, name: h.name, host: h.host, port: h.port, username: h.username, group: h.group ?? null })),
     };
@@ -184,7 +188,7 @@ async function dispatchTool(name, args, ctx) {
 
   // 需要目标主机与 SSH 连接的工具
   const host = (await store.listHosts(token.ownerId)).find(
-    (h) => h.id === args.hostId && token.hostScope.includes(h.id)
+    (h) => h.id === args.hostId && inScope(h)
   );
   if (!host) {
     throw Object.assign(new Error('目标主机不在令牌授权范围'), { code: 'host_not_allowed' });

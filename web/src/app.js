@@ -8,7 +8,7 @@ import { renderTokens } from './tokens.js';
 import { renderTokenConfig, renderPermPolicy } from './token-config.js';
 import { renderGroups } from './groups.js';
 import { getPrefs } from './prefs.js';
-import { getRuntime, getIdentity } from './base.js';
+import { getRuntime, getIdentity, apiUrl } from './base.js';
 import { showContextMenu } from './contextmenu.js';
 import * as terminal from './terminal.js';
 
@@ -35,15 +35,44 @@ refreshHostList();
 
 // 用户入口（FR-047）：左下角头像+用户名；standalone 灰色头像区分本地单用户
 // 点击弹出用户菜单（向上弹）：资料头（头像+用户名，点击进个人设置）/ 个人设置 / 使用文档 / 设置
-let currentUser = { name: '…', avatarText: '…', local: false };
-Promise.all([getIdentity(), getRuntime()]).then(([identity, runtime]) => {
-  const name = identity.username || identity.id;
+// R003：昵称/头像来自 /api/profile；展示格式：有昵称 = 账号(昵称)，如 local(本地)；无昵称仅账号名
+let currentUser = { name: '…', avatarText: '…', avatarUrl: null, local: false };
+async function refreshUserDisplay() {
+  const [identity, runtime] = await Promise.all([getIdentity(), getRuntime()]);
+  let profile = null;
+  try {
+    const r = await fetch(apiUrl('profile'));
+    if (r.ok) profile = await r.json();
+  } catch {
+    /* 接口不可用时按 identity 回退，不阻塞 UI */
+  }
+  const account = identity.username || identity.id || '—';
+  const displayName = profile?.nickname ? `${account}(${profile.nickname})` : account;
+  const avatarUrl = profile?.hasAvatar
+    ? `${apiUrl('profile/avatar')}${profile.avatarUpdatedAt ? `?v=${encodeURIComponent(profile.avatarUpdatedAt)}` : ''}`
+    : null;
   const avatarEl = document.getElementById('user-avatar');
-  avatarEl.textContent = (name || '—').trim().charAt(0) || '—';
-  if (runtime.mode === 'standalone') avatarEl.classList.add('local');
-  document.getElementById('user-name').textContent = name;
-  currentUser = { name, avatarText: avatarEl.textContent, local: runtime.mode === 'standalone' };
-});
+  avatarEl.classList.remove('local', 'img');
+  avatarEl.style.backgroundImage = '';
+  if (avatarUrl) {
+    avatarEl.textContent = '';
+    avatarEl.classList.add('img');
+    avatarEl.style.backgroundImage = `url("${avatarUrl}")`;
+  } else {
+    // 头像回退字优先取昵称首字（个性化），无昵称取账号名首字
+    const avatarSeed = profile?.nickname || account;
+    avatarEl.textContent = String(avatarSeed).trim().charAt(0) || '—';
+    if (runtime.mode === 'standalone') avatarEl.classList.add('local');
+  }
+  document.getElementById('user-name').textContent = displayName;
+  currentUser = {
+    name: displayName,
+    avatarText: avatarEl.textContent,
+    avatarUrl,
+    local: runtime.mode === 'standalone',
+  };
+}
+refreshUserDisplay();
 document.getElementById('btn-user').addEventListener('click', (e) => {
   const rect = e.currentTarget.getBoundingClientRect();
   showContextMenu(rect.left + 2, rect.top - 6, {
@@ -51,9 +80,11 @@ document.getElementById('btn-user').addEventListener('click', (e) => {
     minWidth: 224,
     profile: {
       avatarText: currentUser.avatarText,
+      avatarUrl: currentUser.avatarUrl,
       name: currentUser.name,
       local: currentUser.local,
-      onClick: () => openProfileModal({ renderTokens, renderTokenConfig }),
+      onClick: () =>
+        openProfileModal({ renderTokens, renderTokenConfig, onProfileChanged: refreshUserDisplay }),
     },
     // 外观快速开关（自动/浅色/深色）：点了立即生效且菜单保留
     section: (el) => {
@@ -76,6 +107,7 @@ document.getElementById('btn-user').addEventListener('click', (e) => {
     },
     items: [
       { label: '设置', icon: 'gear', onClick: () => openSettingsModal({ renderAudit, renderPermPolicy, renderGroups, onGroupsChanged: refreshHostList }) },
+      { label: '外部集成', icon: 'plug', onClick: () => openProfileModal({ renderTokens, renderTokenConfig, onProfileChanged: refreshUserDisplay }, 'tokens') },
       { label: '使用文档', icon: 'file', onClick: () => openDocsModal() },
       { label: '意见反馈', icon: 'message', disabled: true },
       { label: '检查更新', icon: 'refresh', disabled: true },

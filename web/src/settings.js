@@ -7,6 +7,7 @@ import { apiUrl } from './base.js';
 import { renderQuickCommandsPane } from './quick-commands-ui.js';
 import { renderDocs } from './docs.js';
 import { renderTwofaPane, apiFetch } from './twofa.js';
+import { renderUserProfilePane } from './user-profile.js';
 
 // 弹窗页签集：设置（通用/审计/2FA/权限类，还原拆分前顺序）与 个人设置（令牌类）分离
 const SETTINGS_TABS = [
@@ -19,7 +20,8 @@ const SETTINGS_TABS = [
   { key: 'permPolicy', icon: 'ban', label: '权限策略' },
 ];
 const PROFILE_TABS = [
-  { key: 'tokens', icon: 'key', label: '令牌管理' },
+  { key: 'user', icon: 'user', label: '个人资料' },
+  { key: 'tokens', icon: 'key', label: 'MCP 令牌' },
   { key: 'tokenConfig', icon: 'shield', label: '令牌配置' },
 ];
 
@@ -40,23 +42,44 @@ function openTabbedModal({ title, tabs, injections, defaultPane, nav: withNav = 
 
   const pane = m.root.querySelector('#settings-pane');
   const panes = buildPanes(pane, injections);
+  let currentPane = defaultPane;
   if (withNav) {
     const nav = m.root.querySelector('.settings-nav');
     nav.querySelectorAll('button').forEach((btn) =>
       btn.addEventListener('click', () => {
         nav.querySelectorAll('button').forEach((b) => b.classList.toggle('active', b === btn));
-        panes[btn.dataset.pane]();
+        currentPane = btn.dataset.pane;
+        panes[currentPane]();
       })
     );
     nav.querySelector(`[data-pane="${defaultPane}"]`).classList.add('active');
   }
-  panes[defaultPane]();
+  panes[currentPane]();
+  // 刷新按钮（关闭左侧）：点击重渲染当前活动页签，矢量图标转一圈表示刷新进行中
+  m.root
+    .querySelector('#modal-close')
+    .insertAdjacentHTML('beforebegin', `<button class="icon-btn" id="modal-refresh" title="刷新当前页">${icon('refresh', 13)}</button>`);
+  m.root.querySelector('#modal-refresh').addEventListener('click', (e) => {
+    const btn = e.currentTarget;
+    const svg = btn.querySelector('svg');
+    if (svg) {
+      // 连续点击可重启动画：先无过渡复位，再转一圈
+      svg.style.transition = 'none';
+      svg.style.transform = 'rotate(0deg)';
+      requestAnimationFrame(() => {
+        svg.style.transition = 'transform .55s ease';
+        svg.style.transform = 'rotate(360deg)';
+      });
+    }
+    panes[currentPane]();
+  });
   return m;
 }
 
 /** 构建全部页签渲染函数（设置类与安全类共享闭包注入） */
-function buildPanes(pane, { renderAudit, renderTokens, renderTokenConfig, renderPermPolicy, renderGroups, onGroupsChanged: groupsChanged }) {
+function buildPanes(pane, { renderAudit, renderTokens, renderTokenConfig, renderPermPolicy, renderGroups, onGroupsChanged: groupsChanged, onProfileChanged: profileChanged }) {
   return {
+    user: () => renderUserProfilePane(pane, { onProfileChanged: profileChanged }),
     theme: () => {
       const mode = currentThemeMode();
       const prefs = getPrefs();
@@ -284,15 +307,16 @@ export function openSettingsModal(injections = {}) {
 }
 
 /**
- * 打开个人设置弹窗（令牌类：令牌管理/令牌配置）。
- * @param {{renderTokens?: (el: HTMLElement)=>void, renderTokenConfig?: (el: HTMLElement)=>void}} injections
+ * 打开个人设置弹窗（个人资料/MCP 令牌/令牌配置；默认落在个人资料）。
+ * @param {{renderTokens?: (el: HTMLElement)=>void, renderTokenConfig?: (el: HTMLElement)=>void, onProfileChanged?: ()=>void}} injections
+ * @param {string} [defaultPane] 初始页签 key（如 'tokens'：用户菜单「外部集成」直达 MCP 令牌）
  */
-export function openProfileModal(injections = {}) {
+export function openProfileModal(injections = {}, defaultPane = 'user') {
   return openTabbedModal({
     title: '个人设置',
     tabs: PROFILE_TABS,
     injections,
-    defaultPane: 'tokens',
+    defaultPane,
   });
 }
 
