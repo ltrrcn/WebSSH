@@ -211,23 +211,47 @@ test('真实 sshd：指纹未确认时拒绝（4005），确认后全流程可�
   const ws3 = r3.ws;
   const out3 = collect(ws3);
   await out3.wait('Last login').catch(() => {});
-  ws3.send(encodeDataFrame(Buffer.from('echo digest-marker-7\n', 'utf8')));
-  await out3.wait('digest-marker-7');
-  ws3.send(encodeDataFrame(Buffer.from('true\n', 'utf8'))); // 触发上一条命令 flush
-  await new Promise((r2s) => setTimeout(r2s, 300));
+  ws3.send(encodeDataFrame("env PS1='audit@fixture:~$ ' /bin/bash --noprofile --norc -i\n"));
+  await out3.wait('\r\naudit@fixture:~$ ');
+
+  const waitCommand = async (command) => {
+    const deadline = Date.now() + 8000;
+    while (Date.now() < deadline) {
+      const response = await fetch(`${base}/api/audit?category=commands`, {
+        headers: { 'x-2fa-ticket': ticket },
+      });
+      assert.equal(response.status, 200);
+      const { items } = await response.json();
+      const event = items.find((item) => item.command === command);
+      if (event) return event;
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    assert.fail(`命令完成后仍未落盘: ${command}`);
+  };
+
+  ws3.send(encodeDataFrame('echo digest-marker-7\n'));
+  const digestEv = await waitCommand('echo digest-marker-7');
+  assert.equal(digestEv.outputDigest?.trim(), 'digest-marker-7', '摘要只包含输出，不含命令回显和提示符');
+
+  ws3.send(encodeDataFrame('cat /dev/null'));
+  await out3.wait('cat /dev/null');
+  assert.ok(!digestEv.outputDigest.includes('cat /dev/null'), '后续未提交输入不能进入前一条摘要');
+  ws3.send(encodeDataFrame('\n'));
+  assert.ok(!(await waitCommand('cat /dev/null')).outputDigest, '空输出命令无需下一条输入即可落盘');
+
+  ws3.send(encodeDataFrame('cd .\n'));
+  assert.ok(!(await waitCommand('cd .')).outputDigest, 'cd 返回提示符时应以空摘要落盘');
+
+  const fastMarkers = ['digest-fast-a', 'digest-fast-b', 'digest-fast-c'];
+  ws3.send(encodeDataFrame(fastMarkers.map((marker) => `echo ${marker}\n`).join('')));
+  for (const marker of fastMarkers) {
+    const event = await waitCommand(`echo ${marker}`);
+    assert.equal(event.outputDigest?.trim(), marker, '快速连续提交的命令输出应分别归属');
+  }
+
   const closed3 = new Promise((resolve) => ws3.on('close', resolve));
   ws3.close(1000);
   await closed3;
-  await new Promise((r2s) => setTimeout(r2s, 500)); // 审计异步落盘
-
-  const cmds2 = await (
-    await fetch(`${base}/api/audit?category=commands`, {
-      headers: { 'x-2fa-ticket': ticket },
-    })
-  ).json();
-  const digestEv = cmds2.items.find((e) => e.command === 'echo digest-marker-7');
-  assert.ok(digestEv?.outputDigest, '开启后命令应带输出摘要');
-  assert.ok(digestEv.outputDigest.includes('digest-marker-7'), `摘要应含命令输出: ${digestEv.outputDigest}`);
 
   // 开关状态持久化查询
   const get = await (await fetch(`${base}/api/audit-settings`)).json();
