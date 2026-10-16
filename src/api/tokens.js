@@ -1,9 +1,11 @@
 // REST：MCP 令牌管理（contracts/rest-api.md 令牌节 / FR-022~026）
 // POST 响应一次性返回令牌明文；权限矩阵只能在全局默认内收紧（FR-040）
+// 2FA：创建/撤销/删除属高危操作（protectedActions.tokens）需 X-2FA-Ticket；列表查看不拦截
 import { sendJson, sendError, readJsonBody } from '../net/router.js';
 import { resolveIdentity } from '../net/auth.js';
 import { createTokenRecord, publicTokenView } from '../mcp/tokens.js';
 import { assertMatrixTightened } from '../ssh/policy.js';
+import { require2fa } from './twofa.js';
 
 export function tokensRoutes(deps) {
   const { runtime, store, config, masterKey, audit } = deps;
@@ -41,6 +43,7 @@ export function tokensRoutes(deps) {
       method: 'POST',
       path: '/api/tokens',
       handler: async (req, res) => {
+        if (require2fa(deps, req, res, 'tokens')) return;
         const identity = resolveIdentity(req, runtime);
         if (!identity) return sendError(res, 401, 'unauthorized', '未认证');
         let body;
@@ -110,6 +113,7 @@ export function tokensRoutes(deps) {
       method: 'DELETE',
       path: '/api/tokens/{id}',
       handler: async (req, res, ctx) => {
+        if (require2fa(deps, req, res, 'tokens')) return;
         const identity = resolveIdentity(req, runtime);
         if (!identity) return sendError(res, 401, 'unauthorized', '未认证');
         const token = await store.getTokenById(ctx.params.id);
@@ -128,6 +132,7 @@ export function tokensRoutes(deps) {
       method: 'DELETE',
       path: '/api/tokens/{id}/purge',
       handler: async (req, res, ctx) => {
+        if (require2fa(deps, req, res, 'tokens')) return;
         const identity = resolveIdentity(req, runtime);
         if (!identity) return sendError(res, 401, 'unauthorized', '未认证');
         const token = await store.getTokenById(ctx.params.id);

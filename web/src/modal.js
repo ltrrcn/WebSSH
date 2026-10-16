@@ -81,8 +81,13 @@ export function confirmModal({ title = '确认操作', message, note = '', confi
 // - ESC：关闭弹窗（等价点 X / 遮罩），即「取消」
 // - Enter：触发弹窗主按钮（.btn.primary），即「确认/保存/信任并连接」
 // 跳过场景：textarea（Enter 换行）、button（浏览器默认点击）、含 <form> 的弹窗（表单隐式提交）
+// 浮层优先：存在打开的独立浮层（审计详情 / 2FA 验证码 / 恢复弹窗，均叠在 modal 之上）
+// 时，ESC/Enter 归浮层处理，避免按键穿透误关底下的设置弹窗。
 document.addEventListener('keydown', (e) => {
   if (!isModalOpen()) return;
+  if (e.key === 'Escape' || e.key === 'Enter') {
+    if (document.querySelector('.audit-detail-overlay.show')) return;
+  }
   if (e.key === 'Escape') {
     e.preventDefault();
     closeModal();

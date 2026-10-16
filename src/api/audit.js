@@ -1,8 +1,10 @@
 // REST：审计接口（contracts/rest-api.md 审计节 / FR-012）
 // GET /api/audit —— 时间顺序分页 + from/to/hostId/result 过滤
 // GET /api/audit/export —— 导出可直接阅读的文本文件（脱敏已在写入时完成，导出不再暴露凭据）
+// 2FA：审计查看属高危操作，config.twofa 开启且 protectedActions.audit 时需 X-2FA-Ticket
 import { sendJson, sendError } from '../net/router.js';
 import { resolveIdentity } from '../net/auth.js';
+import { require2fa } from './twofa.js';
 
 const EVENT_LABEL = {
   'connect-attempt': '连接尝试',
@@ -17,6 +19,16 @@ const EVENT_LABEL = {
   'group_create': '分组新建',
   'group_rename': '分组重命名',
   'group_delete': '分组删除',
+  twofa_setup: '两步验证开始绑定',
+  twofa_confirm: '两步验证绑定成功',
+  twofa_disable: '两步验证关闭',
+  twofa_verify: '两步验证通过',
+  twofa_verify_failure: '两步验证失败',
+  twofa_locked: '两步验证锁定',
+  twofa_actions_update: '两步验证保护范围更新',
+  twofa_recovery_success: '恢复码恢复成功',
+  twofa_recovery_failure: '恢复码恢复失败',
+  twofa_recovery_wipe: '恢复失败触发数据清除',
 };
 const RESULT_LABEL = { success: '成功', denied: '拒绝', error: '失败' };
 
@@ -52,6 +64,7 @@ export function auditRoutes(deps) {
       method: 'GET',
       path: '/api/audit/sessions',
       handler: async (req, res) => {
+        if (require2fa(deps, req, res, 'audit')) return;
         const identity = resolveIdentity(req, runtime);
         if (!identity) return sendError(res, 401, 'unauthorized', '未认证');
         const q = new URL(req.url, 'http://localhost').searchParams;
@@ -101,6 +114,7 @@ export function auditRoutes(deps) {
       method: 'GET',
       path: '/api/audit',
       handler: async (req, res) => {
+        if (require2fa(deps, req, res, 'audit')) return;
         const identity = resolveIdentity(req, runtime);
         if (!identity) return sendError(res, 401, 'unauthorized', '未认证');
         const url = new URL(req.url, 'http://localhost');
@@ -143,6 +157,7 @@ export function auditRoutes(deps) {
       method: 'GET',
       path: '/api/audit/export',
       handler: async (req, res) => {
+        if (require2fa(deps, req, res, 'audit')) return;
         const identity = resolveIdentity(req, runtime);
         if (!identity) return sendError(res, 401, 'unauthorized', '未认证');
         const url = new URL(req.url, 'http://localhost');

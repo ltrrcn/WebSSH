@@ -5,7 +5,7 @@ import { WebSocketServer } from 'ws';
 import { resolveIdentity } from './auth.js';
 import { captureFingerprint } from '../ssh/client.js';
 import { stripGatewayPrefix } from './router.js';
-import { consumeWsTicket } from './tickets.js';
+import { consumeWsTicket, consumePassTicket } from './tickets.js';
 import { PROTOCOL_VERSION } from '../../web/src/protocol/frames.js';
 
 /**
@@ -65,9 +65,10 @@ export function attachUpgrade(httpServer, deps) {
       return rejectHandshake(socket, 400, 'Bad Request', req);
     }
 
-    // 契约：查询参数只允许 hostId / version / ticket / sessionId（不接受客户端指定 host/port/凭据）
+    // 契约：查询参数只允许 hostId / version / ticket / sessionId / pt（不接受客户端指定 host/port/凭据）
+    // pt = 私钥口令一次性票据 ID（口令明文永不进 URL）
     const extra = [...url.searchParams.keys()].filter(
-      (k) => k !== 'hostId' && k !== 'version' && k !== 'ticket' && k !== 'sessionId'
+      (k) => k !== 'hostId' && k !== 'version' && k !== 'ticket' && k !== 'sessionId' && k !== 'pt'
     );
     if (extra.length > 0) {
       return rejectHandshake(socket, 400, 'Bad Request', req);
@@ -161,7 +162,28 @@ async function handleTerminal(ws, identity, url, deps) {
     return ws.close(4005, pending ? `fingerprint_unconfirmed:${pending}` : 'fingerprint_unconfirmed');
   }
 
-  await sessionManager.createSession({ ws, host, identity });
+  // 私钥口令/连接密码票据（可选）：一次性消费，校验票据绑定本机与本用户，凭据仅存在于内存
+  let passphrase;
+  let password;
+  const pt = url.searchParams.get('pt');
+  if (pt) {
+    const entry = consumePassTicket(pt);
+    if (!entry || entry.ownerId !== identity.id || entry.hostId !== host.id) {
+      sessionManager.releaseReservation(identity.id);
+      auditDenied(audit, identity, hostId, 'invalid_pass_ticket');
+      return ws.close(4009, 'invalid_pass_ticket');
+    }
+    passphrase = entry.passphrase;
+    password = entry.password;
+  }
+
+  // none（不记录凭据）主机：没有票据密码就无法认证，直接以 password_required 关闭让客户端弹输入框
+  if (host.authType === 'none' && !password) {
+    sessionManager.releaseReservation(identity.id);
+    return ws.close(4006, 'password_required');
+  }
+
+  await sessionManager.createSession({ ws, host, identity, passphrase, password });
 }
 
 function auditDenied(audit, identity, hostId, reason) {

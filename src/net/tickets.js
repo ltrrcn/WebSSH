@@ -29,3 +29,62 @@ export function consumeWsTicket(ticket) {
   if (Date.now() > entry.expires) return null;
   return entry.identity;
 }
+
+// —— 私钥口令一次性票据 ——
+// 连接加密私钥时口令由用户临时输入：经已认证 REST 换票据，WS 只携带票据 ID，
+// 口令明文不出现在 URL / 访问日志 / 进程参数中。
+const passTickets = new Map(); // ticket -> { hostId, ownerId, passphrase?, password?, expires }
+
+function cleanupPass() {
+  const now = Date.now();
+  for (const [t, e] of passTickets) {
+    if (e.expires < now) passTickets.delete(t);
+  }
+}
+
+/** 签发口令票据（仅限已认证调用方：REST 路由）。passphrase=私钥口令，password=none 主机的连接密码 */
+export function createPassTicket({ hostId, ownerId, passphrase, password }) {
+  cleanupPass();
+  const ticket = randomBytes(24).toString('hex');
+  passTickets.set(ticket, { hostId, ownerId, passphrase, password, expires: Date.now() + TTL_MS });
+  return ticket;
+}
+
+/** 消费口令票据：一次性，过期/不存在返回 null */
+export function consumePassTicket(ticket) {
+  if (typeof ticket !== 'string' || ticket.length === 0 || ticket.length > 128) return null;
+  const entry = passTickets.get(ticket);
+  if (!entry) return null;
+  passTickets.delete(ticket); // 一次性
+  if (Date.now() > entry.expires) return null;
+  return entry;
+}
+
+// —— 2FA 通过票据 ——
+// 高危操作验证通过后签发：TTL 内可复用（非一次性），绑定身份。
+// 服务重启自然失效（内存态），届时受保护操作需重新输码。
+const T2FA_TTL_MS = 5 * 60 * 1000;
+const twofaTickets = new Map(); // ticket -> { identityId, expires }
+
+/** 签发 2FA 票据（仅限 verify 通过后的 2FA 路由） */
+export function create2faTicket(identityId) {
+  const now = Date.now();
+  for (const [t, e] of twofaTickets) {
+    if (e.expires < now) twofaTickets.delete(t);
+  }
+  const ticket = randomBytes(24).toString('hex');
+  twofaTickets.set(ticket, { identityId, expires: now + T2FA_TTL_MS });
+  return { ticket, ttlSeconds: Math.floor(T2FA_TTL_MS / 1000) };
+}
+
+/** 校验 2FA 票据：过期/身份不符返回 false（不过期不删除，期限内可复用） */
+export function consume2faTicket(ticket, identityId) {
+  if (typeof ticket !== 'string' || ticket.length === 0 || ticket.length > 128) return false;
+  const entry = twofaTickets.get(ticket);
+  if (!entry) return false;
+  if (Date.now() > entry.expires) {
+    twofaTickets.delete(ticket);
+    return false;
+  }
+  return entry.identityId === identityId;
+}

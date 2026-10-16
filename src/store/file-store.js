@@ -1,6 +1,7 @@
 // 文件存储实现（hosts.json / tokens.json），Store 接口见 store.js
 // 顶层 version + 迁移钩子（宪法 IV / VIII）；读取走 .bak 回退（FR-017）
 import { randomUUID } from 'node:crypto';
+import { rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { atomicWriteFile, readJsonWithFallback } from './atomic.js';
 
@@ -97,8 +98,11 @@ export function createFileStore({ configDir, now = () => new Date().toISOString(
     if (typeof host.username !== 'string' || host.username === '') {
       throw new Error('username 必须为非空字符串');
     }
-    if (host.authType !== 'password' && host.authType !== 'privateKey') {
-      throw new Error('authType 必须为 password 或 privateKey');
+    if (host.authType !== 'password' && host.authType !== 'privateKey' && host.authType !== 'none') {
+      throw new Error('authType 必须为 password、privateKey 或 none');
+    }
+    if (host.connectVia !== undefined && host.connectVia !== 'direct' && host.connectVia !== 'jump') {
+      throw new Error('connectVia 必须为 direct 或 jump');
     }
     return host;
   }
@@ -129,6 +133,23 @@ export function createFileStore({ configDir, now = () => new Date().toISOString(
     Object.assign(h, patch, { updatedAt: now() });
     await persistHosts();
     return true;
+  }
+
+  /**
+   * 不可逆清除全部主机连接（所有 owner）：删除 hosts.json 及 .bak/.tmp，
+   * 并清空内存缓存。不走 saveHosts([])（那会留一代 .bak，可被恢复）。
+   * 仅供 2FA 恢复保护触发（api/twofa.js），其余场景禁止调用。
+   */
+  async function wipeHosts() {
+    hostsCache = [];
+    const targets = [hostsFile, `${hostsFile}.bak`, `${hostsFile}.tmp`];
+    for (const f of targets) {
+      try {
+        await rm(f, { force: true });
+      } catch {
+        /* 尽力删除；失败由调用方审计 */
+      }
+    }
   }
 
   // —— 分组实体（groups.json：分组是独立实体，支持新建/排序；default 为内置不落盘） ——
@@ -305,6 +326,7 @@ export function createFileStore({ configDir, now = () => new Date().toISOString(
     deleteHost,
     validateHost,
     touchHost,
+    wipeHosts,
     updateHostsGroup,
     listGroups,
     createGroupEntity,

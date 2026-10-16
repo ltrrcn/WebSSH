@@ -42,9 +42,25 @@ test('port 越界或非整数 → 拒绝', () => {
   }
 });
 
-test('authType 仅允许 password / privateKey', () => {
+test('authType 仅允许 password / privateKey / none', () => {
   assert.throws(() => validateHostPayload({ ...validCreate(), authType: 'agent' }, { partial: false }), /authType/);
   assert.throws(() => validateHostPayload({ ...validCreate(), authType: null }, { partial: false }), /authType/);
+});
+
+test('authType=none（不记录凭据）：无需凭据即可创建，携带凭据则拒绝', () => {
+  // 创建：none 不要求 password/privateKey
+  const p = validCreate();
+  delete p.password;
+  const { value } = validateHostPayload({ ...p, authType: 'none' }, { partial: false });
+  assert.equal(value.authType, 'none');
+  assert.equal(value.secret, undefined, 'none 不应产生 secret');
+  // none 携带凭据 → 拒绝（防止误以为会保存）
+  assert.throws(
+    () => validateHostPayload({ ...validCreate(), authType: 'none' }, { partial: false }),
+    /none/
+  );
+  // PUT（partial）：仅切 authType 到 none 合法（凭据清空由路由层处理）
+  assert.equal(validateHostPayload({ authType: 'none' }, { partial: true }).value.authType, 'none');
 });
 
 test('凭据形态必须与 authType 匹配', () => {

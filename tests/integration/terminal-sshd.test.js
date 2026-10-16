@@ -180,10 +180,28 @@ test('真实 sshd：指纹未确认时拒绝（4005），确认后全流程可�
   assert.ok(!echoEv.outputDigest, '默认不记录输出摘要');
 
   // 热开启（REST PUT）后新会话：命令事件附带脱敏输出摘要
+  // 前置：开启输出摘要记录需先绑定 2FA（api/audit-settings 强制校验）——
+  // setup → confirm（同源 TOTP 码）→ verify（恢复码）→ 携票据 PUT
   const base = `http://127.0.0.1:${app.port}`;
+  const { totpAt, currentStep } = await import('../../src/crypto/totp.js');
+  const setup = await (await fetch(`${base}/api/2fa/setup`, { method: 'POST' })).json();
+  const confirm = await (
+    await fetch(`${base}/api/2fa/confirm`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ code: totpAt(setup.secret, currentStep()) }),
+    })
+  ).json();
+  const { ticket } = await (
+    await fetch(`${base}/api/2fa/verify`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ code: confirm.recoveryCodes[0] }),
+    })
+  ).json();
   const put = await fetch(`${base}/api/audit-settings`, {
     method: 'PUT',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', 'x-2fa-ticket': ticket },
     body: JSON.stringify({ recordTerminalOutput: true }),
   });
   assert.equal(put.status, 200);
@@ -202,7 +220,11 @@ test('真实 sshd：指纹未确认时拒绝（4005），确认后全流程可�
   await closed3;
   await new Promise((r2s) => setTimeout(r2s, 500)); // 审计异步落盘
 
-  const cmds2 = await (await fetch(`${base}/api/audit?category=commands`)).json();
+  const cmds2 = await (
+    await fetch(`${base}/api/audit?category=commands`, {
+      headers: { 'x-2fa-ticket': ticket },
+    })
+  ).json();
   const digestEv = cmds2.items.find((e) => e.command === 'echo digest-marker-7');
   assert.ok(digestEv?.outputDigest, '开启后命令应带输出摘要');
   assert.ok(digestEv.outputDigest.includes('digest-marker-7'), `摘要应含命令输出: ${digestEv.outputDigest}`);

@@ -1,8 +1,9 @@
-// 令牌管理页（US6 / FR-022~026）：渲染在「设置 → 令牌」页签
+// 令牌管理页（US6 / FR-022~026）：渲染在「个人设置 → 令牌管理」页签
 // 明文仅创建时展示一次（FR-023）
 // 快速提示词：按表单参数 + MCP 接入地址生成 AI 客户端提示词（不创建令牌）
 import { apiUrl } from './base.js';
 import { icon } from './icons.js';
+import { apiFetch } from './twofa.js';
 
 const LEVEL_LABEL = { readonly: '只读', writable: '可变更' };
 const STATUS_LABEL = { active: '启用', revoked: '已撤销', expired: '已过期' };
@@ -40,7 +41,7 @@ function buildPrompt({ name, level, hosts, endpoint }) {
 ## 接入信息
 - MCP 端点：${endpoint}
 - 认证方式：Authorization: Bearer <令牌明文>
-- 令牌名称：${name}（明文需在 WebSSH「设置 → 令牌管理」创建后一次性获取）
+- 令牌名称：${name}（明文需在 WebSSH「个人设置 → 令牌管理」创建后一次性获取）
 
 ## 授权主机（仅限以下范围）
 ${hostList}
@@ -99,14 +100,21 @@ async function loadTokens(el) {
   list.querySelectorAll('.token-revoke').forEach((b) =>
     b.addEventListener('click', async () => {
       if (!confirm(`确定撤销令牌「${b.dataset.name}」？撤销立即生效且不可恢复。`)) return;
-      await fetch(apiUrl(`tokens/${b.dataset.id}`), { method: 'DELETE' });
+      // 令牌撤销受 2FA 保护：用户主动操作，forcePrompt 直接弹码
+      const res = await apiFetch(`tokens/${b.dataset.id}`, { method: 'DELETE', forcePrompt: true });
+      if (res._twofaCancelled) return loadTokens(el); // 用户取消验证：静默放弃
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        alert(`撤销失败：${err.error?.message ?? res.statusText}`);
+      }
       loadTokens(el);
     })
   );
   list.querySelectorAll('.token-purge').forEach((b) =>
     b.addEventListener('click', async () => {
       if (!confirm(`永久删除令牌「${b.dataset.name}」的记录？\n删除后列表不再显示该令牌（撤销状态已使其无法使用），此操作不可恢复。`)) return;
-      const res = await fetch(apiUrl(`tokens/${b.dataset.id}/purge`), { method: 'DELETE' });
+      const res = await apiFetch(`tokens/${b.dataset.id}/purge`, { method: 'DELETE', forcePrompt: true });
+      if (res._twofaCancelled) return loadTokens(el); // 用户取消验证：静默放弃
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
         alert(`删除失败：${err.error?.message ?? res.statusText}`);
@@ -206,11 +214,14 @@ async function openTokenForm(el) {
     if (!hostScope.length) return alert('请至少勾选一台授权主机');
     const body = { name: fd.get('name').trim(), level: levelInput.value, hostScope };
     if (fd.get('expiresAt')) body.expiresAt = new Date(fd.get('expiresAt')).toISOString();
-    const res = await fetch(apiUrl('tokens'), {
+    // 令牌创建受 2FA 保护：用户主动操作，forcePrompt 直接弹码
+    const res = await apiFetch('tokens', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(body),
+      forcePrompt: true,
     });
+    if (res._twofaCancelled) return; // 用户取消验证：静默放弃创建
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
       return alert(`创建失败：${err.error?.message ?? res.statusText}`);

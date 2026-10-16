@@ -1,4 +1,4 @@
-// 令牌配置页（设置 → 令牌配置）：MCP 接入（按客户端预设单选）+ 机器直连端口开关 + 全局默认目录矩阵 + 敏感路径
+// 令牌配置页（个人设置 → 令牌配置）：MCP 接入（按客户端预设单选）+ 机器直连端口开关 + 全局默认目录矩阵 + 敏感路径
 // 数据源 GET /api/tokens/defaults、GET /api/mcp-direct；结构与审计/令牌页一致（audit-toolbar / audit-list / audit-row）
 // 全局默认矩阵由管理员在配置文件维护，页面只读展示（FR-040：令牌只能收紧）
 import { apiUrl } from './base.js';

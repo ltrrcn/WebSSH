@@ -7,7 +7,8 @@ import { createFileStore } from '../../src/store/file-store.js';
  * 向指定配置目录写入一台种子主机。
  * @param {{configDir: string, id?: string, host?: string, port?: number, username?: string,
  *   authType?: 'password'|'privateKey', password?: string, privateKey?: string, passphrase?: string,
- *   fingerprint?: string|null, ownerId?: string, group?: string|null, name?: string}} opts
+ *   fingerprint?: string|null, ownerId?: string, group?: string|null, name?: string,
+ *   connectVia?: 'direct'|'jump', jumpHostId?: string|null}} opts
  */
 export async function seedHost(opts) {
   const {
@@ -24,6 +25,8 @@ export async function seedHost(opts) {
     ownerId = 'local',
     group = null,
     name,
+    connectVia = 'direct',
+    jumpHostId = null,
   } = opts;
 
   // authType 未显式给出时按提供的凭据推断，避免加密出空对象
@@ -48,7 +51,10 @@ export async function seedHost(opts) {
     port,
     username,
     authType: resolvedAuthType,
-    secret: encryptSecret(key, plain),
+    connectVia,
+    jumpHostId: connectVia === 'jump' ? jumpHostId : null,
+    // none（不记录凭据）：不存 secret
+    secret: resolvedAuthType === 'none' ? null : encryptSecret(key, plain),
     group,
     ownerId,
     fingerprint,

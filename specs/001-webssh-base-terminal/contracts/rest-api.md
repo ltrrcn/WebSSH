@@ -72,6 +72,7 @@
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | `GET` | `/api/runtime` | 返回当前运行模式（`fnos` / `standalone`）与监听形态，不含具体路径 |
+| `GET` | `/api/auth/me` | 返回当前请求者身份 `{ id, username, isAdmin }`（fnOS 为网关注入身份，standalone 恒为 `local`）；未认证 401 |
 
 ## 错误码
 

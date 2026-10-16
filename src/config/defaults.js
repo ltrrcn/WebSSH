@@ -27,6 +27,23 @@ export const DEFAULT_CONFIG = {
       'rm', 'dd', 'mkfs', 'shutdown', 'reboot', 'halt', 'chmod', 'chown', 'userdel',
     ],
   },
+  // 两步验证（TOTP）：secret 为 AES-256-GCM 加密结构（master.key 派生），
+  // recoveryCodes 仅存 SHA-256 哈希；failedAttempts/lockedUntil 为防爆破状态（持久化）。
+  // recoveryAttempts：恢复入口累计失败次数（达到 RECOVERY_MAX_ATTEMPTS 触发不可逆清除，
+  // 绑定/关闭成功后归零重新计）。
+  twofa: {
+    enabled: false,
+    secret: null,
+    confirmedAt: null,
+    recoveryCodes: [],
+    protectedActions: {
+      audit: true, // 命令/操作审计查看与审计设置修改
+      tokens: true, // MCP 令牌创建/撤销/删除
+    },
+    failedAttempts: 0,
+    lockedUntil: null,
+    recoveryAttempts: 0,
+  },
   defaultPermissions: [
     {
       prefix: '/var/log',

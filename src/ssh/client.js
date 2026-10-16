@@ -3,17 +3,17 @@ import { Client } from 'ssh2';
 import { fingerprintOfKey } from './hostkey.js';
 
 /**
- * 建立 SSH 连接并申请交互式 shell。
+ * 建立裸 SSH 连接（ready 即返回，不申请 shell）。
  * HostKey 校验（FR-007 / 宪法 I）：以已确认指纹做全等比对，禁止 InsecureIgnoreHostKey。
  *
  * @param {{host: string, port: number, username: string,
  *   secret: {password?: string, privateKey?: string, passphrase?: string},
  *   connectTimeoutMs: number, expectedFingerprint: string,
  *   onHostKeyVerified?: ({algorithm: string, fingerprint: string}) => void,
- *   cols?: number, rows?: number}} opts
- * @returns {Promise<{conn: import('ssh2').Client, stream: import('ssh2').Channel}>}
+ *   sock?: import('node:stream').Duplex}} opts sock = 经跳板机转发的通道（ProxyJump）
+ * @returns {Promise<import('ssh2').Client>}
  */
-export function connectShell(opts) {
+function openConn(opts) {
   const {
     host,
     port,
@@ -22,8 +22,7 @@ export function connectShell(opts) {
     connectTimeoutMs,
     expectedFingerprint,
     onHostKeyVerified,
-    cols = 80,
-    rows = 24,
+    sock,
   } = opts;
 
   if (!expectedFingerprint) {
@@ -45,33 +44,9 @@ export function connectShell(opts) {
     };
 
     conn.on('ready', () => {
-      conn.shell(
-        {
-          term: 'xterm-256color',
-          cols,
-          rows,
-          // 中文输入乱码修复：不带 env 时 sshd 会话以 C/POSIX locale 启动，
-          // zle 按单字节处理中文（显示 <0093><0088> 形式转义）。
-          // LC_CTYPE=UTF-8 为 macOS 原生形式且 glibc 系（Debian/Ubuntu）内置接受，
-          // 双平台保底字符集；LANG 让界面消息保持中文。
-          // sshd 需 AcceptEnv LANG LC_*（OpenSSH 默认开启），被拒绝也不影响 shell 建立。
-          env: { LANG: 'zh_CN.UTF-8', LC_CTYPE: 'UTF-8' },
-        },
-        (err, stream) => {
-        if (err) return fail(err);
-        if (settled) {
-          try {
-            conn.end();
-          } catch {
-            /* 忽略 */
-          }
-          return;
-        }
-        settled = true;
-        resolve({ conn, stream });
-      });
+      settled = true;
+      resolve(conn);
     });
-
     conn.on('error', fail);
     conn.on('close', () => fail(new Error('connection_closed')));
 
@@ -85,6 +60,8 @@ export function connectShell(opts) {
       passphrase: secret.passphrase,
       readyTimeout: connectTimeoutMs,
       keepaliveInterval: 15000,
+      // 跳板模式：底层 socket 替换为跳板机的 direct-tcpip 通道
+      ...(sock ? { sock } : {}),
       // HostKey 校验：指纹全等比对（宪法 I：禁止 InsecureIgnoreHostKey）
       hostVerifier: (keyBlob) => {
         const fingerprint = fingerprintOfKey(keyBlob);
@@ -101,6 +78,114 @@ export function connectShell(opts) {
       },
     });
   });
+}
+
+/** 在已就绪的连接上申请交互式 shell */
+function openShell(conn, { cols = 80, rows = 24 }) {
+  return new Promise((resolve, reject) => {
+    conn.shell(
+      {
+        term: 'xterm-256color',
+        cols,
+        rows,
+        // 中文输入乱码修复：不带 env 时 sshd 会话以 C/POSIX locale 启动，
+        // zle 按单字节处理中文（显示 <0093><0088> 形式转义）。
+        // LC_CTYPE=UTF-8 为 macOS 原生形式且 glibc 系（Debian/Ubuntu）内置接受，
+        // 双平台保底字符集；LANG 让界面消息保持中文。
+        // sshd 需 AcceptEnv LANG LC_*（OpenSSH 默认开启），被拒绝也不影响 shell 建立。
+        env: { LANG: 'zh_CN.UTF-8', LC_CTYPE: 'UTF-8' },
+      },
+      (err, stream) => {
+        if (err) {
+          try {
+            conn.end();
+          } catch {
+            /* 忽略 */
+          }
+          return reject(err);
+        }
+        resolve(stream);
+      }
+    );
+  });
+}
+
+/**
+ * 建立 SSH 连接并申请交互式 shell。
+ * @param {object} opts 同 openConn，另加 cols/rows
+ * @returns {Promise<{conn: import('ssh2').Client, stream: import('ssh2').Channel}>}
+ */
+export async function connectShell(opts) {
+  const conn = await openConn(opts);
+  try {
+    const stream = await openShell(conn, opts);
+    return { conn, stream };
+  } catch (err) {
+    try {
+      conn.end();
+    } catch {
+      /* 忽略 */
+    }
+    throw err;
+  }
+}
+
+/**
+ * 经跳板机连接目标主机（ProxyJump，单级）：
+ * 跳板机裸连接 → forwardOut(direct-tcpip) 到目标 → 目标连接以该通道为 sock。
+ * 跳板与目标的指纹各自独立全等校验（宪法 I 对两跳同样生效）。
+ *
+ * @param {{jump: object, target: object}} opts jump/target 均为 openConn 参数
+ * @returns {Promise<{conn: import('ssh2').Client, stream: import('ssh2').Channel, jumpConn: import('ssh2').Client}>}
+ */
+export async function connectShellViaJump({ jump, target }) {
+  // 跳板机私钥若需口令而未保存 → 以专用错误码抛出，由上层映射为明确提示
+  const jumpConn = await openConn(jump).catch((err) => {
+    const msg = String(err?.message ?? '');
+    if (/no passphrase given|bad passphrase|decryption failed/i.test(msg)) {
+      throw new Error('jump_passphrase_required');
+    }
+    if (msg === 'fingerprint_unconfirmed' || msg === 'fingerprint_changed') {
+      throw new Error(`jump_${msg}`);
+    }
+    throw new Error(`jump_connect_failed`);
+  });
+
+  const sock = await new Promise((resolve, reject) => {
+    // 源地址/端口仅作协议占位，sshd 忽略
+    jumpConn.forwardOut('127.0.0.1', 0, target.host, target.port, (err, stream) => {
+      if (err) return reject(new Error('jump_forward_failed'));
+      resolve(stream);
+    });
+  }).catch((err) => {
+    try {
+      jumpConn.end();
+    } catch {
+      /* 忽略 */
+    }
+    throw err;
+  });
+
+  try {
+    const conn = await openConn({ ...target, sock });
+    const stream = await openShell(conn, target);
+    // 目标断开 → 跳板连接一并释放（防孤儿连接，SC-005）
+    conn.once('close', () => {
+      try {
+        jumpConn.end();
+      } catch {
+        /* 忽略 */
+      }
+    });
+    return { conn, stream, jumpConn };
+  } catch (err) {
+    try {
+      jumpConn.end();
+    } catch {
+      /* 忽略 */
+    }
+    throw err;
+  }
 }
 
 /**

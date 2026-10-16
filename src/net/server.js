@@ -15,14 +15,17 @@ import { createFileStore } from '../store/file-store.js';
 import { loadOrCreateMasterKey } from '../crypto/master-key.js';
 import { createAuditLogger } from '../audit/logger.js';
 import { createSessionManager } from '../session/manager.js';
+import { authRoutes } from '../api/auth.js';
 import { hostsRoutes } from '../api/hosts.js';
 import { groupsRoutes } from '../api/groups.js';
 import { sessionsRoutes } from '../api/sessions.js';
 import { auditRoutes } from '../api/audit.js';
 import { auditSettingsRoutes } from '../api/audit-settings.js';
 import { tokensRoutes } from '../api/tokens.js';
+import { twofaRoutes } from '../api/twofa.js';
 import { mcpDirectRoutes } from '../api/mcp-direct.js';
 import { quickExecRoutes } from '../api/quick-exec.js';
+import { fsRoutes } from '../api/fs.js';
 import { authenticateToken } from '../mcp/tokens.js';
 import { handleMcpCall } from '../mcp/server.js';
 import { checkRateLimit } from '../mcp/rate-limit.js';
@@ -140,14 +143,17 @@ export async function startApp(opts = {}) {
       // 契约：返回运行模式与监听形态，不含具体路径
       handler: (req, res) => sendJson(res, 200, { mode: runtime.mode, listen: runtime.listen.type }),
     },
+    ...authRoutes(deps),
     ...hostsRoutes(deps),
     ...groupsRoutes(deps),
     ...sessionsRoutes(deps),
     ...auditRoutes(deps),
     ...auditSettingsRoutes(deps),
     ...tokensRoutes(deps),
+    ...twofaRoutes(deps),
     ...mcpDirectRoutes(deps),
     ...quickExecRoutes(deps),
+    ...fsRoutes(deps),
   ];
 
   const router = createRouter({

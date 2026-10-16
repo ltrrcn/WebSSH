@@ -82,6 +82,29 @@ function validateConfig(cfg) {
   if (cfg.audit?.recordTerminalOutput !== undefined && typeof cfg.audit.recordTerminalOutput !== 'boolean') {
     throw new Error('config.audit.recordTerminalOutput 必须为布尔值');
   }
+  const twofa = cfg.twofa;
+  if (twofa) {
+    if (twofa.enabled !== undefined && typeof twofa.enabled !== 'boolean') {
+      throw new Error('config.twofa.enabled 必须为布尔值');
+    }
+    for (const key of ['audit', 'tokens']) {
+      const v = twofa.protectedActions?.[key];
+      if (v !== undefined && typeof v !== 'boolean') {
+        throw new Error(`config.twofa.protectedActions.${key} 必须为布尔值`);
+      }
+    }
+    if (twofa.failedAttempts !== undefined &&
+        (!Number.isInteger(twofa.failedAttempts) || twofa.failedAttempts < 0)) {
+      throw new Error('config.twofa.failedAttempts 必须为非负整数');
+    }
+    if (twofa.recoveryAttempts !== undefined &&
+        (!Number.isInteger(twofa.recoveryAttempts) || twofa.recoveryAttempts < 0)) {
+      throw new Error('config.twofa.recoveryAttempts 必须为非负整数');
+    }
+    if (twofa.lockedUntil !== undefined && twofa.lockedUntil !== null && !Number.isFinite(twofa.lockedUntil)) {
+      throw new Error('config.twofa.lockedUntil 必须为数值或 null');
+    }
+  }
   const mcpDirect = cfg.fnos?.mcpDirect;
   if (mcpDirect) {
     if (mcpDirect.enabled !== undefined && typeof mcpDirect.enabled !== 'boolean') {

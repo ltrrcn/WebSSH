@@ -4,7 +4,7 @@ import { FrameType, encodeDataFrame, PROTOCOL_VERSION } from './protocol/frames.
 import { xtermTheme, onThemeChange } from './theme.js';
 import { fetchHosts } from './hosts.js';
 import { confirmFingerprintModal } from './hosts.js';
-import { openModal, confirmModal } from './modal.js';
+import { openModal, confirmModal, isModalOpen } from './modal.js';
 import { showContextMenu } from './contextmenu.js';
 import { wsUrl, apiUrl } from './base.js';
 import { icon } from './icons.js';
@@ -273,10 +273,14 @@ async function connectWs(tab) {
     /* 票据为可选回退，失败不阻断 */
   }
   // FR-059：带 sessionId 时服务端把本连接接到已挂起的会话上（而非新建）
+  // pt：私钥口令一次性票据（口令明文不进 URL/日志）；取出即清，保证一次性
+  const passTicket = tab.passTicket;
+  tab.passTicket = null;
   const url =
     wsUrl('ws/terminal') +
     `?hostId=${encodeURIComponent(host.id)}&version=${PROTOCOL_VERSION}` +
     (tab.attachSessionId ? `&sessionId=${encodeURIComponent(tab.attachSessionId)}` : '') +
+    (passTicket ? `&pt=${encodeURIComponent(passTicket)}` : '') +
     (ticket ? `&ticket=${encodeURIComponent(ticket)}` : '');
   const ws = new WebSocket(url);
   ws.binaryType = 'arraybuffer';
@@ -347,11 +351,40 @@ async function connectWs(tab) {
       // 无指纹 = 服务端捕获失败（目标不可达/握手失败），弹窗无从弹起——文案必须说清
       fpMissMsg = '无法获取主机指纹：请检查主机地址与端口是否可达，再重新连接';
     }
+    // 需要手动输入凭据：私钥口令（passphrase_*）或 none 主机密码（password_required / 认证失败重试）
+    const isNoneAuth = tab.host.authType === 'none';
+    const needSecret =
+      e.reason === 'passphrase_required' ||
+      e.reason === 'passphrase_invalid' ||
+      e.reason === 'password_required' ||
+      (isNoneAuth && e.reason === 'auth_failed');
+    if (e.code === 4006 && needSecret) {
+      promptPassphrase(tab, {
+        invalid: e.reason === 'passphrase_invalid' || (isNoneAuth && e.reason === 'auth_failed'),
+      });
+      renderTabbar();
+      notifyTabsChange();
+      return;
+    }
+    // 跳板机失败原因 → 可读文案（4006 的 reason 已在服务端白名单化）
+    const reasonMap = {
+      jump_loop: '跳板机配置无效（不支持多级跳板或自引用）',
+      jump_not_found: '跳板机不存在或已删除',
+      jump_no_secret: '跳板机未保存凭据，请先编辑该主机保存密码或密钥',
+      jump_fingerprint_unconfirmed: '跳板机指纹未确认，请先直连一次跳板机完成确认',
+      jump_fingerprint_changed: '跳板机指纹已变化，请先直连重新确认',
+      jump_passphrase_required: '跳板机私钥需要口令，请先连接一次跳板机并勾选记住口令',
+      jump_connect_failed: '无法连接跳板机（地址/端口/凭据）',
+      jump_forward_failed: '跳板机转发失败（目标地址从跳板机侧不可达？）',
+      passphrase_required: '私钥需要口令',
+      passphrase_invalid: '私钥口令错误',
+    };
     const map = {
       4003: '主机不在授权范围',
       4004: '超出并发会话上限',
       4005: '主机指纹未确认：请重新连接并在弹窗中确认',
-      4006: `连接失败（${e.reason || e.code}）`,
+      4006: `连接失败（${reasonMap[e.reason] ?? e.reason ?? e.code}）`,
+      4009: '口令票据无效或已过期，请重新连接',
       4010: '会话空闲超时，已自动断开',
       4011: '执行超时，已终止',
     };
@@ -394,6 +427,80 @@ function showTmuxMissingHint(tab) {
       <p class="tmux-hint-note">其他系统：yum install tmux / apk add tmux / pacman -S tmux</p>
     </div>`);
   m.setTitle('tmux 不可用');
+}
+
+/** 连接凭据弹窗：加密私钥需口令 / none 主机每次手动输密码（后者无「记住」选项） */
+function promptPassphrase(tab, { invalid = false } = {}) {
+  const { term, host } = tab;
+  if (isModalOpen()) return; // 已有弹窗（如指纹确认）时不叠加
+  const isPassword = host.authType === 'none'; // none = 不记录密码，每次手动输入
+  const m = openModal(`
+    <div class="pass-prompt">
+      ${invalid ? `<p class="pass-err">${isPassword ? '密码错误，认证失败，请重新输入。' : '口令错误或私钥解密失败，请重新输入。'}</p>` : ''}
+      <p class="pass-desc">${
+        isPassword
+          ? `「<strong>${escapeHtml(host.name)}</strong>」不记录密码，请输入登录密码：`
+          : `「<strong>${escapeHtml(host.name)}</strong>」的私钥已加密，请输入密钥口令：`
+      }</p>
+      <input type="password" id="pass-input" class="pref-input" placeholder="${isPassword ? '登录密码' : '密钥口令'}" autocomplete="off" />
+      ${
+        isPassword
+          ? ''
+          : `<label class="picker-tmux pass-remember"><input type="checkbox" id="pass-remember" />
+        <span>记住口令<div class="picker-tmux-desc">AES-256-GCM 加密保存在本应用，下次连接免输入</div></span>
+      </label>`
+      }
+      <p class="pass-err hf-error" id="pass-error" role="alert"></p>
+      <div class="qc-edit-actions" style="margin-top:6px">
+        <button class="btn" id="pass-cancel">取消</button>
+        <button class="btn primary" id="pass-ok">连接</button>
+      </div>
+    </div>`);
+  m.setTitle(isPassword ? '输入密码' : '需要密钥口令');
+  term.write(
+    isPassword
+      ? '\r\n\x1b[33m—— 等待输入密码… ——\x1b[0m\r\n'
+      : '\r\n\x1b[33m—— 私钥已加密，等待输入口令… ——\x1b[0m\r\n'
+  );
+  const input = m.root.querySelector('#pass-input');
+  const errEl = m.root.querySelector('#pass-error');
+  const okBtn = m.root.querySelector('#pass-ok');
+  input.focus();
+  okBtn.addEventListener('click', async () => {
+    const secret = input.value;
+    if (!secret) {
+      input.focus();
+      return;
+    }
+    okBtn.disabled = true;
+    okBtn.textContent = '连接中…';
+    errEl.textContent = '';
+    try {
+      const res = await fetch(apiUrl(`hosts/${encodeURIComponent(host.id)}/connect-secret`), {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(
+          isPassword
+            ? { password: secret }
+            : { passphrase: secret, remember: m.root.querySelector('#pass-remember').checked }
+        ),
+      });
+      if (!res.ok) throw new Error();
+      const { ticket } = await res.json();
+      tab.passTicket = ticket;
+      m.close();
+      term.write('\x1b[90m—— 凭据已接收，正在连接… ——\x1b[0m\r\n');
+      connectWs(tab);
+    } catch {
+      okBtn.disabled = false;
+      okBtn.textContent = '连接';
+      errEl.textContent = '提交失败，请重试';
+    }
+  });
+  m.root.querySelector('#pass-cancel').addEventListener('click', () => {
+    m.close();
+    term.write('\x1b[90m—— 已取消，按 Enter 重新连接 ——\x1b[0m\r\n');
+  });
 }
 
 /** R003 指纹确认流程：弹窗 → 信任则自动重连，取消则终端留痕终止 */

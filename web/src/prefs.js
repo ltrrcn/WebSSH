@@ -7,7 +7,27 @@ const DEFAULTS = {
   cursorBlink: true, // 终端光标闪烁
   exitConfirm: true, // 关闭页面前确认仍有活动会话（FR-046 的用户开关）
   tmuxDefault: false, // 新建会话默认勾选 tmux 保活模式（R001）
-};;
+  fontFamily: '', // 界面字体（'' = 系统默认）
+};
+
+/** 系统默认字体栈：与 index.html 中 --app-font 兜底值保持一致 */
+export const SYSTEM_FONT_STACK =
+  '-apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Segoe UI", sans-serif';
+
+/** 可选界面字体注册表：value 为完整 font-family 栈（带各自回退），label 用于设置面板 */
+export const FONT_OPTIONS = [
+  { value: '', label: '系统默认' },
+  { value: '"PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif', label: '苹方' },
+  { value: '"Microsoft YaHei", "PingFang SC", sans-serif', label: '微软雅黑' },
+  { value: '"Noto Sans SC", "Source Han Sans SC", "PingFang SC", sans-serif', label: '思源黑体' },
+  { value: 'Menlo, Monaco, "Courier New", monospace', label: '等宽（Menlo）' },
+];
+
+/** 全局应用界面字体：写入 CSS 变量 --app-font，index.html body 引用该变量 */
+function applyFont(value) {
+  const stack = FONT_OPTIONS.some((o) => o.value === value) ? value : '';
+  document.documentElement.style.setProperty('--app-font', stack || SYSTEM_FONT_STACK);
+}
 
 function read() {
   try {
@@ -34,3 +54,9 @@ export function onPrefsChange(fn) {
   listeners.add(fn);
   return () => listeners.delete(fn);
 }
+
+// 模块加载即应用已保存的界面字体，并订阅后续变更即时生效
+applyFont(read().fontFamily);
+onPrefsChange((name, value) => {
+  if (name === 'fontFamily') applyFont(value);
+});

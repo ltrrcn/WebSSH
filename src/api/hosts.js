@@ -4,7 +4,8 @@
 import { randomBytes } from 'node:crypto';
 import { sendJson, sendError, readJsonBody } from '../net/router.js';
 import { resolveIdentity } from '../net/auth.js';
-import { encryptSecret } from '../crypto/secret.js';
+import { encryptSecret, decryptSecret } from '../crypto/secret.js';
+import { createPassTicket } from '../net/tickets.js';
 import { appendKnownHost } from '../ssh/hostkey.js';
 
 const SHORT_ID_CHARS = 'abcdefghijklmnopqrstuvwxyz0123456789';
@@ -97,10 +98,23 @@ export function validateHostPayload(body, { partial = false } = {}) {
     value.username = body.username;
   }
   if (body.authType !== undefined || !partial) {
-    if (body.authType !== 'password' && body.authType !== 'privateKey') {
-      throw invalid('authType 必须为 password 或 privateKey');
+    if (body.authType !== 'password' && body.authType !== 'privateKey' && body.authType !== 'none') {
+      throw invalid('authType 必须为 password、privateKey 或 none');
     }
     value.authType = body.authType;
+  }
+  // 连接方式：direct（直连，默认）/ jump（跳板机）；隧道与代理为后续能力
+  if (body.connectVia !== undefined) {
+    if (body.connectVia !== 'direct' && body.connectVia !== 'jump') {
+      throw invalid('connectVia 必须为 direct 或 jump');
+    }
+    value.connectVia = body.connectVia;
+    if (body.connectVia === 'jump') {
+      if (typeof body.jumpHostId !== 'string' || body.jumpHostId === '') {
+        throw invalid('jumpHostId 必须为非空字符串（跳板机主机 ID）');
+      }
+      value.jumpHostId = body.jumpHostId;
+    }
   }
   if (body.group !== undefined) {
     if (body.group !== null && typeof body.group !== 'string') {
@@ -125,6 +139,9 @@ export function validateHostPayload(body, { partial = false } = {}) {
     }
     if (body.passphrase !== undefined && body.passphrase !== null && typeof body.passphrase !== 'string') {
       throw invalid('passphrase 必须为字符串');
+    }
+    if (value.authType === 'none') {
+      throw invalid('authType 为 none（不记录凭据）时不接受 password/privateKey');
     }
     value.secret = hasKey
       ? { privateKey: body.privateKey, passphrase: body.passphrase ?? undefined }
@@ -153,6 +170,8 @@ function publicView(h) {
     username: h.username,
     authType: h.authType,
     group: h.group ?? null,
+    connectVia: h.connectVia ?? 'direct',
+    jumpHostId: h.jumpHostId ?? null,
     fingerprintConfirmed: Boolean(h.fingerprint),
     pendingFingerprint: h.pendingFingerprint ?? null,
     hasSecret: Boolean(h.secret),
@@ -164,7 +183,7 @@ function publicView(h) {
  * @param {{runtime: object, store: object, masterKey: Buffer}} deps
  */
 export function hostsRoutes(deps) {
-  const { runtime, store, masterKey } = deps;
+  const { runtime, store, masterKey, audit } = deps;
 
   /** 越权返回 403 且不暴露资源存在性；不存在返回 404 */
   async function requireHost(id, ownerId) {
@@ -172,6 +191,17 @@ export function hostsRoutes(deps) {
     if (host) return { host };
     const exists = await store.getHostById(id);
     return { host: null, forbidden: Boolean(exists) };
+  }
+
+  /** 跳板机合法性：存在且归属本人、非自引用、非多级跳板、有已存凭据（none 无法自动认证） */
+  async function validateJump(value, identity, selfId) {
+    if (value.connectVia !== 'jump') return null;
+    if (selfId && value.jumpHostId === selfId) return '跳板机不能是主机自身';
+    const jump = await store.getHost(value.jumpHostId, identity.id);
+    if (!jump) return '跳板机不存在或无权访问';
+    if (jump.connectVia === 'jump') return '不支持多级跳板（跳板机本身须为直连）';
+    if (!jump.secret) return '跳板机未保存凭据（「无」认证的主机不能作为跳板）';
+    return null;
   }
 
   return [
@@ -203,6 +233,8 @@ export function hostsRoutes(deps) {
         } catch (e) {
           return sendError(res, 422, e.code ?? 'invalid_field', e.message);
         }
+        const jumpErr = await validateJump(value, identity, null);
+        if (jumpErr) return sendError(res, 422, 'invalid_jump', jumpErr);
         const now = new Date().toISOString();
         const entry = {
           id: await nextHostId(store, value.name), // 设备 ID = 会话名称
@@ -211,7 +243,10 @@ export function hostsRoutes(deps) {
           port: value.port,
           username: value.username,
           authType: value.authType,
-          secret: encryptSecret(masterKey, value.secret),
+          connectVia: value.connectVia ?? 'direct',
+          jumpHostId: value.connectVia === 'jump' ? value.jumpHostId : null,
+          // none（不记录凭据）：不存 secret，连接时手动输入
+          secret: value.secret ? encryptSecret(masterKey, value.secret) : null,
           group: value.group ?? 'Default',
           ownerId: identity.id,
           fingerprint: null,
@@ -262,10 +297,12 @@ export function hostsRoutes(deps) {
           return sendError(res, 422, e.code ?? 'invalid_field', e.message);
         }
 
-        // 更换认证方式必须同时提供新凭据
-        if (value.authType && value.authType !== host.authType && !value.secret) {
+        // 更换认证方式必须同时提供新凭据（切到 none 除外：none 的本意就是清空凭据）
+        if (value.authType && value.authType !== host.authType && value.authType !== 'none' && !value.secret) {
           return sendError(res, 422, 'credential_required', '更换认证方式必须同时提供新凭据');
         }
+        const jumpErr = await validateJump(value, identity, id);
+        if (jumpErr) return sendError(res, 422, 'invalid_jump', jumpErr);
 
         const addressChanged =
           (value.host !== undefined && value.host !== host.host) ||
@@ -279,7 +316,16 @@ export function hostsRoutes(deps) {
           ...('username' in value && value.username !== undefined ? { username: value.username } : {}),
           ...('authType' in value && value.authType !== undefined ? { authType: value.authType } : {}),
           ...('group' in value ? { group: value.group } : {}),
+          ...(value.connectVia !== undefined ? { connectVia: value.connectVia } : {}),
+          // 直连时清空跳板引用；未提交 connectVia 时保持原值
+          ...(value.connectVia === 'jump'
+            ? { jumpHostId: value.jumpHostId }
+            : value.connectVia === 'direct'
+              ? { jumpHostId: null }
+              : {}),
           ...(value.secret ? { secret: encryptSecret(masterKey, value.secret) } : {}),
+          // 切到 none：清空已保存凭据（不记录密码/密钥）
+          ...(value.authType === 'none' ? { secret: null } : {}),
           updatedAt: new Date().toISOString(),
         };
         // 目标地址变化 → 主机身份改变，指纹必须重新确认（防新地址沿用旧指纹）
@@ -329,6 +375,62 @@ export function hostsRoutes(deps) {
         };
         await store.upsertHost(copy);
         sendJson(res, 200, publicView(copy));
+      },
+    },
+    {
+      // 连接时临时输入的私钥口令 → 换一次性 WS 票据（口令不经 URL）；
+      // remember=true 时把口令并入加密凭据持久保存（AES-256-GCM，与私钥同级保护）
+      method: 'POST',
+      path: '/api/hosts/{id}/connect-secret',
+      handler: async (req, res, ctx) => {
+        const identity = resolveIdentity(req, runtime);
+        if (!identity) return sendError(res, 401, 'unauthorized', '未认证');
+        const id = ctx.params.id;
+        const { host, forbidden } = await requireHost(id, identity.id);
+        if (forbidden) return sendError(res, 403, 'forbidden', '无权访问该资源');
+        if (!host) return sendError(res, 404, 'not_found', '主机不存在');
+        if (host.authType === 'password') {
+          return sendError(res, 422, 'not_supported', '该主机已保存密码，无需连接凭据票据');
+        }
+        let body;
+        try {
+          body = await readJsonBody(req);
+        } catch (e) {
+          return sendError(res, 422, 'invalid_json', e.message);
+        }
+        // privateKey → 私钥口令；none（不记录凭据）→ 本次连接的密码
+        const isNone = host.authType === 'none';
+        const passphrase = isNone ? undefined : body?.passphrase;
+        const password = isNone ? body?.password : undefined;
+        if (!isNone && (typeof passphrase !== 'string' || passphrase === '')) {
+          return sendError(res, 422, 'invalid_field', 'passphrase 必须为非空字符串');
+        }
+        if (isNone && (typeof password !== 'string' || password === '')) {
+          return sendError(res, 422, 'invalid_field', 'password 必须为非空字符串');
+        }
+        if (isNone && body?.remember === true) {
+          return sendError(res, 422, 'not_supported', '不记录凭据的主机不支持记住密码');
+        }
+        if (body?.remember === true) {
+          const secret = decryptSecret(masterKey, host.secret);
+          secret.passphrase = passphrase;
+          await store.touchHost(id, {
+            secret: encryptSecret(masterKey, secret),
+            updatedAt: new Date().toISOString(),
+          });
+          audit?.log({
+            actor: identity.id,
+            actorType: 'user',
+            hostId: id,
+            hostAddress: host.host,
+            authType: host.authType,
+            event: 'credential-update',
+            result: 'success',
+            reason: 'remember-passphrase',
+          });
+        }
+        const ticket = createPassTicket({ hostId: id, ownerId: identity.id, passphrase, password });
+        sendJson(res, 200, { ticket });
       },
     },
     {

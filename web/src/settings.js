@@ -1,44 +1,62 @@
-// 设置弹窗（FR-047）：主题切换 + 审计/令牌/快捷命令入口收纳于此
+// 设置弹窗（FR-047）：「设置」（通用/快捷命令/分组/审计/2FA/权限）+「个人设置」（令牌类）+「使用文档」（独立单页）三个弹窗，共享页签骨架
 import { openModal } from './modal.js';
 import { currentThemeMode, setTheme } from './theme.js';
 import { icon } from './icons.js';
-import { getPrefs, setPref } from './prefs.js';
+import { getPrefs, setPref, FONT_OPTIONS } from './prefs.js';
 import { apiUrl } from './base.js';
 import { renderQuickCommandsPane } from './quick-commands-ui.js';
 import { renderDocs } from './docs.js';
+import { renderTwofaPane, apiFetch } from './twofa.js';
 
-/**
- * 打开设置弹窗。
- * @param {{renderAudit?: (el: HTMLElement, category: 'operation'|'commands')=>void, renderTokens?: (el: HTMLElement)=>void, renderTokenConfig?: (el: HTMLElement)=>void, renderPermPolicy?: (el: HTMLElement)=>void}} pages
- *   US4/US6 交付后由 app.js 注入对应页面渲染函数；当前为占位。
- */
-export function openSettingsModal({ renderAudit, renderTokens, renderTokenConfig, renderPermPolicy, renderGroups, onGroupsChanged } = {}) {
-  const groupsChanged = onGroupsChanged;
+// 弹窗页签集：设置（通用/审计/2FA/权限类，还原拆分前顺序）与 个人设置（令牌类）分离
+const SETTINGS_TABS = [
+  { key: 'theme', icon: 'palette', label: '通用设置' },
+  { key: 'quickCmds', icon: 'play', label: '快捷命令' },
+  { key: 'groups', icon: 'folder', label: '分组管理' },
+  { key: 'opsAudit', icon: 'list', label: '操作审计' },
+  { key: 'cmdAudit', icon: 'play', label: '命令审计' },
+  { key: 'twofa', icon: 'shield', label: '两步验证' },
+  { key: 'permPolicy', icon: 'ban', label: '权限策略' },
+];
+const PROFILE_TABS = [
+  { key: 'tokens', icon: 'key', label: '令牌管理' },
+  { key: 'tokenConfig', icon: 'shield', label: '令牌配置' },
+];
+
+/** 页签弹窗公共骨架：左侧竖向导航 + 右侧内容区；nav=false 时无导航、内容全宽（单页弹窗） */
+function openTabbedModal({ title, tabs, injections, defaultPane, nav: withNav = true }) {
   const m = openModal(
     `<div class="settings-layout">
-      <div class="settings-nav">
-        <button data-pane="theme" class="active">${icon('palette')} 通用设置</button>
-        <button data-pane="quickCmds">${icon('play')} 快捷命令</button>
-        <button data-pane="groups">${icon('folder')} 分组管理</button>
-        <button data-pane="opsAudit">${icon('list')} 操作审计</button>
-        <button data-pane="cmdAudit">${icon('play')} 命令审计</button>
-        <button data-pane="tokens">${icon('key')} 令牌管理</button>
-        <button data-pane="tokenConfig">${icon('shield')} 令牌配置</button>
-        <button data-pane="permPolicy">${icon('ban')} 权限策略</button>
-        <button data-pane="docs">${icon('file')} 使用文档</button>
-      </div>
+      ${withNav ? `<div class="settings-nav">
+        ${tabs.map((t) => `<button data-pane="${t.key}">${icon(t.icon)} ${t.label}</button>`).join('')}
+      </div>` : ''}
       <div id="settings-pane" class="settings-content"></div>
     </div>`,
     // 关闭时移除大尺寸 class，避免影响其他弹窗（modal 为全局单例）
     { onclose: () => m.root.classList.remove('settings-modal') }
   );
   m.root.classList.add('settings-modal');
-  m.setTitle('设置');
+  m.setTitle(title);
 
-  const nav = m.root.querySelector('.settings-nav');
   const pane = m.root.querySelector('#settings-pane');
+  const panes = buildPanes(pane, injections);
+  if (withNav) {
+    const nav = m.root.querySelector('.settings-nav');
+    nav.querySelectorAll('button').forEach((btn) =>
+      btn.addEventListener('click', () => {
+        nav.querySelectorAll('button').forEach((b) => b.classList.toggle('active', b === btn));
+        panes[btn.dataset.pane]();
+      })
+    );
+    nav.querySelector(`[data-pane="${defaultPane}"]`).classList.add('active');
+  }
+  panes[defaultPane]();
+  return m;
+}
 
-  const panes = {
+/** 构建全部页签渲染函数（设置类与安全类共享闭包注入） */
+function buildPanes(pane, { renderAudit, renderTokens, renderTokenConfig, renderPermPolicy, renderGroups, onGroupsChanged: groupsChanged }) {
+  return {
     theme: () => {
       const mode = currentThemeMode();
       const prefs = getPrefs();
@@ -50,6 +68,15 @@ export function openSettingsModal({ renderAudit, renderTokens, renderTokenConfig
             <select id="pref-lang" class="pref-select">
               <option value="zh-CN" selected>中文（简体）</option>
               <option value="en" disabled title="英文界面将在后续版本提供">English</option>
+            </select>
+          </div>
+          <div class="pref-row">
+            <div class="pref-label">界面字体<div class="pref-desc">全局生效；终端始终使用等宽字体，不受此设置影响</div></div>
+            <select id="pref-fontfamily" class="pref-select">
+              ${FONT_OPTIONS.map(
+                (o) =>
+                  `<option value="${o.value.replace(/"/g, '&quot;')}" ${prefs.fontFamily === o.value ? 'selected' : ''}>${o.label}</option>`
+              ).join('')}
             </select>
           </div>
         </div>
@@ -98,12 +125,11 @@ export function openSettingsModal({ renderAudit, renderTokens, renderTokenConfig
           </div>
           <div class="pref-row">
             <div class="pref-label">记录终端输出摘要
-              <div class="pref-desc">默认关闭：命令审计只记命令原文与元数据。开启后每条命令附带其输出摘要（自动脱敏并截断，命令审计页「查看」可见）</div>
+              <div class="pref-desc" id="pref-audit-output-desc">默认关闭：命令审计只记命令原文与元数据。开启后每条命令附带其输出摘要（自动脱敏并截断，命令审计页「查看」可见）。与设置中两步验证面板的开关为同一设置</div>
             </div>
             <label class="switch"><input type="checkbox" id="pref-audit-output" /><span></span></label>
           </div>
-        </div>
-        <p class="form-note" style="margin-top:14px">快捷命令已拆分至左侧独立入口管理。高级偏好（终端配色方案导入等）将在后续版本提供。</p>`;
+        </div>`;
       pane.querySelectorAll('.theme-option').forEach((opt) =>
         opt.addEventListener('click', () => {
           setTheme(opt.dataset.theme);
@@ -124,6 +150,9 @@ export function openSettingsModal({ renderAudit, renderTokens, renderTokenConfig
         paintRange(fs);
         setPref('fontSize', Number(fs.value));
       });
+      pane.querySelector('#pref-fontfamily').addEventListener('change', (e) => {
+        setPref('fontFamily', e.target.value);
+      });
       pane.querySelector('#pref-blink').addEventListener('change', (e) => {
         setPref('cursorBlink', e.target.checked);
       });
@@ -134,27 +163,56 @@ export function openSettingsModal({ renderAudit, renderTokens, renderTokenConfig
         setPref('exitConfirm', e.target.checked);
       });
 
-      // —— 终端输出摘要开关（服务端配置，热生效）——
+      // —— 终端输出摘要开关（服务端配置，热生效；与两步验证面板同一设置，两处入口）——
+      // 开启该开关前必须已绑定两步验证（后端同样强制校验）：未绑定时拦截并提示
       const auditOutputEl = pane.querySelector('#pref-audit-output');
+      const auditOutputDesc = pane.querySelector('#pref-audit-output-desc');
       auditOutputEl.disabled = true;
-      fetch(apiUrl('audit-settings'))
-        .then((r) => r.json())
-        .then((s) => {
-          auditOutputEl.checked = s.recordTerminalOutput === true;
-          auditOutputEl.disabled = false;
+      // 探测 2FA 绑定状态：status 已绑定时无票据返回 403（即视为已绑定），未绑定返回 200
+      let twofaBound = false;
+      fetch(apiUrl('2fa/status'))
+        .then(async (r) => {
+          if (r.status === 403) return true; // 已绑定（受保护才 403）
+          if (r.ok) return (await r.json()).enabled === true; // 带有效票据的 200
+          return false;
         })
-        .catch(() => {
+        .catch(() => false)
+        .then(async (bound) => {
+          twofaBound = bound;
+          let s = null;
+          try {
+            s = await (await fetch(apiUrl('audit-settings'))).json();
+          } catch {
+            /* 网络异常按默认关闭展示 */
+          }
+          auditOutputEl.checked = s?.recordTerminalOutput === true;
           auditOutputEl.disabled = false;
+          if (!bound) {
+            auditOutputDesc.innerHTML +=
+              '<br><span style="color:var(--warn)">开启前需先绑定两步验证（设置 → 两步验证）</span>';
+          }
         });
       auditOutputEl.addEventListener('change', async (e) => {
         const on = e.target.checked;
+        if (on && !twofaBound) {
+          // 未绑定 2FA：禁止开启（与后端校验一致），回滚并提示
+          alert('开启输出摘要记录前需先启用两步验证（设置 → 两步验证）');
+          e.target.checked = false;
+          return;
+        }
         auditOutputEl.disabled = true;
         try {
-          const r = await fetch(apiUrl('audit-settings'), {
+          // 修改审计设置属 2FA 保护操作：用户主动切换开关，forcePrompt 直接弹码；GET 不受保护
+          const r = await apiFetch('audit-settings', {
             method: 'PUT',
             headers: { 'content-type': 'application/json' },
             body: JSON.stringify({ recordTerminalOutput: on }),
+            forcePrompt: true,
           });
+          if (r._twofaCancelled) {
+            auditOutputEl.checked = !on; // 用户取消验证：静默回滚，不报错
+            return;
+          }
           if (!r.ok) throw new Error(await r.text());
         } catch {
           alert('审计设置保存失败，请重试');
@@ -182,6 +240,7 @@ export function openSettingsModal({ renderAudit, renderTokens, renderTokenConfig
       if (renderTokenConfig) renderTokenConfig(pane);
       else pane.innerHTML = '<div class="placeholder-box">令牌配置将在 US6 阶段交付。</div>';
     },
+    twofa: () => renderTwofaPane(pane),
     permPolicy: () => {
       if (renderPermPolicy) renderPermPolicy(pane);
       else pane.innerHTML = '<div class="placeholder-box">权限策略（目录矩阵与敏感路径）将在 US6 阶段交付。</div>';
@@ -194,13 +253,41 @@ export function openSettingsModal({ renderAudit, renderTokens, renderTokenConfig
     quickCmds: () => renderQuickCommandsPane(pane),
     docs: () => renderDocs(pane),
   };
+}
 
-  nav.querySelectorAll('button').forEach((btn) =>
-    btn.addEventListener('click', () => {
-      nav.querySelectorAll('button').forEach((b) => b.classList.toggle('active', b === btn));
-      panes[btn.dataset.pane]();
-    })
-  );
-  panes.theme();
-  return m;
+/**
+ * 打开设置弹窗（通用类：通用设置/快捷命令/分组管理/操作审计/命令审计/两步验证/权限策略）。
+ * @param {{renderAudit?: (el: HTMLElement, category: 'operation'|'commands')=>void, renderPermPolicy?: (el: HTMLElement)=>void, renderGroups?: (el: HTMLElement, opts: {onChanged?: ()=>void})=>void, onGroupsChanged?: ()=>void}} injections
+ */
+export function openSettingsModal(injections = {}) {
+  return openTabbedModal({
+    title: '设置',
+    tabs: SETTINGS_TABS,
+    injections,
+    defaultPane: 'theme',
+  });
+}
+
+/**
+ * 打开个人设置弹窗（令牌类：令牌管理/令牌配置）。
+ * @param {{renderTokens?: (el: HTMLElement)=>void, renderTokenConfig?: (el: HTMLElement)=>void}} injections
+ */
+export function openProfileModal(injections = {}) {
+  return openTabbedModal({
+    title: '个人设置',
+    tabs: PROFILE_TABS,
+    injections,
+    defaultPane: 'tokens',
+  });
+}
+
+/** 打开使用文档弹窗（单页，无左侧导航） */
+export function openDocsModal() {
+  return openTabbedModal({
+    title: '使用文档',
+    tabs: [],
+    injections: {},
+    defaultPane: 'docs',
+    nav: false,
+  });
 }

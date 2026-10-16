@@ -7,6 +7,19 @@ import { apiUrl } from './base.js';
 import { icon } from './icons.js';
 import { closeModal } from './modal.js';
 import { activateTab, restoreTab, findLocalTab } from './terminal.js';
+import { apiFetch, renderTwofaGate } from './twofa.js';
+
+/**
+ * 403 twofa_required → 在容器内渲染两步验证引导页（重新验证/恢复入口/自动弹码开关）。
+ * 「自动弹出验证」偏好关闭时审计加载请求不再自动弹码，改由此呈现引导页；
+ * 偏好开启时用户取消弹码同样落此页。验证/恢复成功后 retry 重载原内容。
+ * @returns {boolean} true = 已渲染引导页（调用方应终止本次加载）
+ */
+function twofaGateOrNot(res, container, retry) {
+  if (res.status !== 403) return false;
+  renderTwofaGate(container, { onDone: retry });
+  return true;
+}
 
 const EVENT_LABEL = {
   'connect-attempt': '连接尝试',
@@ -22,6 +35,16 @@ const EVENT_LABEL = {
   'group_create': '分组新建',
   'group_rename': '分组重命名',
   'group_delete': '分组删除',
+  twofa_setup: '两步验证开始绑定',
+  twofa_confirm: '两步验证绑定成功',
+  twofa_disable: '两步验证关闭',
+  twofa_verify: '两步验证通过',
+  twofa_verify_failure: '两步验证失败',
+  twofa_locked: '两步验证锁定',
+  twofa_actions_update: '两步验证保护范围更新',
+  twofa_recovery_success: '恢复码恢复成功',
+  twofa_recovery_failure: '恢复码恢复失败',
+  twofa_recovery_wipe: '恢复失败触发数据清除',
 };
 const RESULT_LABEL = { success: '成功', denied: '拒绝', error: '失败' };
 
@@ -104,7 +127,7 @@ export async function renderAudit(el, category = 'operation') {
   el.querySelector('#audit-export').addEventListener('click', () => {
     const p = new URLSearchParams();
     if (state.source) p.set('source', state.source);
-    window.open(`${apiUrl('audit/export')}?${p}`, '_blank');
+    downloadAuditExport(p);
   });
   el.querySelector('#audit-prev').addEventListener('click', () => {
     state.offset = Math.max(0, state.offset - state.limit);
@@ -347,7 +370,9 @@ async function load(el) {
 
   let body;
   try {
-    const res = await fetch(`${apiUrl('audit')}?${params}`);
+    const res = await apiFetch(`audit?${params}`);
+    // 引导页渲染整个面板（覆盖工具栏），验证成功后重建审计视图
+    if (twofaGateOrNot(res, el, () => renderAudit(el, state.category))) return;
     body = await res.json();
   } catch {
     list.innerHTML = '<div class="placeholder-box">加载失败</div>';
@@ -510,7 +535,7 @@ async function renderSessionView(el) {
 
   el.querySelector('#audit-refresh').addEventListener('click', () => loadSessions(el));
   el.querySelector('#audit-export').addEventListener('click', () => {
-    window.open(`${apiUrl('audit/export')}?source=user`, '_blank');
+    downloadAuditExport(new URLSearchParams({ source: 'user' }));
   });
 
   await loadSessions(el);
@@ -525,7 +550,9 @@ async function loadSessions(el) {
 
   let body;
   try {
-    body = await (await fetch(`${apiUrl('audit/sessions')}?${params}`)).json();
+    const res = await apiFetch(`audit/sessions?${params}`);
+    if (twofaGateOrNot(res, el, () => renderAudit(el, 'commands'))) return;
+    body = await res.json();
   } catch {
     list.innerHTML = '<div class="placeholder-box">加载失败</div>';
     return;
@@ -624,13 +651,15 @@ function resumeSession(sid, hostId) {
 /** 展开会话：加载该会话执行的命令（倒序），MCP 组加载全部令牌命令 */
 async function loadSessionCommands(panel, sid) {
   panel.innerHTML = '<div class="placeholder-box" style="padding:12px 0">加载中…</div>';
-  const url =
+  const path =
     sid === '__mcp__'
-      ? `${apiUrl('audit')}?category=commands&source=mcp&limit=500`
-      : `${apiUrl('audit')}?category=commands&sessionId=${encodeURIComponent(sid)}&limit=500`;
+      ? `audit?category=commands&source=mcp&limit=500`
+      : `audit?category=commands&sessionId=${encodeURIComponent(sid)}&limit=500`;
   let body;
   try {
-    body = await (await fetch(url)).json();
+    const res = await apiFetch(path);
+    if (twofaGateOrNot(res, panel, () => loadSessionCommands(panel, sid))) return;
+    body = await res.json();
   } catch {
     panel.innerHTML = '<div class="placeholder-box" style="padding:12px 0">加载失败</div>';
     return;
@@ -661,4 +690,32 @@ function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({
     '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
   })[c]);
+}
+
+/**
+ * 审计导出下载：走 apiFetch（受 2FA 保护，必要时自动弹码），
+ * 拿 blob 后经 <a download> 触发保存（window.open 无法携带 X-2FA-Ticket 头）。
+ */
+async function downloadAuditExport(params) {
+  try {
+    // 用户主动点击导出：forcePrompt 无视偏好直接弹码
+    const res = await apiFetch(`audit/export?${params}`, { forcePrompt: true });
+    if (res._twofaCancelled) return; // 用户取消验证：静默放弃导出
+    if (!res.ok) {
+      const err = await res.json().catch(() => null);
+      alert(`导出失败：${err?.error?.message ?? res.statusText}`);
+      return;
+    }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `webssh-audit-${Date.now()}.txt`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  } catch {
+    alert('导出失败，请重试');
+  }
 }

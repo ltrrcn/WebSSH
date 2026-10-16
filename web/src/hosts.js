@@ -1,7 +1,7 @@
 // 左侧会话连接列表 + 表单弹窗（FR-044/055：左栏展示已保存的会话连接；表单走弹窗）
 import { openModal } from './modal.js';
 import { showContextMenu } from './contextmenu.js';
-import { apiUrl } from './base.js';
+import { apiUrl, getRuntime } from './base.js';
 import { icon } from './icons.js';
 
 export async function fetchHosts() {
@@ -69,7 +69,7 @@ export async function renderHostList(container, { onConnect, connectedIds = [], 
                 (h) => `<div class="host-item ${connected.has(h.id) ? 'connected' : ''}" data-id="${escapeHtml(h.id)}">
                 <div class="host-main">
                   <span class="host-name">${escapeHtml(h.name)}</span>
-                  <span class="host-meta">${escapeHtml(h.username)}@${escapeHtml(h.host)}:${h.port} · ${h.authType === 'password' ? '密码' : '密钥'}</span>
+                  <span class="host-meta">${escapeHtml(h.username)}@${escapeHtml(h.host)}:${h.port} · ${{ password: '密码', privateKey: '密钥', none: '每次输入' }[h.authType] ?? h.authType}</span>
                 </div>
                 <span class="host-actions">
                   ${hostBadge(h)}
@@ -256,12 +256,43 @@ export async function openHostFormModal(host, onSaved) {
   if (currentGroup !== 'Default' && !groupOptions.includes(currentGroup)) {
     groupOptions.push(currentGroup); // 历史无实体分组也保留可选
   }
+  // 左侧菜单：连接承载表单；脚本/隧道/高级为规划中的占位面板
+  const NAV = [
+    { key: 'connect', label: '连接', icon: 'terminal' },
+    { key: 'scripts', label: '脚本', icon: 'code', soon: '登录后自动执行的命令脚本' },
+    { key: 'tunnels', label: '隧道', icon: 'tunnel', soon: '本地 / 远程端口转发' },
+    { key: 'advanced', label: '高级', icon: 'sliders', soon: '连接参数与高级选项' },
+  ];
   const m = openModal(
-    `<form id="host-form" class="host-form">
-      <label>名称 <input name="name" required maxlength="64" value="${isEdit ? escapeHtml(host.name) : ''}" /></label>
-      <label>地址 <input name="host" required placeholder="域名或 IP" value="${isEdit ? escapeHtml(host.host) : ''}" /></label>
-      <label>端口 <input name="port" type="number" min="1" max="65535" value="${isEdit ? host.port : 22}" /></label>
-      <label>用户名 <input name="username" required value="${isEdit ? escapeHtml(host.username) : ''}" /></label>
+    `<nav class="sp-nav">${NAV.map(
+      (n, i) => `<button type="button" class="sp-nav-item${i === 0 ? ' active' : ''}" data-pane="${n.key}">${icon(n.icon, 15)}<span>${n.label}</span></button>`
+    ).join('')}</nav>
+    <div class="sp-panes">
+      <section class="sp-pane active" data-pane="connect">
+        <form id="host-form" class="host-form">
+      <div class="hf-row">
+        <label>名称 <input name="name" required maxlength="64" placeholder="例如：生产服务器" value="${isEdit ? escapeHtml(host.name) : ''}" /></label>
+        <label>用户名 <input name="username" required placeholder="root" value="${isEdit ? escapeHtml(host.username) : ''}" /></label>
+      </div>
+      <div class="hf-row">
+        <label class="hf-via">连接方式
+          <select name="connectVia">
+            <option value="direct" ${!isEdit || (host.connectVia ?? 'direct') === 'direct' ? 'selected' : ''}>直连（默认）</option>
+            <option value="jump" ${isEdit && host.connectVia === 'jump' ? 'selected' : ''}>跳板机</option>
+            <option value="tunnel" disabled>隧道（后续加入）</option>
+            <option value="socks" disabled>SOCKS（后续加入）</option>
+            <option value="http" disabled>HTTP 代理（后续加入）</option>
+          </select>
+        </label>
+        <label class="hf-grow">地址 <input name="host" required placeholder="域名或 IP" value="${isEdit ? escapeHtml(host.host) : ''}" /></label>
+        <label class="hf-port">端口 <input name="port" type="number" min="1" max="65535" value="${isEdit ? host.port : 22}" /></label>
+      </div>
+      <div data-via="jump" hidden>
+        <label>跳板机
+          <select name="jumpHostId"></select>
+        </label>
+        <p class="form-note" style="margin-top:-6px">以选中的已有主机作为 SSH 跳板（ProxyJump，单级）；跳板机需已保存凭据并完成指纹确认。</p>
+      </div>
       <label>分组
         <select name="group">
           ${groupOptions
@@ -271,22 +302,64 @@ export async function openHostFormModal(host, onSaved) {
       </label>
       <label>认证方式
         <div class="seg" role="radiogroup">
+          <button type="button" class="seg-btn ${isEdit && host.authType === 'none' ? 'selected' : ''}" data-value="none">${icon('ban', 13)} 无</button>
           <button type="button" class="seg-btn ${!isEdit || host.authType === 'password' ? 'selected' : ''}" data-value="password">${icon('key', 13)} 密码</button>
           <button type="button" class="seg-btn ${isEdit && host.authType === 'privateKey' ? 'selected' : ''}" data-value="privateKey">${icon('file', 13)} 密钥</button>
         </div>
         <input type="hidden" name="authType" value="${isEdit ? host.authType : 'password'}" />
       </label>
       <label data-cred="password">密码 <input name="password" type="password" autocomplete="new-password" placeholder="${isEdit ? '留空保持不变' : ''}" /></label>
-      <label data-cred="privateKey" hidden>密钥（PEM） <textarea name="privateKey" rows="4" placeholder="${isEdit ? '留空保持不变' : '-----BEGIN OPENSSH PRIVATE KEY-----'}"></textarea></label>
-      <label data-cred="privateKey" hidden>密钥口令（可选） <input name="passphrase" type="password" autocomplete="new-password" /></label>
-      <p class="form-note">${isEdit ? '凭据留空表示保持原凭据不变。' : '凭据将以 AES-256-GCM 加密保存，不会明文显示。'}</p>
-      <div class="form-actions">
-        <button type="submit" class="btn primary">${isEdit ? '保存' : '创建'}</button>
-        <button type="button" class="btn" id="host-form-cancel">取消</button>
+      <div class="hf-key-field" data-cred="privateKey" hidden>
+        <span class="hf-key-label">私钥文件</span>
+        <div class="key-drop" id="key-drop">
+          <span class="key-drop-hint">${isEdit ? '已保存私钥，重新导入以更换' : '拖入私钥文件到此处，或'}</span>
+          <span class="key-drop-btns">
+            <button type="button" class="btn key-btn" id="key-local">${icon('upload', 13)} 本地导入</button>
+            <button type="button" class="btn key-btn" id="key-fnos" hidden>${icon('nas', 13)} 从飞牛导入</button>
+          </span>
+        </div>
+        <div class="key-selected" id="key-selected" hidden>
+          ${icon('file', 14)}
+          <span class="key-name" id="key-name"></span>
+          <span class="key-size" id="key-size"></span>
+          <button type="button" class="icon-btn danger" id="key-remove" title="移除">${icon('trash', 13)}</button>
+        </div>
+        <input type="file" id="key-file" hidden />
+        <p class="form-note" style="margin-top:6px">私钥有口令时无需在此填写，连接时会提示输入。</p>
       </div>
-    </form>`
+      <p class="form-note" data-cred="none" hidden>不记录密码：每次连接时都会弹出密码输入框，凭据不落地保存。</p>
+      <p class="form-note" id="hf-cred-note">${isEdit ? '凭据留空表示保持原凭据不变。' : '凭据将以 AES-256-GCM 加密保存，不会明文显示。'}</p>
+      <div class="form-actions">
+        <span class="hf-error" role="alert"></span>
+        <button type="button" class="btn" id="host-form-cancel">取消</button>
+        <button type="submit" class="btn primary">${isEdit ? '保存' : '创建'}</button>
+      </div>
+        </form>
+      </section>
+      ${NAV.slice(1)
+        .map(
+          (n) => `<section class="sp-pane" data-pane="${n.key}">
+            <div class="sp-soon">
+              ${icon(n.icon, 34)}
+              <div class="sp-soon-title">${n.label}</div>
+              <div class="sp-soon-desc">${n.soon} · 功能规划中，敬请期待</div>
+            </div>
+          </section>`
+        )
+        .join('')}
+    </div>`
   );
+  m.root.classList.add('host-form-modal');
   m.setTitle(isEdit ? `编辑：${host.name}` : '新建会话连接');
+
+  // 菜单切换：右侧面板淡入滑移
+  m.root.querySelectorAll('.sp-nav-item').forEach((btn) =>
+    btn.addEventListener('click', () => {
+      if (btn.classList.contains('active')) return;
+      m.root.querySelectorAll('.sp-nav-item').forEach((b) => b.classList.toggle('active', b === btn));
+      m.root.querySelectorAll('.sp-pane').forEach((p) => p.classList.toggle('active', p.dataset.pane === btn.dataset.pane));
+    })
+  );
 
   const form = m.root.querySelector('#host-form');
   const authInput = form.querySelector('[name=authType]');
@@ -295,6 +368,9 @@ export async function openHostFormModal(host, onSaved) {
     const v = authInput.value;
     form.querySelector('[data-cred=password]').hidden = v !== 'password';
     form.querySelectorAll('[data-cred=privateKey]').forEach((l) => (l.hidden = v !== 'privateKey'));
+    form.querySelector('[data-cred=none]').hidden = v !== 'none';
+    // 通用加密提示仅密码模式显示：none 不存凭据；密钥区已有专属说明（口令连接时输入）
+    form.querySelector('#hf-cred-note').hidden = v !== 'password';
     form.querySelectorAll('.seg-btn').forEach((b) =>
       b.classList.toggle('selected', b.dataset.value === v)
     );
@@ -307,9 +383,109 @@ export async function openHostFormModal(host, onSaved) {
   );
   syncCred();
 
+  // —— 连接方式：跳板机模式下显示跳板主机选择（仅直连且已存凭据的主机可作跳板）——
+  const viaInput = form.querySelector('[name=connectVia]');
+  const jumpSelect = form.querySelector('[name=jumpHostId]');
+  const syncVia = () => {
+    const isJump = viaInput.value === 'jump';
+    form.querySelectorAll('[data-via=jump]').forEach((el) => (el.hidden = !isJump));
+  };
+  viaInput.addEventListener('change', syncVia);
+  {
+    const all = await fetchHosts();
+    const candidates = all.filter(
+      (h) => h.id !== host?.id && h.hasSecret && h.authType !== 'none' && (h.connectVia ?? 'direct') === 'direct'
+    );
+    const current = isEdit ? (host.jumpHostId ?? '') : '';
+    jumpSelect.innerHTML = candidates.length
+      ? `<option value="" ${current ? '' : 'selected'} disabled>选择作为跳板的主机…</option>` +
+        candidates
+          .map(
+            (h) =>
+              `<option value="${escapeHtml(h.id)}" ${h.id === current ? 'selected' : ''}>` +
+              `${escapeHtml(h.name)}（${escapeHtml(h.username)}@${escapeHtml(h.host)}:${h.port}）</option>`
+          )
+          .join('')
+      : '<option value="" selected disabled>暂无可用跳板机（需先创建一台已保存凭据的直连主机）</option>';
+  }
+  syncVia();
+
+  form.querySelector('[name=name]').focus(); // 打开即聚焦首个字段
+
   m.root.querySelector('#host-form-cancel').addEventListener('click', () => m.close());
+  const submitBtn = form.querySelector('[type=submit]');
+  const errEl = form.querySelector('.hf-error');
+
+  // —— 私钥文件导入：本地文件 / 飞牛 NAS 浏览 / 拖拽 ——
+  let keyPem = null;
+  const keyDrop = form.querySelector('#key-drop');
+  const keyFile = form.querySelector('#key-file');
+  const keySelected = form.querySelector('#key-selected');
+  const setKey = (name, pem) => {
+    keyPem = pem;
+    form.querySelector('#key-name').textContent = name;
+    form.querySelector('#key-size').textContent = `${(new Blob([pem]).size / 1024).toFixed(1)} KB`;
+    keySelected.hidden = false;
+    keyDrop.hidden = true;
+    errEl.textContent = '';
+  };
+  const clearKey = () => {
+    keyPem = null;
+    keyFile.value = '';
+    keySelected.hidden = true;
+    keyDrop.hidden = false;
+  };
+  const KEY_HEADER_RE = /-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----/;
+  const readKeyFile = (file) => {
+    if (!file) return;
+    if (file.size > 256 * 1024) {
+      errEl.textContent = '文件超过 256KB，不是有效的私钥';
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const text = String(reader.result ?? '');
+      if (!KEY_HEADER_RE.test(text)) {
+        errEl.textContent = '文件内容不是 PEM 格式的私钥（缺少 PRIVATE KEY 头）';
+        return;
+      }
+      setKey(file.name, text);
+    };
+    reader.onerror = () => (errEl.textContent = '文件读取失败');
+    reader.readAsText(file);
+  };
+  form.querySelector('#key-local').addEventListener('click', () => keyFile.click());
+  keyFile.addEventListener('change', () => readKeyFile(keyFile.files[0]));
+  form.querySelector('#key-remove').addEventListener('click', clearKey);
+  // 拖拽导入
+  keyDrop.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    keyDrop.classList.add('dragover');
+  });
+  keyDrop.addEventListener('dragleave', () => keyDrop.classList.remove('dragover'));
+  keyDrop.addEventListener('drop', (e) => {
+    e.preventDefault();
+    keyDrop.classList.remove('dragover');
+    readKeyFile(e.dataTransfer?.files?.[0]);
+  });
+  // 「从飞牛导入」仅 fnOS 模式可见（/api/runtime 判定，结果缓存）
+  getRuntime().then(({ mode }) => {
+    if (mode !== 'fnos') return;
+    const btn = form.querySelector('#key-fnos');
+    btn.hidden = false;
+    btn.addEventListener('click', () => openNasKeyPicker((name, pem) => setKey(name, pem)));
+  });
+
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
+    errEl.textContent = '';
+    // 新建密钥认证必须先导入私钥（编辑态不导入 = 保持原私钥）
+    if (authInput.value === 'privateKey' && !keyPem && !isEdit) {
+      errEl.textContent = '请导入私钥文件（本地或从飞牛）';
+      return;
+    }
+    submitBtn.disabled = true;
+    submitBtn.textContent = isEdit ? '保存中…' : '创建中…';
     const fd = new FormData(form);
     const body = {
       name: fd.get('name').trim(),
@@ -318,14 +494,22 @@ export async function openHostFormModal(host, onSaved) {
       username: fd.get('username').trim(),
       group: fd.get('group'),
       authType: fd.get('authType'),
+      connectVia: fd.get('connectVia'),
     };
-    const pw = fd.get('password');
-    const key = fd.get('privateKey');
-    if (body.authType === 'password' && pw) body.password = pw;
-    if (body.authType === 'privateKey' && key) {
-      body.privateKey = key;
-      if (fd.get('passphrase')) body.passphrase = fd.get('passphrase');
+    // 跳板机模式必须选定跳板主机
+    if (body.connectVia === 'jump') {
+      const jumpId = fd.get('jumpHostId');
+      if (!jumpId) {
+        errEl.textContent = '请选择作为跳板的主机';
+        submitBtn.disabled = false;
+        submitBtn.textContent = isEdit ? '保存' : '创建';
+        return;
+      }
+      body.jumpHostId = jumpId;
     }
+    const pw = fd.get('password');
+    if (body.authType === 'password' && pw) body.password = pw;
+    if (body.authType === 'privateKey' && keyPem) body.privateKey = keyPem;
 
     const res = await fetch(isEdit ? apiUrl(`hosts/${encodeURIComponent(host.id)}`) : apiUrl('hosts'), {
       method: isEdit ? 'PUT' : 'POST',
@@ -337,10 +521,103 @@ export async function openHostFormModal(host, onSaved) {
       onSaved?.();
     } else {
       const err = await res.json().catch(() => ({ error: { message: res.statusText } }));
-      alert(`保存失败：${err.error?.message ?? '未知错误'}`);
+      errEl.textContent = `保存失败：${err.error?.message ?? '未知错误'}`;
+      submitBtn.disabled = false;
+      submitBtn.textContent = isEdit ? '保存' : '创建';
     }
   });
   return m;
+}
+
+/**
+ * 从飞牛导入私钥：NAS 文件浏览弹窗（仅 fnOS 模式，服务端限制 /vol*、/home 根）。
+ * 目录导航（面包屑 + 点击下钻），点击文件即读取校验（PEM）后回填。
+ * @param {(name: string, pem: string) => void} onPick 选中回调
+ */
+function openNasKeyPicker(onPick) {
+  const m = openModal(`
+    <div class="nfs">
+      <div class="nfs-crumbs" id="nfs-crumbs"></div>
+      <div class="nfs-list" id="nfs-list"></div>
+      <div class="nfs-status" id="nfs-status"></div>
+    </div>`);
+  m.root.classList.add('nfs-modal');
+  m.setTitle('从飞牛导入私钥');
+  const crumbsEl = m.root.querySelector('#nfs-crumbs');
+  const listEl = m.root.querySelector('#nfs-list');
+  const statusEl = m.root.querySelector('#nfs-status');
+  let segs = []; // 当前路径段（如 ['vol1','Users','admin']）
+
+  function renderCrumbs() {
+    crumbsEl.innerHTML =
+      `<button class="nfs-crumb" data-i="-1">${icon('nas', 13)} 存储</button>` +
+      segs
+        .map(
+          (s, i) =>
+            `${icon('chevron', 10)}<button class="nfs-crumb" data-i="${i}">${escapeHtml(s)}</button>`
+        )
+        .join('');
+  }
+
+  async function load() {
+    const path = segs.length ? `/${segs.join('/')}` : '';
+    renderCrumbs();
+    statusEl.textContent = '加载中…';
+    listEl.innerHTML = '';
+    try {
+      const res = await fetch(apiUrl(`fs/list?path=${encodeURIComponent(path)}`));
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error?.message ?? '加载失败');
+      statusEl.textContent = data.entries.length ? '' : '空目录';
+      listEl.innerHTML = data.entries
+        .map(
+          (e) => `<button class="nfs-item" data-name="${escapeHtml(e.name)}" data-type="${e.type}">
+            ${icon(e.type === 'dir' ? 'folder' : 'file', 14)}
+            <span class="nfs-name">${escapeHtml(e.name)}</span>
+            ${e.type === 'dir' ? icon('chevron', 12) : ''}
+          </button>`
+        )
+        .join('');
+    } catch (err) {
+      statusEl.textContent = err.message ?? '加载失败';
+    }
+  }
+
+  async function pick(name) {
+    statusEl.textContent = '读取中…';
+    try {
+      const res = await fetch(apiUrl('fs/read-key'), {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ path: `/${[...segs, name].join('/')}` }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error?.message ?? '读取失败');
+      m.close();
+      onPick(data.name, data.content);
+    } catch (err) {
+      statusEl.textContent = err.message ?? '读取失败';
+    }
+  }
+
+  crumbsEl.addEventListener('click', (e) => {
+    const b = e.target.closest('.nfs-crumb');
+    if (!b) return;
+    const i = Number(b.dataset.i);
+    segs = i < 0 ? [] : segs.slice(0, i + 1);
+    load();
+  });
+  listEl.addEventListener('click', (e) => {
+    const b = e.target.closest('.nfs-item');
+    if (!b) return;
+    if (b.dataset.type === 'dir') {
+      segs.push(b.dataset.name);
+      load();
+    } else {
+      pick(b.dataset.name);
+    }
+  });
+  load();
 }
 
 function escapeHtml(s) {

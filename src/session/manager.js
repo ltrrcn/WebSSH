@@ -1,7 +1,7 @@
 // 会话生命周期管理（FR-013/014/019 + data-model Session）
 // 状态机：connecting → ready | failed；ready → closing → closed
 // 进入 closed 必须释放全部资源（SC-005：残留进程数为 0）
-import { connectShell } from '../ssh/client.js';
+import { connectShell, connectShellViaJump } from '../ssh/client.js';
 import { appendKnownHost } from '../ssh/hostkey.js';
 import { decryptSecret } from '../crypto/secret.js';
 import { bridgeSession } from './bridge.js';
@@ -86,7 +86,12 @@ export function createSessionManager({ config, store, audit, masterKey, runtime 
     throw new Error('会话 ID 生成冲突超限');
   }
 
-  async function createSession({ ws, host, identity }) {
+  /**
+   * @param {object} opts
+   * @param {string} [opts.passphrase] 连接时临时输入的私钥口令（口令票据换出，优先级高于已保存口令）
+   * @param {string} [opts.password] none（不记录凭据）主机连接时手动输入的密码（口令票据换出）
+   */
+  async function createSession({ ws, host, identity, passphrase, password }) {
     const now = new Date().toISOString();
     const session = {
       id: newSessionId(),
@@ -115,25 +120,56 @@ export function createSessionManager({ config, store, audit, masterKey, runtime 
     ws.once('close', onEarlyClose);
     ws.once('error', onEarlyClose);
     try {
-      const secret = decryptSecret(masterKey, host.secret);
-      const connected = await connectShell({
+      // none（不记录凭据）主机没有已存 secret，凭据完全来自本次手动输入的密码
+      const secret = host.secret ? decryptSecret(masterKey, host.secret) : {};
+      // 临时输入的私钥口令仅用于本次连接，不落盘（除非用户在 REST 侧显式选择记住）
+      if (typeof passphrase === 'string' && passphrase !== '') secret.passphrase = passphrase;
+      if (typeof password === 'string' && password !== '') secret.password = password;
+
+      const onHostKeyVerified = ({ fingerprint }) => {
+        // known_hosts 仅为人工核对记录（R10），写失败不影响已确认指纹的安全性
+        appendKnownHost({
+          paths: runtime.paths,
+          host: host.host,
+          port: host.port,
+          algorithm: 'ssh-host-key',
+          fingerprint,
+        }).catch(() => {});
+      };
+      const targetOpts = {
         host: host.host,
         port: host.port,
         username: host.username,
         secret,
         connectTimeoutMs,
         expectedFingerprint: host.fingerprint,
-        onHostKeyVerified: ({ fingerprint }) => {
-          // known_hosts 仅为人工核对记录（R10），写失败不影响已确认指纹的安全性
-          appendKnownHost({
-            paths: runtime.paths,
-            host: host.host,
-            port: host.port,
-            algorithm: 'ssh-host-key',
-            fingerprint,
-          }).catch(() => {});
-        },
-      });
+        onHostKeyVerified,
+      };
+
+      let connected;
+      if (host.connectVia === 'jump' && host.jumpHostId) {
+        // 跳板机（单级 ProxyJump）：约束集中校验——跳板须存在、归属本人、
+        // 有已存凭据（none 主机无法自动认证）、指纹已确认、不得多级跳板/自引用
+        if (host.jumpHostId === host.id) throw new Error('jump_loop');
+        const jump = await store.getHost(host.jumpHostId, identity.id);
+        if (!jump) throw new Error('jump_not_found');
+        if (jump.connectVia === 'jump') throw new Error('jump_loop'); // 不支持多级跳板
+        if (!jump.secret) throw new Error('jump_no_secret');
+        if (!jump.fingerprint) throw new Error('jump_fingerprint_unconfirmed');
+        connected = await connectShellViaJump({
+          jump: {
+            host: jump.host,
+            port: jump.port,
+            username: jump.username,
+            secret: decryptSecret(masterKey, jump.secret),
+            connectTimeoutMs,
+            expectedFingerprint: jump.fingerprint,
+          },
+          target: targetOpts,
+        });
+      } else {
+        connected = await connectShell(targetOpts);
+      }
       conn = connected.conn;
       stream = connected.stream;
       session.conn = conn;
@@ -293,6 +329,11 @@ function sanitizeFailure(err) {
   const msg = String(err?.message ?? err ?? '');
   if (msg === 'fingerprint_unconfirmed') return 'fingerprint_unconfirmed';
   if (msg === 'fingerprint_changed') return 'fingerprint_changed';
+  // 跳板机错误码：构造处已白名单化（jump_loop/jump_not_found/jump_no_secret/...），直接透传
+  if (msg.startsWith('jump_')) return msg;
+  // ssh2：加密私钥缺口令 / 口令错误（先于通用 auth 判定，客户端据此弹口令输入）
+  if (/no passphrase given/i.test(msg)) return 'passphrase_required';
+  if (/bad passphrase|decryption failed|unable to decrypt/i.test(msg)) return 'passphrase_invalid';
   if (/timed?out|ETIMEDOUT/i.test(msg)) return 'connect_timeout';
   if (/ECONNREFUSED/.test(msg)) return 'connection_refused';
   if (/ENOTFOUND|EAI_AGAIN/.test(msg)) return 'dns_failure';
