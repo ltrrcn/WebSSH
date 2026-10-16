@@ -129,6 +129,12 @@ function buildPanes(pane, { renderAudit, renderTokens, renderTokenConfig, render
             </div>
             <label class="switch"><input type="checkbox" id="pref-audit-output" /><span></span></label>
           </div>
+          <div class="pref-row">
+            <div class="pref-label">右键保存快捷命令长度上限
+              <div class="pref-desc">终端选中文字右键「保存为快捷命令」允许的最大字符数，选中内容超出则不可保存。默认 24，最大 128</div>
+            </div>
+            <input type="number" id="pref-quickcmd-max" class="pref-input" style="width:80px" min="1" max="128" value="${prefs.quickCmdMaxChars ?? 24}" />
+          </div>
         </div>`;
       pane.querySelectorAll('.theme-option').forEach((opt) =>
         opt.addEventListener('click', () => {
@@ -161,6 +167,15 @@ function buildPanes(pane, { renderAudit, renderTokens, renderTokenConfig, render
       });
       pane.querySelector('#pref-exit').addEventListener('change', (e) => {
         setPref('exitConfirm', e.target.checked);
+      });
+      // 右键保存快捷命令长度上限：非法输入回退默认 24（与 prefs.js DEFAULTS 一致），越界钳制到 1–128
+      const qcMaxEl = pane.querySelector('#pref-quickcmd-max');
+      qcMaxEl.addEventListener('change', (e) => {
+        let v = Math.round(Number(e.target.value));
+        if (!Number.isInteger(v) || v < 1) v = 24;
+        if (v > 128) v = 128;
+        e.target.value = v;
+        setPref('quickCmdMaxChars', v);
       });
 
       // —— 终端输出摘要开关（服务端配置，热生效；与两步验证面板同一设置，两处入口）——

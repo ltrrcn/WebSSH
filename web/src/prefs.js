@@ -8,6 +8,7 @@ const DEFAULTS = {
   exitConfirm: true, // 关闭页面前确认仍有活动会话（FR-046 的用户开关）
   tmuxDefault: false, // 新建会话默认勾选 tmux 保活模式（R001）
   fontFamily: '', // 界面字体（'' = 系统默认）
+  quickCmdMaxChars: 24, // 右键「保存为快捷命令」选中文本的最大字符数（上限 128）
 };
 
 /** 系统默认字体栈：与 index.html 中 --app-font 兜底值保持一致 */

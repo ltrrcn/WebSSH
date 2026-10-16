@@ -8,7 +8,7 @@ import { openModal, confirmModal, isModalOpen } from './modal.js';
 import { showContextMenu } from './contextmenu.js';
 import { wsUrl, apiUrl } from './base.js';
 import { icon } from './icons.js';
-import { getPrefs, onPrefsChange } from './prefs.js';
+import { getPrefs, setPref, onPrefsChange } from './prefs.js';
 import { getQuickCommands, addQuickCommand, nextQuickCommandName, onQuickCommandsChange, removeQuickCommand } from './quick-commands.js';
 import { openQuickCommandNamer } from './quick-commands-ui.js';
 import {
@@ -156,7 +156,12 @@ async function createTab(host, { tmux = false, attachId = '' } = {}) {
   const instance = document.createElement('div');
   instance.className = 'term-instance';
   instance.innerHTML = `
-    <div class="term-container"></div>
+    <div class="term-container"><div class="term-surface"></div></div>
+    <div class="term-zoom">
+      <button type="button" data-z="-" title="减小字号">-</button>
+      <span class="term-zoom-val">${prefs.fontSize}</span>
+      <button type="button" data-z="+" title="增大字号">+</button>
+    </div>
     <div class="quick-bar"></div>
     <div class="term-status"></div>`;
   ui.terminals.appendChild(instance);
@@ -172,7 +177,7 @@ async function createTab(host, { tmux = false, attachId = '' } = {}) {
     fitAddon = new FitAddonCtor();
     term.loadAddon(fitAddon);
   }
-  term.open(instance.querySelector('.term-container'));
+  term.open(instance.querySelector('.term-surface'));
 
   const tab = {
     id,
@@ -207,22 +212,48 @@ async function createTab(host, { tmux = false, attachId = '' } = {}) {
 
   renderQuickBar(instance.querySelector('.quick-bar'), tab);
 
+  // 右上角字号调节（hover 终端浮现）：与通用设置同一偏好，setPref 广播后全部终端即时生效（liveTerms 订阅负责重渲染与 fit）
+  const zoomVal = instance.querySelector('.term-zoom-val');
+  const zoomStep = (d) => {
+    const cur = getPrefs().fontSize;
+    const v = Math.min(18, Math.max(12, cur + d)); // 与通用设置滑杆同一范围 12–18
+    if (v !== cur) setPref('fontSize', v);
+  };
+  instance.querySelector('[data-z="-"]').addEventListener('click', (e) => { e.stopPropagation(); zoomStep(-1); });
+  instance.querySelector('[data-z="+"]').addEventListener('click', (e) => { e.stopPropagation(); zoomStep(1); });
+  // 其他入口（设置页滑杆）改字号时同步本终端的显示值
+  tab.zoomUnsub = onPrefsChange((name, value) => {
+    if (name === 'fontSize') zoomVal.textContent = value;
+  });
+
+  // 布局高度变化根治监测：term-container 高度一旦变化（快捷栏增删、空态提示、状态行显隐）
+  // 立即重新 fit——替代对每类变化逐一 setTimeout 打点的脆弱时序（快捷栏空态↔命令态高度不一曾遮挡终端）
+  tab.resizeObserver = new ResizeObserver(() => fitAndReport(tab));
+  tab.resizeObserver.observe(instance.querySelector('.term-surface'));
+
   // 终端选中文字右键：复制 / 保存为快捷命令（FR-049 共享右键组件）
   instance.querySelector('.term-container').addEventListener('contextmenu', (e) => {
-    const sel = term.getSelection?.().trim();
-    if (!sel) return; // 无选中时保留默认行为
+    const selectedText = term.getSelection?.() ?? '';
+    if (!selectedText) return; // 无选中时保留默认行为
+    const sel = selectedText.trim();
     e.preventDefault();
+    // 保存长度上限（通用设置，默认 24 / 最大 128）：超出则菜单项禁用，防止误存长文本
+    const maxChars = getPrefs().quickCmdMaxChars ?? 24;
+    const tooLong = sel.length > maxChars;
     showContextMenu(e.clientX, e.clientY, {
       meta: sel.length > 60 ? `${sel.slice(0, 60)}…` : sel,
       items: [
         {
           label: '复制',
-          onClick: () => navigator.clipboard.writeText(sel).catch(() => {}),
+          onClick: () => navigator.clipboard.writeText(selectedText).catch(() => {}),
         },
         {
-          label: '保存为快捷命令',
+          label: tooLong
+            ? `保存为快捷命令（选中 ${sel.length} 字符，超出上限 ${maxChars}）`
+            : '保存为快捷命令',
+          disabled: tooLong || !sel,
           // 命名弹窗只收名称（命令不回填，防泄露）；留空保存则用「快捷命令N」自动编号
-          onClick: () => openQuickCommandNamer(nextQuickCommandName(), (name) => addQuickCommand(name, sel)),
+          onClick: tooLong || !sel ? undefined : () => openQuickCommandNamer(nextQuickCommandName(), (name) => addQuickCommand(name, sel)),
         },
       ],
     });
@@ -323,6 +354,10 @@ async function connectWs(tab) {
     tab.setStatus?.('');
     // FR-059 接管会话：重设窗口尺寸，让远端按当前终端大小重绘
     if (tab.attachSessionId) setTimeout(() => fitAndReport(tab), 60);
+    // 断线重连（按 Enter / 网络恢复）也须重新 fit：断开期间窗口尺寸或样式可能已变，
+    // 旧 cols/rows 会让 canvas 溢出容器（命令蔓延到边缘），远端也无法对齐
+    else if (tab.everConnected) setTimeout(() => fitAndReport(tab), 60);
+    tab.everConnected = true;
     // R001 tmux 模式：首连与断线重连统一在此启动探测（重连后自动 attach 恢复现场）
     if (tab.tmux) startTmuxProbe(tab);
     renderTabbar();
@@ -613,18 +648,10 @@ onQuickCommandsChange(() => {
 
 function fitAndReport(tab) {
   if (!tab.fitAddon) return;
+  // 非激活 tab（display:none）不 fit：零尺寸下 fit 会把行列打成 0；激活时 activateTab 会重新 fit 恢复
+  if (!tab.el?.classList.contains('active')) return;
   try {
     tab.fitAddon.fit();
-    // 高分屏（DPR>1）下实际渲染行高按物理像素取整，会略大于 fit 用的理论 cell 高，
-    // 多行累计后 canvas 底部会超出容器、与快捷命令栏重叠：检测到溢出则按少一行重设
-    const container = tab.term.element?.parentElement;
-    if (container) {
-      const cs = getComputedStyle(container);
-      const avail = parseFloat(cs.height) + parseFloat(cs.paddingBottom);
-      if (tab.term.element.offsetHeight > avail && tab.term.rows > 1) {
-        tab.term.resize(tab.term.cols, tab.term.rows - 1);
-      }
-    }
   } catch {
     return;
   }
@@ -836,6 +863,8 @@ function destroyTab(id) {
   const tab = tabs.get(id);
   if (!tab) return;
   if (tab.tmux) clearTimeout(tab.tmux.timer); // R001：清理探测超时定时器
+  tab.zoomUnsub?.(); // 字号偏好订阅
+  tab.resizeObserver?.disconnect();
   try {
     if (tab.ws) {
       tab.ws.onclose = null; // 主动关闭不再提示

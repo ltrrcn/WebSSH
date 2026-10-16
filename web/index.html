@@ -390,8 +390,30 @@
     #terminals { flex: 1; position: relative; background: var(--term-bg); }
     .term-instance { position: absolute; inset: 0; display: none; flex-direction: column; }
     .term-instance.active { display: flex; }
-    /* overflow hidden：xterm canvas 在高分屏下行高取整会略微溢出容器，裁剪防止盖住快捷命令栏 */
-    .term-instance .term-container { flex: 1; padding: 10px 6px 14px 10px; min-height: 0; overflow: hidden; }
+    .term-instance .term-container { display: flex; flex: 1; padding: 10px 4px 14px 10px; min-height: 0; overflow: hidden; }
+    .term-instance .term-surface { flex: 1; min-width: 0; min-height: 0; }
+    .term-instance .xterm { padding-right: 6px; }
+    .term-instance .xterm-scrollable-element > .scrollbar.vertical { right: -6px !important; }
+    .term-instance .xterm-rows > div { overflow: visible !important; }
+    .term-instance .xterm-viewport { background-color: transparent; }
+    /* 终端右上角字号调节：hover 终端区域时浮现，不占用内容区（与通用设置为同一偏好）
+       z-index 须高于 xterm 内部层叠最高层（scrollable-element z-index:11）；
+       right 须让出滚动条区（隔离区 28px + 间隙），thumb 滑到顶部也不与控件重叠 */
+    .term-zoom {
+      position: absolute; top: 8px; right: 40px; z-index: 20;
+      display: flex; align-items: center; gap: 3px;
+      opacity: 0; pointer-events: none; transition: opacity .15s ease;
+    }
+    .term-instance:hover .term-zoom { opacity: 1; pointer-events: auto; }
+    .term-zoom button {
+      width: 22px; height: 22px; border-radius: 6px; cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      padding: 0; font-size: 15px; line-height: 1; font-weight: 600;
+      border: 1px solid var(--border); background: var(--bg-elevated); color: var(--text-dim);
+      backdrop-filter: blur(6px);
+    }
+    .term-zoom button:hover { color: var(--text); border-color: var(--accent); }
+    .term-zoom-val { font-size: 11px; color: var(--text-faint); min-width: 24px; text-align: center; font-family: Menlo, monospace; }
     .term-instance .term-status {
       min-height: 24px; font-size: 12px; color: var(--text-faint);
       padding: 2px 14px 12px; display: none;
@@ -426,7 +448,7 @@
     .quick-cmd-wrap:hover .quick-cmd-del { opacity: 1; pointer-events: auto; }
     .quick-cmd-del:hover { color: var(--danger); background: var(--danger-soft); border-color: var(--danger); }
     .quick-cmd-del.confirming { color: #fff; background: var(--danger); border-color: var(--danger); opacity: 1; pointer-events: auto; }
-    .quick-empty { font-size: 11px; color: var(--text-faint); padding: 2px 0; }
+    .quick-empty { font-size: 11px; color: var(--text-faint); padding: 2px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
     /* 设置页快捷命令管理 */
     .pref-input {
       width: 100%; margin-top: 4px; background: var(--bg-input); color: var(--text);
