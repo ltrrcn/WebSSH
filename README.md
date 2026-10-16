@@ -9,6 +9,7 @@
 - **审计**：全部连接生命周期事件 JSONL 留痕（脱敏先行），设置 → 审计 可查可导出
 - **MCP 令牌**：设置 → 令牌 创建只读/可变更令牌，接入支持 MCP 的 AI 工具（三层判定 + 目录权限矩阵 + 限流）
 - **两步验证**：设置 → 两步验证 绑定 TOTP 认证器（Google Authenticator / 腾讯令牌等），为高危险操作（命令审计查看/设置、令牌创建/撤销/删除）增加动态验证；验证一次 5 分钟免重输，8 个一次性恢复码防锁死，连续 5 次失败锁定 5 分钟；认证器丢失可从两步验证页用恢复码恢复（仅 3 次机会）
+- **用户管理**：个人设置 → 用户管理 上传头像（PNG/JPEG/WebP/GIF，≤2MB，服务端魔数校验）与修改昵称（备注名）；账号由部署环境管理恒不可改（飞牛账号仅可调昵称），头像/昵称按用户隔离、即时生效
 - **主题**：黑/白双主题，预留终端配色导入扩展点
 
 ## 快速开始（standalone）
@@ -46,6 +47,8 @@ WEBSSH_HOME=~/.webssh npm start
 ```
 etc/hosts.json       会话连接与加密凭据（.bak 为上一代备份）
 etc/tokens.json     MCP 令牌（SHA-256 摘要）
+etc/users.json      用户资料（昵称/头像元数据，按用户隔离）
+etc/avatars/        用户头像二进制（文件名 = 用户 ID 哈希 + 魔数判定扩展名）
 etc/master.key      数据加密主密钥（0700）——丢失则凭据不可恢复
 etc/known_hosts     已确认主机指纹（人工核对用）
 var/log/audit-*.jsonl     人工操作审计日志（按天/按大小滚动）
@@ -71,6 +74,7 @@ npm run pack:fnos    # 同步产物 + 纯 JS 依赖校验 + fnpack build
    - fnOS 统一网关：`http://<主机>:5666/app/webssh/mcp` —— 网关要求 fnOS 登录态，仅适合浏览器内调试；AI 客户端请用直连端口
    - fnOS MCP 直连（推荐，机器对机器）：在 config.json 启用 `fnos.mcpDirect` 后使用 `http://<主机>:<mcpDirect.port>/mcp`，不经过网关，令牌鉴权由应用层完成
 3. 工具：`list_hosts`、`read_file`（只读及以上）、`run_command`、`write_file`（仅可变更级）
+4. Agent 会话审计：`initialize` 响应头返回 `Mcp-Session-Id`（Streamable HTTP 规范），客户端后续请求自动携带；同一 Agent 会话内的全部调用在命令审计页按会话归组展示（`m_` 前缀），`DELETE /mcp` 结束会话留痕。旧客户端不带会话头 → 调用归入「MCP 令牌调用（无会话）」组
 
 ## 测试
 

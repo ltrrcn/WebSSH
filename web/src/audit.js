@@ -50,6 +50,8 @@ const EVENT_LABEL = {
   twofa_recovery_success: '恢复码恢复成功',
   twofa_recovery_failure: '恢复码恢复失败',
   twofa_recovery_wipe: '恢复失败触发数据清除',
+  'mcp-session-start': 'MCP 会话建立',
+  'mcp-session-end': 'MCP 会话结束',
 };
 const RESULT_LABEL = { success: '成功', denied: '拒绝', error: '失败' };
 
@@ -58,7 +60,8 @@ const NOTE = {
   operation: `<b>操作审计</b>：按时间顺序记录登录（连接尝试/成功/失败，时间即会话创建时间）与操作调用（断开、文件读取、分组管理等非命令事件）。
     元数据脱敏留存，不含凭据与终端输出全文。支持按时间范围、会话 ID、来源、结果与主机过滤、分页与导出。`,
   sessions: `<b>命令审计</b>：按会话组织——每行是一个终端会话（创建时间、主机、命令数、在线状态），
-    点击展开可查看该会话执行过的全部命令（含 MCP 令牌的 run_command 调用，归入「MCP 令牌调用」组）。
+    点击展开可查看该会话执行过的全部命令。AI Agent（MCP）会话同样按会话归组（m_ 前缀，
+    含该次 Agent 连接的全部 run_command 调用）；不带会话的旧客户端令牌调用归入「MCP 令牌调用」组。
     支持按会话创建时间范围与主机过滤。`,
 };
 
@@ -426,7 +429,7 @@ function renderRow(ev, idx, category) {
     // 来源：Web 终端（人工）或 MCP 令牌
     const src = ev.actorType === 'token' ? 'MCP 令牌' : 'Web 终端';
     const srcSub = ev.actorType === 'token'
-      ? (ev.tokenId ? `<span class="audit-sub">令牌:${escapeHtml(ev.tokenId)}</span>` : '')
+      ? (ev.tokenId ? `<span class="audit-sub">令牌:${escapeHtml(ev.tokenId)}</span>` : '') + (ev.sessionId ? sidLink(ev) : '')
       : sidLink(ev); // Web 终端命令显示所属会话
     const cmd = ev.command
       ? `<span class="audit-cmd" title="${escapeHtml(ev.command)}">${escapeHtml(ev.command)}</span>`
@@ -577,23 +580,30 @@ async function loadSessions(el) {
   list.innerHTML =
     SESSION_HEAD +
     sessions
-      .map(
-        (s) => `<div class="session-item" data-sid="${escapeHtml(s.sessionId)}">
+      .map((s) => {
+        const isMcp = s.source === 'mcp';
+        const statusTag = isMcp
+          ? '<span class="tag" title="AI Agent 经 MCP 令牌发起的会话">MCP</span>'
+          : `<span class="tag ${s.online ? 'ok' : 'closed'}">${s.online ? '在线' : '已关闭'}</span>`;
+        const flags = isMcp
+          ? (s.tokenId ? `<span class="tag" title="令牌 ${escapeHtml(s.tokenId)}">令牌调用</span>` : '')
+          : `${s.failed ? '<span class="tag warn">连接失败</span>' : ''}${
+              localTabOf(s)?.bg ? '<span class="tag warn">后台运行</span>' : ''
+            }`;
+        return `<div class="session-item" data-sid="${escapeHtml(s.sessionId)}">
           <div class="session-row">
             <span class="session-toggle">${icon('chevron', 13)}</span>
-            <span class="tag ${s.online ? 'ok' : 'closed'}">${s.online ? '在线' : '已关闭'}</span>
+            ${statusTag}
             <span class="session-sid" title="会话 ID">${escapeHtml(s.sessionId)}</span>
             <span class="session-host" title="${escapeHtml(s.hostAddress ?? '')}">${escapeHtml(s.hostId ?? '-')}</span>
             <span class="session-time">${formatTime(s.createdAt)} 创建</span>
-            <span class="session-flags">${s.failed ? '<span class="tag warn">连接失败</span>' : ''}${
-              localTabOf(s)?.bg ? '<span class="tag warn">后台运行</span>' : ''
-            }</span>
+            <span class="session-flags">${flags}</span>
             <span class="session-count">${s.commandCount} 条命令</span>
             ${sessionActionHtml(s)}
           </div>
           <div class="session-cmds" hidden></div>
-        </div>`
-      )
+        </div>`;
+      })
       .join('') +
     // MCP 令牌调用（无会话）归入末尾虚拟组
     `<div class="session-item" data-sid="__mcp__">
@@ -635,8 +645,11 @@ function localTabOf(s) {
   return s.online ? findLocalTab(s.sessionId, s.hostId) : null;
 }
 
-/** 会话行操作按钮：仅本页还在的会话可「继续连接/转到会话」；已结束的会话不可恢复，不再给出入口 */
+/** 会话行操作按钮：MCP 会话无终端现场；仅本页还在的会话可「继续连接/转到会话」；已结束的会话不可恢复 */
 function sessionActionHtml(s) {
+  if (s.source === 'mcp') {
+    return '<span class="session-act disabled" title="AI Agent 会话（MCP），无终端现场可恢复">AI 会话</span>';
+  }
   const tab = localTabOf(s);
   if (tab) {
     const bg = Boolean(tab.bg);
@@ -658,13 +671,15 @@ function resumeSession(sid, hostId) {
   closeModal();
 }
 
-/** 展开会话：加载该会话执行的命令（倒序），MCP 组加载全部令牌命令 */
+/** 展开会话：加载该会话执行的命令（倒序）；MCP 会话（m_*）按会话+来源过滤，无会话组加载全部令牌命令 */
 async function loadSessionCommands(panel, sid) {
   panel.innerHTML = '<div class="placeholder-box" style="padding:12px 0">加载中…</div>';
   const path =
     sid === '__mcp__'
       ? `audit?category=commands&source=mcp&limit=500`
-      : `audit?category=commands&sessionId=${encodeURIComponent(sid)}&limit=500`;
+      : sid.startsWith('m_')
+        ? `audit?category=commands&source=mcp&sessionId=${encodeURIComponent(sid)}&limit=500`
+        : `audit?category=commands&sessionId=${encodeURIComponent(sid)}&limit=500`;
   let body;
   try {
     const res = await apiFetch(path);

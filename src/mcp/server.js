@@ -1,12 +1,24 @@
 // MCP 端点（FR-022~043 / mcp-tools.md 契约）：挂载在既有 HTTP 服务的 /mcp，不新开端口（宪法 III）
 // 说明：按宪法 VI（YAGNI）直接实现 MCP 所需的 JSON-RPC 子集（initialize/tools/list/tools/call），
-// 不引入 SDK 的会话传输层——基础版为无状态调用，鉴权与审计由本层统一控制。
+// 不引入 SDK 的会话传输层——服务端保持无状态，会话 ID 仅按 Streamable HTTP 规范在
+// initialize 时生成并经 Mcp-Session-Id 响应头返回，由客户端后续请求回传后透传进审计。
+import { randomUUID } from 'node:crypto';
 import { checkPathAccess, checkCommand } from '../ssh/policy.js';
 import { withSsh, execCommand } from '../ssh/exec.js';
 import { redact, truncateDigest } from '../crypto/redact.js';
 import { checkRateLimit } from './rate-limit.js';
 
 const MAX_READ_BYTES = 1024 * 512; // read_file 单次上限 512KB
+
+/** MCP 会话 ID：m_ 前缀 + 12 位 hex（与用户终端会话 s_ 前缀区分） */
+export function newMcpSessionId() {
+  return `m_${randomUUID().replace(/-/g, '').slice(0, 12)}`;
+}
+
+/** 客户端回传的会话头格式校验：非法值一律视为无会话（防审计注入垃圾值） */
+export function validMcpSessionId(v) {
+  return typeof v === 'string' && /^m_[0-9a-f]{12}$/.test(v) ? v : null;
+}
 
 /** 工具注册矩阵（第一层判定：能力隔离，FR-031） */
 export function toolDefinitions(level) {
@@ -53,13 +65,28 @@ export function toolDefinitions(level) {
 
 /**
  * 处理 /mcp 请求（已在路由层完成 Bearer 鉴权与限流预检）。
- * @param {{token: object, runtime: object, config: object, store: object, audit: object, masterKey: Buffer}} ctx
+ * @param {{token: object, runtime: object, config: object, store: object, audit: object, masterKey: Buffer,
+ *          clientSessionId?: string|null, onSessionCreated?: (sid: string) => void}} ctx
+ *   clientSessionId：请求头 Mcp-Session-Id 中经校验的会话 ID（无/非法 → null）
+ *   onSessionCreated：initialize 生成新会话 ID 后回调（调用方用于设置响应头）
  */
 export async function handleMcpCall(body, ctx) {
   const { token, config, store, audit, masterKey } = ctx;
   const method = body?.method;
 
   if (method === 'initialize') {
+    // Streamable HTTP 规范：会话 ID 经响应头返回，客户端后续请求自动携带；
+    // 服务端不存储会话状态——每次 initialize 即一个新 AI Agent 会话。
+    const sessionId = newMcpSessionId();
+    ctx.onSessionCreated?.(sessionId);
+    audit.log({
+      actor: token.ownerId,
+      actorType: 'token',
+      tokenId: token.id,
+      event: 'mcp-session-start',
+      result: 'success',
+      sessionId,
+    });
     return {
       jsonrpc: '2.0',
       id: body.id ?? null,
@@ -82,14 +109,14 @@ export async function handleMcpCall(body, ctx) {
     }
     try {
       const result = await dispatchTool(name, args, ctx);
-      auditToolCall(audit, token, name, args, result, 'success', null);
+      auditToolCall(audit, token, name, args, result, 'success', null, ctx.clientSessionId ?? null);
       return {
         jsonrpc: '2.0',
         id: body.id ?? null,
         result: { content: [{ type: 'text', text: JSON.stringify(result) }] },
       };
     } catch (err) {
-      auditToolCall(audit, token, name, args, null, err.code === 'rate_limited' ? 'denied' : 'error', err.code ?? err.message);
+      auditToolCall(audit, token, name, args, null, err.code === 'rate_limited' ? 'denied' : 'error', err.code ?? err.message, ctx.clientSessionId ?? null);
       return {
         jsonrpc: '2.0',
         id: body.id ?? null,
@@ -104,12 +131,25 @@ export async function handleMcpCall(body, ctx) {
   return rpcError(body.id ?? null, -32601, `Method not found: ${method}`);
 }
 
+/** DELETE /mcp：客户端主动结束会话（Streamable HTTP 规范）→ 记 mcp-session-end */
+export function handleMcpDelete(ctx) {
+  const { token, audit } = ctx;
+  audit.log({
+    actor: token.ownerId,
+    actorType: 'token',
+    tokenId: token.id,
+    event: 'mcp-session-end',
+    result: 'success',
+    sessionId: ctx.clientSessionId ?? null,
+  });
+}
+
 function rpcError(id, code, message) {
   return { jsonrpc: '2.0', id: id ?? null, error: { code, message } };
 }
 
-/** 审计：每次工具调用一条 AuditEvent（FR-027/041/042） */
-function auditToolCall(audit, token, name, args, result, resultStatus, reason) {
+/** 审计：每次工具调用一条 AuditEvent（FR-027/041/042）；sessionId 为客户端回传的 MCP 会话 ID */
+function auditToolCall(audit, token, name, args, result, resultStatus, reason, sessionId) {
   audit.log({
     actor: token.ownerId,
     actorType: 'token',
@@ -118,6 +158,7 @@ function auditToolCall(audit, token, name, args, result, resultStatus, reason) {
     event: name === 'run_command' ? 'command' : name === 'read_file' ? 'file-read' : 'command',
     result: resultStatus,
     reason,
+    sessionId,
     command: name === 'run_command' ? args?.command : undefined,
     outputDigest: result?.stdoutDigest ?? null,
     path: args?.path ?? null,

@@ -80,7 +80,7 @@ export function createAuditLogger({ logDir, config }) {
         hostId: event.hostId ?? null,
         hostAddress: event.hostAddress ?? null,
         authType: event.authType ?? null,
-        sessionId: event.sessionId ?? null, // 会话 ID（Web 终端事件；MCP 调用为 null）
+        sessionId: event.sessionId ?? null, // 会话 ID（Web 终端 S+时间戳，如 S20261016234814；MCP Agent 会话 m_*；旧客户端 MCP 调用为 null）
         event: event.event,
         result: event.result ?? 'success',
         reason: event.reason ?? null,

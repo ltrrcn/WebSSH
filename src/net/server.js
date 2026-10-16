@@ -26,16 +26,17 @@ import { twofaRoutes } from '../api/twofa.js';
 import { mcpDirectRoutes } from '../api/mcp-direct.js';
 import { quickExecRoutes } from '../api/quick-exec.js';
 import { fsRoutes } from '../api/fs.js';
+import { profileRoutes } from '../api/profile.js';
 import { authenticateToken } from '../mcp/tokens.js';
-import { handleMcpCall } from '../mcp/server.js';
+import { handleMcpCall, handleMcpDelete, validMcpSessionId } from '../mcp/server.js';
 import { checkRateLimit } from '../mcp/rate-limit.js';
 import { readJsonBody } from './router.js';
 
 /** /mcp 处理：Bearer 鉴权 → 限流 → JSON-RPC 分发 */
 async function mcpHandler(req, res, deps) {
-  if (req.method !== 'POST') {
-    res.writeHead(405, { 'content-type': 'application/json', allow: 'POST' });
-    return res.end(JSON.stringify({ error: { code: 'method_not_allowed', message: '仅支持 POST' } }));
+  if (req.method !== 'POST' && req.method !== 'DELETE') {
+    res.writeHead(405, { 'content-type': 'application/json', allow: 'POST, DELETE' });
+    return res.end(JSON.stringify({ error: { code: 'method_not_allowed', message: '仅支持 POST / DELETE' } }));
   }
   const auth = req.headers.authorization ?? '';
   // 令牌来源：Authorization: Bearer（标准）→ X-MCP-Token（回退）。
@@ -60,6 +61,25 @@ async function mcpHandler(req, res, deps) {
     res.writeHead(429, { 'content-type': 'application/json' });
     return res.end(JSON.stringify({ error: { code: 'rate_limited', message: '超出令牌调用频率限制' } }));
   }
+  // 客户端回传的 MCP 会话 ID（Streamable HTTP 规范；格式非法视为无会话）
+  const clientSessionId = validMcpSessionId(req.headers['mcp-session-id']);
+  const ctx = {
+    token: result.token,
+    runtime: deps.runtime,
+    config: deps.config,
+    store: deps.store,
+    audit: deps.audit,
+    masterKey: deps.masterKey,
+    clientSessionId,
+  };
+
+  // DELETE /mcp：会话主动结束（仅留痕，无服务端状态可清理）
+  if (req.method === 'DELETE') {
+    handleMcpDelete(ctx);
+    res.writeHead(204);
+    return res.end();
+  }
+
   let body;
   try {
     body = await readJsonBody(req);
@@ -72,16 +92,18 @@ async function mcpHandler(req, res, deps) {
     res.writeHead(202);
     return res.end();
   }
+  // initialize 生成新会话 ID 时经响应头回传（Mcp-Session-Id）
+  let sessionHeader = null;
   const response = await handleMcpCall(body, {
-    token: result.token,
-    runtime: deps.runtime,
-    config: deps.config,
-    store: deps.store,
-    audit: deps.audit,
-    masterKey: deps.masterKey,
+    ...ctx,
+    onSessionCreated: (sid) => {
+      sessionHeader = sid;
+    },
   });
+  const headers = { 'content-type': 'application/json' };
+  if (sessionHeader) headers['mcp-session-id'] = sessionHeader;
   const text = JSON.stringify(response);
-  res.writeHead(200, { 'content-type': 'application/json', 'content-length': Buffer.byteLength(text) });
+  res.writeHead(200, { ...headers, 'content-length': Buffer.byteLength(text) });
   res.end(text);
 }
 
@@ -154,6 +176,7 @@ export async function startApp(opts = {}) {
     ...mcpDirectRoutes(deps),
     ...quickExecRoutes(deps),
     ...fsRoutes(deps),
+    ...profileRoutes(deps),
   ];
 
   const router = createRouter({

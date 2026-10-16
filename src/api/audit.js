@@ -78,17 +78,22 @@ export function auditRoutes(deps) {
         const to = q.get('to') ? Date.parse(q.get('to')) : null;
         const hostId = q.get('hostId');
 
-        // 人工审计流按 sessionId 聚合：创建时间取连接尝试时刻，命令数、结束时间一并汇总
-        const events = await audit.listAll({ actorType: 'user' });
+        // 人工审计流按 sessionId 聚合：创建时间取连接尝试时刻，命令数、结束时间一并汇总。
+        // MCP 令牌流（AI Agent 会话，sessionId=m_*）同样聚合，标记 source='mcp'；
+        // 无 sessionId 的 MCP 调用（旧客户端）跳过——前端归入「MCP 令牌调用（无会话）」组。
+        const events = await audit.listAll();
         const bySid = new Map();
         for (const e of events) {
           if (!e.sessionId) continue;
+          const isMcp = e.actorType === 'token';
           let s = bySid.get(e.sessionId);
           if (!s) {
             s = {
               sessionId: e.sessionId,
+              source: isMcp ? 'mcp' : 'user',
               hostId: e.hostId,
               hostAddress: e.hostAddress,
+              tokenId: isMcp ? e.tokenId : undefined,
               createdAt: e.ts,
               endedAt: null,
               commandCount: 0,
@@ -96,17 +101,24 @@ export function auditRoutes(deps) {
             };
             bySid.set(e.sessionId, s);
           }
-          if (e.event === 'connect-attempt' && e.ts < s.createdAt) s.createdAt = e.ts;
+          if (isMcp) {
+            // MCP 会话：创建时间取 mcp-session-start（无则最早事件），结束时间取 mcp-session-end
+            if (e.event === 'mcp-session-start' && e.ts < s.createdAt) s.createdAt = e.ts;
+            if (e.event === 'mcp-session-end') s.endedAt = e.ts;
+          } else {
+            if (e.event === 'connect-attempt' && e.ts < s.createdAt) s.createdAt = e.ts;
+            if (e.event === 'disconnect') s.endedAt = e.ts;
+            if (e.event === 'connect-failure') s.failed = true;
+          }
           if (e.event === 'command' && e.result === 'success') s.commandCount++;
-          if (e.event === 'disconnect') s.endedAt = e.ts;
-          if (e.event === 'connect-failure') s.failed = true;
         }
         const onlineIds = new Set(
           (sessionManager?.listSessions(identity.id) ?? []).map((s) => s.id)
         );
         let sessions = [...bySid.values()].map((s) => ({
           ...s,
-          online: onlineIds.has(s.sessionId),
+          // MCP 会话服务端无状态，永远不在线（前端以 MCP 标签替代在线状态展示）
+          online: s.source === 'mcp' ? false : onlineIds.has(s.sessionId),
         }));
         if (from) sessions = sessions.filter((s) => Date.parse(s.createdAt) >= from);
         if (to) sessions = sessions.filter((s) => Date.parse(s.createdAt) <= to);
