@@ -215,27 +215,30 @@
     .user-mgmt-avatar-btns { display: flex; gap: 8px; }
     .um-account-value { color: var(--text-dim); font-size: 13px; word-break: break-all; }
     /* MCP 令牌列表（R003）：表头与行同为 grid、同列宽
-       （名称100 / 级别44 / 状态64 / 主机数1 / 令牌提示1 / 创建时间126 / 活跃时间126 / 操作84），
-       列宽两处必须同步改；表头风格同分组管理 .group-head */
+       （名称72 / 级别48 / 状态64 / 主机数1 / 令牌提示1.8 / 创建时间92 / 活跃时间92 / 操作84），
+       列宽两处必须同步改；表头风格同分组管理 .group-head；名称/级别列收紧，级别标签左贴名称列；
+       时间列只显日期故压缩，省出的宽度给令牌提示 */
     #token-list .token-head,
     #token-list .audit-row {
-      display: grid; grid-template-columns: 100px 44px 64px 1fr 1fr 126px 126px 84px; gap: 12px;
+      display: grid; grid-template-columns: 72px 48px 64px 1fr 1.8fr 92px 92px 84px; gap: 12px;
       align-items: center;
     }
-    /* 操作列按钮组：撤销中 = 撤销+眼睛；已撤销 = 恢复+删除+眼睛；已过期 = 删除+眼睛 */
-    #token-list .audit-row .token-ops { display: flex; align-items: center; gap: 4px; }
+    /* 操作列固定三槽位：左=恢复（占位）| 中=禁止/删除（同位）| 右=眼睛（恒在居右），空槽占位不对齐漂移 */
+    #token-list .audit-row .token-ops { display: flex; align-items: center; justify-content: flex-end; gap: 4px; }
+    #token-list .audit-row .token-ops > * { width: 25px; display: flex; justify-content: center; flex: none; }
     #token-list .token-head {
       padding: 8px 16px; font-size: 10.5px; color: var(--text-faint); letter-spacing: .05em;
       border-bottom: 1px solid var(--border); background: var(--bg-hover);
       position: sticky; top: 0; z-index: 1;
     }
-    /* 级别/状态列：表头与行内标签统一水平居中 */
-    #token-list .token-head-level,
+    /* 级别/状态列：级别左贴名称列（整体往左挪），状态保持居中 */
     #token-list .token-head-status,
     #token-list .audit-row .tag { justify-self: center; }
+    #token-list .token-head-level { justify-self: start; }
+    #token-list .audit-row > *:nth-child(2) { justify-self: start; }
     /* 行内名称字号收敛（12px → 11.5px）；级别/状态标签同步收敛一档 */
     #token-list .audit-row .audit-event { font-size: 11.5px; }
-    #token-list .audit-row .tag { font-size: 9.5px; padding: 1.5px 7px; }
+    #token-list .audit-row .tag { font-size: 9.5px; padding: 1.5px 7px; white-space: nowrap; }
     /* 名称单元格：名称 + 铅笔同格，铅笔平时淡化、悬停行时显现（与分组管理重命名同款） */
     #token-list .token-name-cell { display: flex; align-items: center; gap: 6px; min-width: 0; }
     #token-list .token-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
@@ -245,6 +248,16 @@
     #token-list .audit-row .audit-detail { min-width: 0; }
     #token-list .audit-row .audit-detail { min-width: 0; }
     #token-list .token-head-op { text-align: center; }
+    /* 快速悬停提示（替代原生 title 的 1s 延迟）：跟随单元格下方居中，立即显示 */
+    .fast-tip {
+      position: fixed; z-index: 300; transform: translateX(-50%);
+      background: var(--bg-panel); color: var(--text);
+      border: 1px solid var(--border); border-radius: 6px;
+      padding: 4px 8px; font-size: 11.5px; font-family: Menlo, monospace;
+      box-shadow: var(--shadow-lg); pointer-events: none; white-space: nowrap;
+      opacity: 0; transition: opacity .1s;
+    }
+    .fast-tip.show { opacity: 1; }
     .user-name { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 
     /* ===== 右侧终端区（FR-044/045） ===== */
@@ -1037,7 +1050,7 @@
       padding: 3px 10px; border-radius: 999px; white-space: nowrap;
     }
     .detail-time { margin-left: auto; color: var(--text-faint); font-size: 11.5px; font-family: Menlo, monospace; white-space: nowrap; }
-    .detail-close { flex-shrink: 0; }
+    .detail-close { flex-shrink: 0; margin-left: auto; }
     .detail-meta {
       display: grid; grid-template-columns: 1fr 1fr; gap: 8px 20px;
       background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-md);

@@ -59,12 +59,11 @@ ${writable ? '- 命令中的拼接、重定向语法与危险命令（rm/dd/shut
 }
 
 export async function renderTokens(el) {
+  // 布局参考分组管理：列表 + 底部「创建令牌」横条（qc-add-box 同款），点击进入创建页面
   el.innerHTML = `
-    <div class="audit-toolbar">
-      <button class="btn primary" id="token-create">${icon('plus')} 创建令牌</button>
-    </div>
     <div id="token-onetime"></div>
-    <div id="token-list" class="audit-list"><div class="placeholder-box">加载中…</div></div>`;
+    <div id="token-list" class="audit-list group-list"><div class="placeholder-box">加载中…</div></div>
+    <div class="qc-add-box" id="token-create" title="点击进入创建令牌页面">${icon('plus', 12)} 创建令牌</div>`;
   el.querySelector('#token-create').addEventListener('click', () => openTokenForm(el));
   await loadTokens(el);
 }
@@ -88,7 +87,7 @@ async function loadTokens(el) {
       <span>名称</span>
       <span class="token-head-level">级别</span>
       <span class="token-head-status">状态</span>
-      <span>授权主机数</span>
+      <span>主机数</span>
       <span>令牌提示</span>
       <span>创建时间</span>
       <span class="token-head-last" title="AI 客户端最近一次经 MCP 连接使用该令牌的时间">活跃时间</span>
@@ -103,20 +102,17 @@ async function loadTokens(el) {
         </span>
         <span class="tag ${t.level === 'writable' ? 'warn' : 'ok'}">${LEVEL_LABEL[t.level] ?? t.level}</span>
         <span class="tag ${t.status === 'active' ? 'ok' : ''}">${STATUS_LABEL[t.status] ?? t.status}</span>
-        <span class="audit-detail" title="${t.allHosts ? '动态授权：全部主机，含后续新增' : (t.hostGroups?.length ? `分组授权：${escapeHtml(t.hostGroups.join('、'))}` : '')}">${t.allHosts ? '全部主机' : (t.hostGroups?.length ? `${t.hostGroups.length} 个分组` : `${t.hostScope.length} 台主机`)}</span>
+        <span class="audit-detail">${t.allHosts ? '全部主机' : (t.hostGroups?.length ? `${t.hostGroups.length} 组` : `${t.hostScope.length} 台`)}</span>
         <span class="audit-detail" title="令牌明文仅创建时展示一次，此处为 mcp_ 前缀 + 前两位 + * + 后四位提示">${escapeHtml(t.tokenHint ?? '')}</span>
-        <span class="audit-time" title="${formatTime(t.createdAt)}">${formatTime(t.createdAt)}</span>
-        <span class="audit-time" title="${t.lastUsedAt ? formatTime(t.lastUsedAt) : '尚未被 AI 客户端使用过'}">${t.lastUsedAt ? formatTime(t.lastUsedAt) : '—'}</span>
+        <span class="audit-time" data-tip="${escapeHtml(formatTime(t.createdAt))}">${formatDate(t.createdAt)}</span>
+        <span class="audit-time" data-tip="${t.lastUsedAt ? escapeHtml(formatTime(t.lastUsedAt)) : ''}">${t.lastUsedAt ? formatDate(t.lastUsedAt) : '—'}</span>
         <span class="token-ops">
-          ${t.status === 'active'
-            ? `<button class="icon-btn danger-text token-revoke" data-id="${escapeHtml(t.id)}" data-name="${escapeHtml(t.name)}" title="撤销令牌「${escapeHtml(t.name)}」（立即生效，记录保留）">${icon('ban', 13)}</button>`
-            : ''}
           ${t.status === 'revoked'
             ? `<button class="icon-btn token-restore" data-id="${escapeHtml(t.id)}" data-name="${escapeHtml(t.name)}" title="恢复令牌「${escapeHtml(t.name)}」（重新启用，可再次接入 AI 客户端）">${icon('refresh', 13)}</button>`
-            : ''}
-          ${t.status !== 'active'
-            ? `<button class="icon-btn danger-text token-purge" data-id="${escapeHtml(t.id)}" data-name="${escapeHtml(t.name)}" title="永久删除令牌记录「${escapeHtml(t.name)}」（不可恢复）">${icon('trash', 13)}</button>`
-            : ''}
+            : '<span class="ops-slot"></span>'}
+          ${t.status === 'active'
+            ? `<button class="icon-btn danger-text token-revoke" data-id="${escapeHtml(t.id)}" data-name="${escapeHtml(t.name)}" title="撤销令牌「${escapeHtml(t.name)}」（立即生效，记录保留）">${icon('ban', 13)}</button>`
+            : `<button class="icon-btn danger-text token-purge" data-id="${escapeHtml(t.id)}" data-name="${escapeHtml(t.name)}" title="永久删除令牌记录「${escapeHtml(t.name)}」（不可恢复）">${icon('trash', 13)}</button>`}
           <button class="icon-btn token-eye" data-idx="${i}" title="查看令牌信息">${icon('eye', 13)}</button>
         </span>
       </div>`
@@ -176,6 +172,7 @@ async function loadTokens(el) {
       loadTokens(el);
     })
   );
+  bindFastTips(list);
 }
 
 // 令牌详情浮层（独立 overlay，不占用全局 modal 单例）：名称/级别/状态/授权主机数/创建时间/活跃时间
@@ -455,22 +452,19 @@ async function createTokenFromForm(form, levelInput, hosts) {
 }
 
 /**
- * 创建成功视图（明文仅此一次展示 FR-023）：恢复列表 + 一次性明文块 + 含真实令牌的 mcp.json（一键复制即完成接入）+ 提示词复制入口。
+ * 创建成功视图（明文仅此一次展示 FR-023）：独立成功页——仅展示一次性明文块与
+ * 含真实令牌的 mcp.json / 提示词复制入口；点「完成」后才进入令牌管理列表页。
  */
 function showCreated(el, created, promptText, mcpJson) {
   el.innerHTML = `
-    <div class="audit-toolbar">
-      <button class="btn primary" id="token-create">${icon('plus')} 创建令牌</button>
-    </div>
-    <div id="token-onetime"></div>
-    <div id="token-list" class="audit-list"></div>`;
-  el.querySelector('#token-create').addEventListener('click', () => openTokenForm(el));
+    <div id="token-onetime"></div>`;
   const onetime = el.querySelector('#token-onetime');
   onetime.innerHTML = `
     <div class="onetime-token">
-      <div>令牌「${escapeHtml(created.name)}」已创建。<b>明文仅此一次展示</b>，推荐直接复制下方 mcp.json 完成接入：</div>
+      <div>令牌「${escapeHtml(created.name)}」已创建。<b>明文仅此一次展示</b>，确认已复制保存后点「完成」进入令牌管理：</div>
       <div class="onetime-actions">
-        <button class="btn" id="token-copy">复制令牌</button>
+        <button class="btn" id="token-copy">仅复制令牌</button>
+        <button class="btn" id="token-copy-mcp" title="复制含真实令牌的 mcp.json，粘贴到 AI 客户端配置即可用">复制 MCP 配置</button>
         <button class="btn" id="token-copy-prompt" title="复制含接入地址与令牌明文的自包含提示词，AI 可直接据此接入">复制提示词</button>
       </div>
       <div class="tc-code-win">
@@ -486,12 +480,24 @@ function showCreated(el, created, promptText, mcpJson) {
         <span>令牌明文：</span>
         <span class="onetime-value">${escapeHtml(created.token)}</span>
       </div>
+      <div class="form-actions">
+        <button class="btn primary" id="token-done">完成</button>
+      </div>
     </div>`;
+  // 完成：确认已复制保存后进入令牌管理列表（此前为成功块叠在列表顶部，易忽略一次性明文）
+  onetime.querySelector('#token-done').addEventListener('click', () => renderTokens(el));
   onetime.querySelector('#token-copy-mcpjson').addEventListener('click', () => {
     navigator.clipboard?.writeText(mcpJson).then(() => {
       const b = onetime.querySelector('#token-copy-mcpjson');
       b.textContent = '已复制';
       setTimeout(() => (b.textContent = '复制'), 1200);
+    });
+  });
+  onetime.querySelector('#token-copy-mcp').addEventListener('click', () => {
+    navigator.clipboard?.writeText(mcpJson).then(() => {
+      const b = onetime.querySelector('#token-copy-mcp');
+      b.textContent = '已复制';
+      setTimeout(() => (b.textContent = '复制 MCP 配置'), 1200);
     });
   });
   onetime.querySelector('#token-copy-prompt').addEventListener('click', () => {
@@ -512,11 +518,36 @@ function showCreated(el, created, promptText, mcpJson) {
       getSelection().addRange(r);
     }
   });
-  loadTokens(el);
 }
 
 function formatTime(ts) {
   return ts ? new Date(ts).toLocaleString('zh-CN', { hour12: false }) : '-';
+}
+
+/** 仅年月日（列表默认展示）；悬停 tooltip 里仍保留完整时分秒 */
+function formatDate(ts) {
+  return ts ? new Date(ts).toLocaleDateString('zh-CN') : '-';
+}
+
+/** 快速悬停提示：原生 title 有约 1s 延迟，改为自定义 tooltip 立即显示（data-tip 驱动） */
+let fastTip = null;
+function bindFastTips(list) {
+  list.querySelectorAll('[data-tip]').forEach((el) => {
+    if (!el.dataset.tip) return;
+    el.addEventListener('mouseenter', () => {
+      if (!fastTip) {
+        fastTip = document.createElement('div');
+        fastTip.className = 'fast-tip';
+        document.body.appendChild(fastTip);
+      }
+      fastTip.textContent = el.dataset.tip;
+      const r = el.getBoundingClientRect();
+      fastTip.style.left = `${r.left + r.width / 2}px`;
+      fastTip.style.top = `${r.bottom + 6}px`;
+      fastTip.classList.add('show');
+    });
+    el.addEventListener('mouseleave', () => fastTip?.classList.remove('show'));
+  });
 }
 
 function escapeHtml(s) {

@@ -6,6 +6,7 @@ import { resolveIdentity } from '../net/auth.js';
 import { createTokenRecord, publicTokenView } from '../mcp/tokens.js';
 import { assertMatrixTightened } from '../ssh/policy.js';
 import { require2fa } from './twofa.js';
+import { normalizeDefaultGroup } from './groups.js';
 
 export function tokensRoutes(deps) {
   const { runtime, store, config, masterKey, audit } = deps;
@@ -65,21 +66,28 @@ export function tokensRoutes(deps) {
         if (!Array.isArray(hostScope) || hostScope.some((h) => typeof h !== 'string')) {
           return sendError(res, 422, 'invalid_field', 'hostScope 必须为主机 ID 数组');
         }
-        // 按分组授权（动态）：分组名数组；仅允许内置 default 与本人实体分组
+        // 按分组授权（动态）：分组名数组；与 /api/groups 列表同口径——
+        // 允许内置 Default（含 default/默认/null 历史别名）+ 本人实体分组 + 仅被主机引用的历史分组
         if (!Array.isArray(hostGroups) || hostGroups.some((g) => typeof g !== 'string' || !g)) {
           return sendError(res, 422, 'invalid_field', 'hostGroups 必须为分组名数组');
         }
+        // 主机列表先行获取：分组校验（历史分组来自主机引用）与 hostScope 归属校验共用
+        const mine = await store.listHosts(identity.id);
         if (hostGroups.length) {
           const myGroups = new Set((await store.listGroups(identity.id)).map((g) => g.name));
-          const badGroup = hostGroups.find((g) => g !== 'default' && !myGroups.has(g));
+          for (const h of mine) {
+            if (h.group && normalizeDefaultGroup(h.group) !== 'Default') myGroups.add(h.group);
+          }
+          const badGroup = hostGroups.find((g) => normalizeDefaultGroup(g) !== 'Default' && !myGroups.has(g));
           if (badGroup) {
             return sendError(res, 422, 'invalid_field', `hostGroups 含无效分组: ${badGroup}`);
           }
         }
+        // 内置别名统一归一化为 Default 存储，MCP 侧按同语义匹配
+        const groupRefs = hostGroups.map((g) => normalizeDefaultGroup(g));
         // 动态授权（FR-025 扩展）：开启后授权本人全部主机（含后续新增），hostScope 清空仅作记录
         const allHosts = body?.allHosts === true;
         // 主机范围必须全部归属本人（FR-025）；空 hostScope 保持既有合法语义（至少一台由前端保证）
-        const mine = await store.listHosts(identity.id);
         const badHost = hostScope.find((h) => !mine.some((m) => m.id === h));
         if (badHost) {
           return sendError(res, 422, 'invalid_field', `hostScope 含无效或非本人主机: ${badHost}`);
@@ -114,7 +122,7 @@ export function tokensRoutes(deps) {
           name: name.trim(),
           level,
           hostScope: allHosts ? [] : hostScope,
-          hostGroups,
+          hostGroups: groupRefs,
           allHosts,
           permissions: matrix,
           expiresAt,

@@ -10,6 +10,11 @@ export const DEFAULT_GROUP = 'Default';
 // Default 及历史别名：均视为内置分组名，禁止作为自定义分组创建/重命名目标
 const DEFAULT_ALIASES = new Set([DEFAULT_GROUP, 'default', '默认']);
 
+/** 内置分组名归一化：Default/default/默认/null → 'Default'；其余原样返回（供令牌等消费方对齐同一语义） */
+export function normalizeDefaultGroup(name) {
+  return name == null || DEFAULT_ALIASES.has(name) ? DEFAULT_GROUP : name;
+}
+
 export function groupsRoutes(deps) {
   const { runtime, store, audit } = deps;
 

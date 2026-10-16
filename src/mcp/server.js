@@ -7,6 +7,7 @@ import { checkPathAccess, checkCommand } from '../ssh/policy.js';
 import { withSsh, execCommand } from '../ssh/exec.js';
 import { redact, truncateDigest } from '../crypto/redact.js';
 import { checkRateLimit } from './rate-limit.js';
+import { normalizeDefaultGroup } from '../api/groups.js';
 
 const MAX_READ_BYTES = 1024 * 512; // read_file 单次上限 512KB
 
@@ -174,10 +175,12 @@ async function dispatchTool(name, args, ctx) {
   setDigestBytes(config.limits.outputDigestBytes ?? 2048);
 
   // 授权范围判定：allHosts（全部，含后续新增）或固定 hostScope 或按分组（分组下新增主机自动附带权限）
+  // 分组匹配用归一化语义：主机的 Default/default/默认/null 与令牌的 Default 视为同一内置分组
   const inScope = (h) =>
     token.allHosts === true ||
     token.hostScope.includes(h.id) ||
-    (Array.isArray(token.hostGroups) && token.hostGroups.includes(h.group ?? 'default'));
+    (Array.isArray(token.hostGroups) &&
+      token.hostGroups.some((n) => normalizeDefaultGroup(n) === normalizeDefaultGroup(h.group)));
 
   if (name === 'list_hosts') {
     const hosts = (await store.listHosts(token.ownerId)).filter(inScope);

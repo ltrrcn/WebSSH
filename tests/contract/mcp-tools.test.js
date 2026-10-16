@@ -138,6 +138,43 @@ test('按分组授权（动态）：分组下主机可访问，范围外拒绝�
   }
 });
 
+test('按分组授权：内置分组名 Default（含 default/默认/null 历史别名）均可创建令牌并匹配未分组主机', async () => {
+  const { app, cleanup, base } = await setup({}, [
+    { id: 'h_ungrouped', name: '未分组机' }, // group 为 null（历史未分组）
+    { id: 'h_legacy', name: '旧别名机', group: 'default' }, // 历史小写别名落盘值
+    { id: 'h_out', name: '组外机', group: 'g2' },
+  ]);
+  try {
+    // 前端「按分组授权」列表来自 /api/groups，第一项为内置 Default：勾选后提交（曾报「含无效分组: Default」）
+    for (const builtin of ['Default', 'default', '默认']) {
+      const t = await createToken(base, { level: 'readonly', hostScope: [], hostGroups: [builtin] });
+      assert.equal(t.status, 201, `内置别名 ${builtin} 应可创建令牌（HTTP ${t.status}）`);
+      const call = await rpc(base, t.body.token, 'tools/call', { name: 'list_hosts', arguments: {} });
+      const parsed = JSON.parse(call.body.result.content[0].text);
+      assert.deepEqual(
+        parsed.hosts.map((h) => h.id).sort(),
+        ['h_legacy', 'h_ungrouped'],
+        `别名 ${builtin} 创建的令牌应覆盖 null 与 default 落盘值的未分组主机`
+      );
+      // 组外主机仍拒绝
+      const denied = await rpc(base, t.body.token, 'tools/call', {
+        name: 'read_file',
+        arguments: { hostId: 'h_out', path: '/etc/hostname' },
+      });
+      assert.ok(denied.body.result?.isError || denied.body.error, '组外主机应被拒绝');
+    }
+    // 存储值归一化为 Default（列表视图与 MCP 匹配同语义）
+    const list = await (await fetch(`${base}/api/tokens`)).json();
+    for (const t of list) assert.ok(t.hostGroups.every((g) => g === 'Default'), '内置别名存储值应归一化为 Default');
+    // 未知分组名仍拒绝
+    const bad = await createToken(base, { level: 'readonly', hostScope: [], hostGroups: ['不存在的分组'] });
+    assert.equal(bad.status, 422, '未知分组名应 422');
+  } finally {
+    await app.close();
+    await cleanup();
+  }
+});
+
 test('run_command 判定：语法/黑名单拒绝，hostScope 外拒绝（FR-033/034，目标不可达场景）', async () => {
   const { app, cleanup, base } = await setup({}, [{ id: 'h_dead', host: '127.0.0.1', port: 1 }]);
   try {

@@ -7,7 +7,7 @@ import { icon } from './icons.js';
 const PERM_LABEL = { read: '读', write: '写', modify: '修改' };
 
 /**
- * 通用 mcp.json：CodeBuddy（~/.codebuddy/mcp.json）、Claude Code（项目 .mcp.json）、
+ * 通用 mcp.json：Workbuddy（~/.workbuddy/mcp.json）、Claude Code（项目 .mcp.json）、
  * Cursor / Cline 等支持远程 MCP（Streamable HTTP）的客户端均按此结构接入。
  */
 export function buildMcpJson(endpoint, token) {
@@ -78,7 +78,7 @@ export async function renderTokenConfig(el) {
   el.innerHTML = `
     <div class="tc-card">
       <div class="tc-card-title">${icon('plug', 15)} MCP 接入 <span class="tag">mcp.json</span></div>
-      <div class="tc-card-desc">保存为 AI 客户端的 mcp.json 即完成接入（CodeBuddy：<code>~/.codebuddy/mcp.json</code>；Claude Code：项目 <code>.mcp.json</code>；Cursor / Cline 等支持远程 MCP 的客户端按相同字段填写）。填入令牌明文后一键复制即用。</div>
+      <div class="tc-card-desc">保存为 AI 客户端的 mcp.json 即完成接入（Workbuddy：<code>~/.workbuddy/mcp.json</code>；Claude Code：项目 <code>.mcp.json</code>；Cursor / Cline 等支持远程 MCP 的客户端按相同字段填写）。填入令牌明文后一键复制即用。</div>
       <div class="tc-mcp-grid">
         <div class="tc-field">
           <label>接入端点</label>
