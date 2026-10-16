@@ -10,7 +10,7 @@ import { activateTab, restoreTab, findLocalTab } from './terminal.js';
 import { apiFetch, renderTwofaGate } from './twofa.js';
 
 /**
- * 403 twofa_required → 在容器内渲染两步验证引导页（重新验证/恢复入口/自动弹码开关）。
+ * 403 twofa_required → 在容器内渲染2FA验证引导页（开启2FA验证/恢复入口/自动弹码开关）。
  * 「自动弹出验证」偏好关闭时审计加载请求不再自动弹码，改由此呈现引导页；
  * 偏好开启时用户取消弹码同样落此页。验证/恢复成功后 retry 重载原内容。
  * @returns {boolean} true = 已渲染引导页（调用方应终止本次加载）
@@ -40,13 +40,13 @@ const EVENT_LABEL = {
   'group_create': '分组新建',
   'group_rename': '分组重命名',
   'group_delete': '分组删除',
-  twofa_setup: '两步验证开始绑定',
-  twofa_confirm: '两步验证绑定成功',
-  twofa_disable: '两步验证关闭',
-  twofa_verify: '两步验证通过',
-  twofa_verify_failure: '两步验证失败',
-  twofa_locked: '两步验证锁定',
-  twofa_actions_update: '两步验证保护范围更新',
+  twofa_setup: '2FA验证开始绑定',
+  twofa_confirm: '2FA验证绑定成功',
+  twofa_disable: '2FA验证关闭',
+  twofa_verify: '2FA验证通过',
+  twofa_verify_failure: '2FA验证失败',
+  twofa_locked: '2FA验证锁定',
+  twofa_actions_update: '2FA验证保护范围更新',
   twofa_recovery_success: '恢复码恢复成功',
   twofa_recovery_failure: '恢复码恢复失败',
   twofa_recovery_wipe: '恢复失败触发数据清除',

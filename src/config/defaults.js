@@ -27,7 +27,7 @@ export const DEFAULT_CONFIG = {
       'rm', 'dd', 'mkfs', 'shutdown', 'reboot', 'halt', 'chmod', 'chown', 'userdel',
     ],
   },
-  // 两步验证（TOTP）：secret 为 AES-256-GCM 加密结构（master.key 派生），
+  // 2FA验证（TOTP）：secret 为 AES-256-GCM 加密结构（master.key 派生），
   // recoveryCodes 仅存 SHA-256 哈希；failedAttempts/lockedUntil 为防爆破状态（持久化）。
   // recoveryAttempts：恢复入口累计失败次数（达到 RECOVERY_MAX_ATTEMPTS 触发不可逆清除，
   // 绑定/关闭成功后归零重新计）。
@@ -40,6 +40,9 @@ export const DEFAULT_CONFIG = {
       audit: true, // 命令/操作审计查看与审计设置修改
       tokens: true, // MCP 令牌创建/撤销/删除
     },
+    // 验证票据有效期（分钟，1-60）：验证通过后该时长内受保护操作免重复输码。
+    // 服务端统一执行（票据存内存，浏览器无法延长），对所有终端生效。
+    ticketTtlMinutes: 5,
     failedAttempts: 0,
     lockedUntil: null,
     recoveryAttempts: 0,

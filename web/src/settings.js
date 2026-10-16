@@ -10,19 +10,27 @@ import { renderTwofaPane, apiFetch } from './twofa.js';
 import { renderUserProfilePane } from './user-profile.js';
 
 // 弹窗页签集：设置（通用/审计/2FA/权限类，还原拆分前顺序）与 个人设置（令牌类）分离
+// 设置页签（group = 分组标题，与个人设置的「MCP 管理」同款样式）
 const SETTINGS_TABS = [
+  { label: '常规', group: true },
   { key: 'theme', icon: 'palette', label: '通用设置' },
   { key: 'quickCmds', icon: 'play', label: '快捷命令' },
   { key: 'groups', icon: 'folder', label: '分组管理' },
+  { label: '审计', group: true },
   { key: 'opsAudit', icon: 'list', label: '操作审计' },
   { key: 'cmdAudit', icon: 'play', label: '命令审计' },
-  { key: 'twofa', icon: 'shield', label: '两步验证' },
-  { key: 'permPolicy', icon: 'ban', label: '权限策略' },
+  { label: '安全性', group: true },
+  { key: 'twofa', icon: 'shield', label: '双因子认证' },
 ];
+// 个人设置页签：group = 不可点击的分组标题；child = 子菜单（缩进展示）
 const PROFILE_TABS = [
+  { label: '个人资料', group: true },
   { key: 'user', icon: 'user', label: '个人资料' },
-  { key: 'tokens', icon: 'key', label: 'MCP 令牌' },
-  { key: 'tokenConfig', icon: 'shield', label: '令牌配置' },
+  { label: 'MCP 管理', group: true },
+  { key: 'tokens', icon: 'key', label: '令牌管理', child: true },
+  { key: 'tokenConfig', icon: 'plug', label: '配置指引', child: true },
+  { key: 'tokenAdvanced', icon: 'sliders', label: '高级设置', child: true },
+  { key: 'permPolicy', icon: 'ban', label: '权限策略', child: true },
 ];
 
 /** 页签弹窗公共骨架：左侧竖向导航 + 右侧内容区；nav=false 时无导航、内容全宽（单页弹窗） */
@@ -30,7 +38,13 @@ function openTabbedModal({ title, tabs, injections, defaultPane, nav: withNav = 
   const m = openModal(
     `<div class="settings-layout">
       ${withNav ? `<div class="settings-nav">
-        ${tabs.map((t) => `<button data-pane="${t.key}">${icon(t.icon)} ${t.label}</button>`).join('')}
+        ${tabs
+          .map((t) =>
+            t.group
+              ? `<div class="settings-nav-group">${t.label}</div>`
+              : `<button data-pane="${t.key}"${t.child ? ' class="child"' : ''}>${icon(t.icon)} ${t.label}</button>`
+          )
+          .join('')}
       </div>` : ''}
       <div id="settings-pane" class="settings-content"></div>
     </div>`,
@@ -77,7 +91,7 @@ function openTabbedModal({ title, tabs, injections, defaultPane, nav: withNav = 
 }
 
 /** 构建全部页签渲染函数（设置类与安全类共享闭包注入） */
-function buildPanes(pane, { renderAudit, renderTokens, renderTokenConfig, renderPermPolicy, renderGroups, onGroupsChanged: groupsChanged, onProfileChanged: profileChanged }) {
+function buildPanes(pane, { renderAudit, renderTokens, renderTokenConfig, renderTokenAdvanced, renderPermPolicy, renderGroups, onGroupsChanged: groupsChanged, onProfileChanged: profileChanged }) {
   return {
     user: () => renderUserProfilePane(pane, { onProfileChanged: profileChanged }),
     theme: () => {
@@ -148,7 +162,7 @@ function buildPanes(pane, { renderAudit, renderTokens, renderTokenConfig, render
           </div>
           <div class="pref-row">
             <div class="pref-label">记录终端输出摘要
-              <div class="pref-desc" id="pref-audit-output-desc">默认关闭：命令审计只记命令原文与元数据。开启后每条命令附带其输出摘要（自动脱敏并截断，命令审计页「查看」可见）。与设置中两步验证面板的开关为同一设置</div>
+              <div class="pref-desc" id="pref-audit-output-desc">默认关闭：命令审计只记命令原文与元数据。开启后每条命令附带其输出摘要（自动脱敏并截断，命令审计页「查看」可见）。与设置中双因子认证面板的开关为同一设置</div>
             </div>
             <label class="switch"><input type="checkbox" id="pref-audit-output" /><span></span></label>
           </div>
@@ -201,8 +215,8 @@ function buildPanes(pane, { renderAudit, renderTokens, renderTokenConfig, render
         setPref('quickCmdMaxChars', v);
       });
 
-      // —— 终端输出摘要开关（服务端配置，热生效；与两步验证面板同一设置，两处入口）——
-      // 开启该开关前必须已绑定两步验证（后端同样强制校验）：未绑定时拦截并提示
+      // —— 终端输出摘要开关（服务端配置，热生效；与双因子认证面板同一设置，两处入口）——
+      // 开启该开关前必须已绑定2FA验证（后端同样强制校验）：未绑定时拦截并提示
       const auditOutputEl = pane.querySelector('#pref-audit-output');
       const auditOutputDesc = pane.querySelector('#pref-audit-output-desc');
       auditOutputEl.disabled = true;
@@ -227,14 +241,14 @@ function buildPanes(pane, { renderAudit, renderTokens, renderTokenConfig, render
           auditOutputEl.disabled = false;
           if (!bound) {
             auditOutputDesc.innerHTML +=
-              '<br><span style="color:var(--warn)">开启前需先绑定两步验证（设置 → 两步验证）</span>';
+              '<br><span style="color:var(--warn)">开启前需先绑定2FA验证（设置 → 双因子认证）</span>';
           }
         });
       auditOutputEl.addEventListener('change', async (e) => {
         const on = e.target.checked;
         if (on && !twofaBound) {
           // 未绑定 2FA：禁止开启（与后端校验一致），回滚并提示
-          alert('开启输出摘要记录前需先启用两步验证（设置 → 两步验证）');
+          alert('开启输出摘要记录前需先启用2FA验证（设置 → 双因子认证）');
           e.target.checked = false;
           return;
         }
@@ -276,7 +290,11 @@ function buildPanes(pane, { renderAudit, renderTokens, renderTokenConfig, render
     },
     tokenConfig: () => {
       if (renderTokenConfig) renderTokenConfig(pane);
-      else pane.innerHTML = '<div class="placeholder-box">令牌配置将在 US6 阶段交付。</div>';
+      else pane.innerHTML = '<div class="placeholder-box">配置指引将在后续版本提供。</div>';
+    },
+    tokenAdvanced: () => {
+      if (renderTokenAdvanced) renderTokenAdvanced(pane);
+      else pane.innerHTML = '<div class="placeholder-box">高级设置将在后续版本提供。</div>';
     },
     twofa: () => renderTwofaPane(pane),
     permPolicy: () => {
@@ -294,21 +312,22 @@ function buildPanes(pane, { renderAudit, renderTokens, renderTokenConfig, render
 }
 
 /**
- * 打开设置弹窗（通用类：通用设置/快捷命令/分组管理/操作审计/命令审计/两步验证/权限策略）。
+ * 打开设置弹窗（通用类：通用设置/快捷命令/分组管理/操作审计/命令审计/2FA验证/权限策略）。
  * @param {{renderAudit?: (el: HTMLElement, category: 'operation'|'commands')=>void, renderPermPolicy?: (el: HTMLElement)=>void, renderGroups?: (el: HTMLElement, opts: {onChanged?: ()=>void})=>void, onGroupsChanged?: ()=>void}} injections
+ * @param {string} [defaultPane] 初始页签 key（默认 'theme'）
  */
-export function openSettingsModal(injections = {}) {
+export function openSettingsModal(injections = {}, defaultPane = 'theme') {
   return openTabbedModal({
     title: '设置',
     tabs: SETTINGS_TABS,
     injections,
-    defaultPane: 'theme',
+    defaultPane,
   });
 }
 
 /**
  * 打开个人设置弹窗（个人资料/MCP 令牌/令牌配置；默认落在个人资料）。
- * @param {{renderTokens?: (el: HTMLElement)=>void, renderTokenConfig?: (el: HTMLElement)=>void, onProfileChanged?: ()=>void}} injections
+ * @param {{renderTokens?: (el: HTMLElement)=>void, renderTokenConfig?: (el: HTMLElement)=>void, renderTokenAdvanced?: (el: HTMLElement)=>void, onProfileChanged?: ()=>void}} injections
  * @param {string} [defaultPane] 初始页签 key（如 'tokens'：用户菜单「外部集成」直达 MCP 令牌）
  */
 export function openProfileModal(injections = {}, defaultPane = 'user') {

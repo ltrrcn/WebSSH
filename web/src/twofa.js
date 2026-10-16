@@ -1,5 +1,5 @@
-// 两步验证（TOTP，RFC 6238）前端：
-// - 设置「两步验证」面板：绑定（扫码/手动）→ 恢复码 → 动作开关 → 关闭
+// 2FA验证（TOTP，RFC 6238）前端：
+// - 设置「2FA验证」面板：绑定（扫码/手动）→ 恢复码 → 动作开关 → 关闭
 // - 验证码弹窗：独立 overlay（不复用 modal 单例——设置弹窗本身占用了它）
 // - apiFetch：受保护请求统一封装，自动携带 X-2FA-Ticket，
 //   收到 403 twofa_required 时自动弹码验证并重试一次（对调用方透明）
@@ -35,7 +35,7 @@ let overlayBusy = false;
  *   submit 校验成功返回 {ok:true}；失败返回 {ok:false, message}（弹窗内提示并允许重输）
  * @returns {Promise<boolean>} 验证是否成功
  */
-function codePromptOverlay({ submit, title = '两步验证', hint = '请输入认证器中的 6 位验证码' }) {
+function codePromptOverlay({ submit, title = '2FA验证', hint = '请输入认证器中的 6 位验证码' }) {
   return new Promise((resolve) => {
     if (overlayBusy) return resolve(false);
     overlayBusy = true;
@@ -169,8 +169,8 @@ export async function apiFetch(path, opts = {}) {
 }
 
 // —— 进入面板自动弹验证偏好（localStorage，仅本浏览器） ——
-// true（默认）：打开两步验证页即弹验证码框；
-// false：先进引导页（重新验证 + 恢复入口），手动点「重新验证」才弹码。
+// true（默认）：打开2FA验证页即弹验证码框；
+// false：先进引导页（开启2FA验证 + 恢复入口），手动点「开启2FA验证」才弹码。
 const AUTO_PROMPT_KEY = 'webssh:2fa-auto-prompt';
 
 function getAutoPrompt() {
@@ -190,7 +190,7 @@ function setAutoPrompt(v) {
   }
 }
 
-// —— 设置「两步验证」面板 ——
+// —— 设置「2FA验证」面板 ——
 
 function qrSvg(uri) {
   // vendor/qrcodegen.js（kazuhikoarase，MIT）：typeNumber 0 = 自动适配版本
@@ -204,27 +204,26 @@ function qrSvg(uri) {
 }
 
 /**
- * 未验证引导页（两步验证/审计/命令审计页共用）：
- * 重新验证入口 + 恢复入口 + 「进入面板自动弹出验证」开关。
+ * 未验证引导页（2FA验证/审计/命令审计页共用）：
+ * 开启2FA验证入口 + 恢复入口 + 「进入面板自动弹出验证」开关。
  * @param {HTMLElement} el 容器
- * @param {{onDone?: ()=>void}} [opts] 验证/恢复成功后的回调（默认重载两步验证面板）
+ * @param {{onDone?: ()=>void}} [opts] 验证/恢复成功后的回调（默认重载2FA验证面板）
  */
 export function renderTwofaGate(el, { onDone } = {}) {
   // 未验证引导页：只含验证与恢复入口——「进入面板自动弹出验证」开关属于面板设置，
   // 需验证通过后（已绑定面板的「管理」区）才可见可改。
   el.innerHTML = `
     <div class="pref-section">
-      <div class="pref-title">两步验证</div>
+      <div class="pref-title">2FA验证</div>
       <div class="twofa-intro">
         <div class="twofa-intro-icon">${icon('shield', 30)}</div>
-        <p class="twofa-intro-title">面板已受两步验证保护</p>
-        <p class="twofa-intro-desc">请输入认证器中的 6 位动态验证码进入面板；验证一次后 5 分钟内免重复输入。</p>
-        <button class="btn primary" id="twofa-retry">${icon('shield')} 重新验证</button>
-        <button class="btn" id="twofa-recover">认证器丢失？使用恢复码</button>
+        <p class="twofa-intro-title">面板已受2FA验证保护</p>
+        <button class="btn primary" id="twofa-retry">${icon('shield')} 开启2FA验证</button>
+        <button class="btn" id="twofa-recover">恢复</button>
       </div>
     </div>`;
   const finish = onDone ?? (() => renderTwofaPane(el));
-  // 「重新验证」直接弹码（无视偏好——点按钮即表示愿意输码），成功后回调重载
+  // 「开启2FA验证」直接弹码（无视偏好——点按钮即表示愿意输码），成功后回调重载
   el.querySelector('#twofa-retry').addEventListener('click', async () => {
     const ok = await promptTwofaVerify();
     if (ok) finish();
@@ -238,7 +237,7 @@ export async function renderTwofaPane(el) {
   try {
     // 已绑定时 status 受 2FA 保护（面板本身是高危入口）。
     // apiFetch 遵循偏好：开启（默认）→ 403 自动弹码，进来即认证；
-    // 关闭 → 返回 403，由下方渲染引导页（点「重新验证」才弹码）。
+    // 关闭 → 返回 403，由下方渲染引导页（点「开启2FA验证」才弹码）。
     const res = await apiFetch('2fa/status');
     if (res.ok) status = await res.json();
     else if (res.status === 403) {
@@ -249,7 +248,7 @@ export async function renderTwofaPane(el) {
     /* 网络异常 */
   }
   if (!status) {
-    el.innerHTML = '<div class="placeholder-box">两步验证状态加载失败，请重试</div>';
+    el.innerHTML = '<div class="placeholder-box">2FA验证状态加载失败，请重试</div>';
     return;
   }
   if (status.enabled) renderBound(el, status);
@@ -260,19 +259,19 @@ export async function renderTwofaPane(el) {
 function renderIntro(el) {
   el.innerHTML = `
     <div class="pref-section">
-      <div class="pref-title">两步验证</div>
+      <div class="pref-title">2FA验证</div>
       <div class="twofa-intro">
         <div class="twofa-intro-icon">${icon('shield', 30)}</div>
         <p class="twofa-intro-title">为高危险操作增加一层动态验证</p>
         <p class="twofa-intro-desc">
           绑定后，使用 <b>Google Authenticator</b>、<b>腾讯令牌</b> 等任意 TOTP 认证器扫码，
-          在执行受保护操作时输入 6 位动态验证码。验证一次后 5 分钟内免重复输入。
+          在执行受保护操作时输入 6 位动态验证码。
         </p>
         <div class="twofa-scope">
           <div class="twofa-scope-item">${icon('list', 15)}<span>命令审计（查看与设置）</span></div>
           <div class="twofa-scope-item">${icon('key', 15)}<span>MCP 令牌（创建 / 撤销 / 删除）</span></div>
         </div>
-        <button class="btn primary" id="twofa-start">${icon('shield')} 启用两步验证</button>
+        <button class="btn primary" id="twofa-start">${icon('shield')} 启用2FA验证</button>
       </div>
     </div>`;
   el.querySelector('#twofa-start').addEventListener('click', () => startSetup(el));
@@ -380,8 +379,8 @@ function renderRecoveryCodes(el, codes) {
       <div class="pref-title">绑定成功</div>
       <div class="twofa-recovery">
         <p class="twofa-intro-desc">
-          两步验证已启用。请将以下 <b>恢复码</b> 保存到安全位置——
-          认证器丢失时，可用任一恢复码完成验证或关闭两步验证。
+          2FA验证已启用。请将以下 <b>恢复码</b> 保存到安全位置——
+          认证器丢失时，可用任一恢复码完成验证或关闭2FA验证。
           每个恢复码只能使用一次，<b>此页关闭后不再展示</b>。
         </p>
         <div class="twofa-code-grid">
@@ -411,13 +410,13 @@ function renderBound(el, status) {
   const locked = status.locked;
   el.innerHTML = `
     <div class="pref-section">
-      <div class="pref-title">两步验证</div>
+      <div class="pref-title">2FA验证</div>
       <div class="pref-row">
         <div class="pref-label">状态
           <div class="pref-desc">
             ${locked
               ? '<span class="twofa-locked">已锁定：连续验证失败次数过多，请稍后重试</span>'
-              : '已启用 · 验证一次后 5 分钟内免重复输入'}
+              : `已启用 · 验证一次后 ${status.ticketTtlMinutes} 分钟内免重复输入`}
           </div>
         </div>
         <span class="tag ${locked ? 'danger' : 'ok'}">${locked ? '已锁定' : '已启用'}</span>
@@ -443,11 +442,17 @@ function renderBound(el, status) {
     <div class="pref-section">
       <div class="pref-title">管理</div>
       <div class="pref-row">
-        <div class="pref-label">记录终端输出摘要<div class="pref-desc">默认关闭：命令审计只记命令原文与元数据。开启后每条命令附带其输出摘要（自动脱敏并截断，命令审计页「查看」可见）；依赖两步验证保护，关闭两步验证前需先关闭本开关</div></div>
+        <div class="pref-label">记录终端输出摘要<div class="pref-desc">默认关闭：命令审计只记命令原文与元数据。开启后每条命令附带其输出摘要（自动脱敏并截断，命令审计页「查看」可见）；依赖2FA验证保护，关闭2FA验证前需先关闭本开关</div></div>
         <label class="switch"><input type="checkbox" id="twofa-audit-output" ${locked ? 'disabled' : ''} /><span></span></label>
       </div>
       <div class="pref-row">
-        <div class="pref-label">进入面板自动弹出验证<div class="pref-desc">开启后打开两步验证/审计等受保护页面即要求输码；关闭则先显示引导页，点「重新验证」时才输码（仅本浏览器）</div></div>
+        <div class="pref-label">验证有效期<div class="pref-desc">验证通过后该时长内受保护操作免重复输码，过期后需重新输码。由服务端统一执行与计时，对所有终端生效</div></div>
+        <select class="pref-select" id="twofa-ticket-ttl" ${locked ? 'disabled' : ''}>
+          ${[1, 5, 10, 15, 30, 60].map((m) => `<option value="${m}"${m === status.ticketTtlMinutes ? ' selected' : ''}>${m} 分钟</option>`).join('')}
+        </select>
+      </div>
+      <div class="pref-row">
+        <div class="pref-label">进入面板自动弹出验证<div class="pref-desc">开启后打开2FA验证/审计等受保护页面即要求输码；关闭则先显示引导页，点「开启2FA验证」时才输码（仅本浏览器）</div></div>
         <label class="switch"><input type="checkbox" id="twofa-auto-prompt-bound" ${getAutoPrompt() ? 'checked' : ''} /><span></span></label>
       </div>
       <div class="pref-row">
@@ -455,7 +460,7 @@ function renderBound(el, status) {
         <button class="btn" id="twofa-clear-cache">清除</button>
       </div>
       <div class="pref-row">
-        <div class="pref-label">关闭两步验证<div class="pref-desc">关闭后受保护操作不再要求动态验证码；需先关闭「记录终端输出摘要」</div></div>
+        <div class="pref-label">关闭2FA验证<div class="pref-desc">关闭后受保护操作不再要求动态验证码；需先关闭「记录终端输出摘要」</div></div>
         <button class="btn danger-text" id="twofa-disable" ${locked ? 'disabled' : ''}>关闭</button>
       </div>
     </div>`;
@@ -503,7 +508,35 @@ function renderBound(el, status) {
     setAutoPrompt(e.target.checked);
   });
 
-  // 清除本机验证缓存：丢弃 sessionStorage 中的 2FA 票据（5 分钟免输凭证），
+  // 验证有效期：修改安全参数是用户主动操作，forcePrompt 无视偏好直接弹码。
+  // TTL 存于服务端内存票据表，浏览器无法延长；已签发票据按原过期时间自然失效。
+  const ttlEl = el.querySelector('#twofa-ticket-ttl');
+  ttlEl.addEventListener('change', async (e) => {
+    const minutes = Number(e.target.value);
+    ttlEl.disabled = true;
+    try {
+      const res = await apiFetch('2fa/ticket-ttl', {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ ticketTtlMinutes: minutes }),
+        forcePrompt: true,
+      });
+      if (res._twofaCancelled) {
+        ttlEl.value = String(status.ticketTtlMinutes); // 用户取消验证：静默回滚
+        return;
+      }
+      const body = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(body?.error?.message ?? `保存失败（HTTP ${res.status}）`);
+      status.ticketTtlMinutes = minutes;
+    } catch (err) {
+      alert(`验证有效期保存失败：${err.message}`);
+      ttlEl.value = String(status.ticketTtlMinutes);
+    } finally {
+      ttlEl.disabled = locked;
+    }
+  });
+
+  // 清除本机验证缓存：丢弃 sessionStorage 中的 2FA 票据（免输凭证），
   // 仅影响本浏览器，服务端与其他终端不受影响。清除后当前面板保留，
   // 但下一次进入面板或任何受保护操作都会重新要求输码。
   el.querySelector('#twofa-clear-cache').addEventListener('click', () => {
@@ -548,14 +581,14 @@ function renderBound(el, status) {
   el.querySelector('#twofa-disable').addEventListener('click', async () => {
     // 预检：输出摘要开着时禁止关闭（后端同样强制），直接提示免走弹码
     if (auditOutputEl.checked) {
-      alert('请先关闭「记录终端输出摘要」，再关闭两步验证。');
+      alert('请先关闭「记录终端输出摘要」，再关闭2FA验证。');
       return;
     }
     // 原生 confirm（与令牌页一致）：confirmModal 复用全局 modal 单例，会顶掉设置弹窗
-    if (!confirm('确定关闭两步验证？关闭后受保护操作将不再要求动态验证码。')) return;
+    if (!confirm('确定关闭2FA验证？关闭后受保护操作将不再要求动态验证码。')) return;
     // 关闭必须验证（防降级）：弹码并提交到 disable 接口
     const verified = await codePromptOverlay({
-      title: '关闭两步验证',
+      title: '关闭2FA验证',
       hint: '关闭前请输入认证器 6 位验证码或恢复码确认本人操作',
       submit: async (code) => {
         const res = await fetch(apiUrl('2fa/disable'), {
@@ -577,7 +610,7 @@ function renderBound(el, status) {
 
 // —— 恢复入口（认证器丢失）：仅恢复码，累计 3 次机会 ——
 // UI 文案约定：只告知「有 3 次机会，错误无法恢复」，不提示错误后果。
-// onDone：恢复成功后的回调（默认重载两步验证面板；审计页等外部入口传入自己的重载）
+// onDone：恢复成功后的回调（默认重载2FA验证面板；审计页等外部入口传入自己的重载）
 async function openRecovery(el, { onDone } = {}) {
   // 探测剩余次数（耗尽则直接显示无法恢复）
   let remaining = 3;
@@ -596,7 +629,7 @@ async function openRecovery(el, { onDone } = {}) {
   const overlay = document.createElement('div');
   overlay.className = 'audit-detail-overlay';
   const warning = available
-    ? `请输入任一未使用的恢复码（xxxx-xxxx 格式）。恢复成功后将关闭两步验证。<br><b>仅有 3 次机会，错误无法恢复。</b>${remaining < 3 ? `（剩余 ${remaining} 次）` : ''}`
+    ? `请输入任一未使用的恢复码（xxxx-xxxx 格式）。恢复成功后将关闭2FA验证。<br><b>仅有 3 次机会，错误无法恢复。</b>${remaining < 3 ? `（剩余 ${remaining} 次）` : ''}`
     : '错误次数已达上限，<b>已无法恢复</b>。';
   overlay.innerHTML = `
     <div class="detail-mask"></div>
@@ -666,7 +699,7 @@ async function openRecovery(el, { onDone } = {}) {
       if (res.ok) {
         saveTicket(null);
         done();
-        alert('恢复成功，两步验证已关闭，请重新绑定。');
+        alert('恢复成功，2FA验证已关闭，请重新绑定。');
         (onDone ?? (() => renderTwofaPane(el)))();
         return;
       }

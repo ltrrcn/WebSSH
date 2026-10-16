@@ -63,18 +63,20 @@ export function consumePassTicket(ticket) {
 // —— 2FA 通过票据 ——
 // 高危操作验证通过后签发：TTL 内可复用（非一次性），绑定身份。
 // 服务重启自然失效（内存态），届时受保护操作需重新输码。
-const T2FA_TTL_MS = 5 * 60 * 1000;
+// TTL 由调用方传入（config.twofa.ticketTtlMinutes，服务端统一执行），默认 5 分钟。
+const T2FA_DEFAULT_TTL_MS = 5 * 60 * 1000;
 const twofaTickets = new Map(); // ticket -> { identityId, expires }
 
-/** 签发 2FA 票据（仅限 verify 通过后的 2FA 路由） */
-export function create2faTicket(identityId) {
+/** 签发 2FA 票据（仅限 verify 通过后的 2FA 路由）；ttlMs 为有效期（毫秒） */
+export function create2faTicket(identityId, ttlMs = T2FA_DEFAULT_TTL_MS) {
   const now = Date.now();
   for (const [t, e] of twofaTickets) {
     if (e.expires < now) twofaTickets.delete(t);
   }
+  const ttl = Math.max(60 * 1000, Number(ttlMs) || T2FA_DEFAULT_TTL_MS); // 下限 1 分钟
   const ticket = randomBytes(24).toString('hex');
-  twofaTickets.set(ticket, { identityId, expires: now + T2FA_TTL_MS });
-  return { ticket, ttlSeconds: Math.floor(T2FA_TTL_MS / 1000) };
+  twofaTickets.set(ticket, { identityId, expires: now + ttl });
+  return { ticket, ttlSeconds: Math.floor(ttl / 1000) };
 }
 
 /** 校验 2FA 票据：过期/身份不符返回 false（不过期不删除，期限内可复用） */

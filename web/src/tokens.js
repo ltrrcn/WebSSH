@@ -4,11 +4,12 @@
 import { apiUrl } from './base.js';
 import { icon } from './icons.js';
 import { apiFetch } from './twofa.js';
+import { buildMcpJson, highlightJson } from './token-config.js';
 
 const LEVEL_LABEL = { readonly: '只读', writable: '可变更' };
 const STATUS_LABEL = { active: '启用', revoked: '已撤销', expired: '已过期' };
 
-/** 解析当前 MCP 接入地址：自定义地址（反代）> 直连端口 > 页面 origin（与令牌配置页一致） */
+/** 解析当前 MCP 接入地址：自定义地址（反代）> 直连端口（用浏览器当前访问的主机名拼真实地址）> 页面 origin */
 async function resolveMcpEndpoint() {
   let direct = null;
   try {
@@ -18,10 +19,7 @@ async function resolveMcpEndpoint() {
     /* 网络异常走 origin */
   }
   if (direct?.customEndpoint) return direct.customEndpoint;
-  if (direct?.enabled) {
-    const ip = direct.mode === 'fnos' ? 'NAS IP' : '主机 IP';
-    return `http://<${ip}>:${direct.port ?? 8422}/mcp`;
-  }
+  if (direct?.enabled) return `http://${location.hostname}:${direct.port ?? 8422}/mcp`;
   return `${location.origin}/mcp`;
 }
 
@@ -417,7 +415,7 @@ async function openTokenForm(el) {
       endpoint,
       token: result.created.token,
     });
-    showCreated(el, result.created, promptText);
+    showCreated(el, result.created, promptText, buildMcpJson(endpoint, result.created.token));
   });
 }
 
@@ -457,9 +455,9 @@ async function createTokenFromForm(form, levelInput, hosts) {
 }
 
 /**
- * 创建成功视图（明文仅此一次展示 FR-023）：恢复列表 + 一次性明文块 + 自包含提示词复制入口。
+ * 创建成功视图（明文仅此一次展示 FR-023）：恢复列表 + 一次性明文块 + 含真实令牌的 mcp.json（一键复制即完成接入）+ 提示词复制入口。
  */
-function showCreated(el, created, promptText) {
+function showCreated(el, created, promptText, mcpJson) {
   el.innerHTML = `
     <div class="audit-toolbar">
       <button class="btn primary" id="token-create">${icon('plus')} 创建令牌</button>
@@ -470,13 +468,32 @@ function showCreated(el, created, promptText) {
   const onetime = el.querySelector('#token-onetime');
   onetime.innerHTML = `
     <div class="onetime-token">
-      <div>令牌「${escapeHtml(created.name)}」已创建。<b>明文仅此一次展示，请立即复制保存：</b></div>
-      <div class="onetime-value">${escapeHtml(created.token)}</div>
-      <div style="display:flex;gap:8px">
-        <button class="btn" id="token-copy">复制</button>
+      <div>令牌「${escapeHtml(created.name)}」已创建。<b>明文仅此一次展示</b>，推荐直接复制下方 mcp.json 完成接入：</div>
+      <div class="onetime-actions">
+        <button class="btn" id="token-copy">复制令牌</button>
         <button class="btn" id="token-copy-prompt" title="复制含接入地址与令牌明文的自包含提示词，AI 可直接据此接入">复制提示词</button>
       </div>
+      <div class="tc-code-win">
+        <div class="tc-code-bar">
+          <span class="tc-dots"><i class="red"></i><i class="yellow"></i><i class="green"></i></span>
+          <span class="tc-code-title">mcp.json</span>
+          <span class="tc-flex-gap"></span>
+          <button class="tc-bar-btn" id="token-copy-mcpjson" title="复制含真实令牌的 mcp.json，粘贴到 AI 客户端配置即可用">复制</button>
+        </div>
+        <pre class="tc-conf">${highlightJson(escapeHtml(mcpJson))}</pre>
+      </div>
+      <div class="onetime-plain">
+        <span>令牌明文：</span>
+        <span class="onetime-value">${escapeHtml(created.token)}</span>
+      </div>
     </div>`;
+  onetime.querySelector('#token-copy-mcpjson').addEventListener('click', () => {
+    navigator.clipboard?.writeText(mcpJson).then(() => {
+      const b = onetime.querySelector('#token-copy-mcpjson');
+      b.textContent = '已复制';
+      setTimeout(() => (b.textContent = '复制'), 1200);
+    });
+  });
   onetime.querySelector('#token-copy-prompt').addEventListener('click', () => {
     navigator.clipboard?.writeText(promptText).then(() => {
       const b = onetime.querySelector('#token-copy-prompt');

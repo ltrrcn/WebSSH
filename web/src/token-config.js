@@ -1,4 +1,4 @@
-// 令牌配置页（个人设置 → 令牌配置）：MCP 接入（按客户端预设单选）+ 机器直连端口开关 + 全局默认目录矩阵 + 敏感路径
+// MCP 管理页签组：配置指引（MCP 接入 mcp.json）+ 高级设置（机器直连端口）+ 权限策略（目录矩阵 + 敏感路径）
 // 数据源 GET /api/tokens/defaults、GET /api/mcp-direct；结构与审计/令牌页一致（audit-toolbar / audit-list / audit-row）
 // 全局默认矩阵由管理员在配置文件维护，页面只读展示（FR-040：令牌只能收紧）
 import { apiUrl } from './base.js';
@@ -6,69 +6,331 @@ import { icon } from './icons.js';
 
 const PERM_LABEL = { read: '读', write: '写', modify: '修改' };
 
-/** MCP 客户端接入预设：单选切换，展示对应客户端的配置方法（端点/令牌动态填入） */
-const CLIENT_PRESETS = [
-  {
-    id: 'workbuddy',
-    label: 'Workbuddy 配置',
-    note: '在 Workbuddy 的 MCP 服务器设置中粘贴以下 JSON（或按相同字段填写）。',
-    lang: 'json',
-    build: (ep) =>
-      JSON.stringify(
-        {
-          mcpServers: {
-            webssh: {
-              type: 'http',
-              url: ep,
-              headers: { Authorization: 'Bearer <令牌明文>' },
-            },
-          },
+/**
+ * 通用 mcp.json：CodeBuddy（~/.codebuddy/mcp.json）、Claude Code（项目 .mcp.json）、
+ * Cursor / Cline 等支持远程 MCP（Streamable HTTP）的客户端均按此结构接入。
+ */
+export function buildMcpJson(endpoint, token) {
+  return JSON.stringify(
+    {
+      mcpServers: {
+        webssh: {
+          type: 'http',
+          url: endpoint,
+          headers: { Authorization: `Bearer ${token || '<令牌明文>'}` },
         },
-        null,
-        2
-      ),
-  },
-  {
-    id: 'codex',
-    label: 'Codex 配置',
-    note: '编辑 ~/.codex/config.toml，追加以下配置（需较新版本 Codex，已默认启用 streamable HTTP MCP）。',
-    lang: 'toml',
-    build: (ep) => {
-      const m = /^(\w+:\/\/)([^/]+)(.*)$/.exec(ep);
-      const url = m ? `${m[1]}<主机地址>${m[3]}` : ep;
-      return [
-        '[mcp_servers.webssh]',
-        `url = "${url}"`,
-        'bearer_token = "<令牌明文>"',
-      ].join('\n');
+      },
     },
-  },
-  {
-    id: 'other',
-    label: '其他 AI 工具',
-    note: '适用于 Claude Desktop、Cursor、Cline 等支持远程 MCP（Streamable HTTP）的客户端：服务器 URL 填端点，鉴权头填 Bearer 令牌。',
-    lang: 'json',
-    build: (ep) =>
-      JSON.stringify(
-        {
-          mcpServers: {
-            webssh: {
-              type: 'http',
-              url: ep,
-              headers: { Authorization: 'Bearer <令牌明文>' },
-            },
-          },
-        },
-        null,
-        2
-      ),
-  },
-];
+    null,
+    2
+  );
+}
 
-const PRESET_KEY = 'webssh-mcp-preset';
+/** JSON 语法高亮（轻量）：键名蓝色、字符串值绿色；输入需先 escapeHtml 转义的文本 */
+export function highlightJson(escaped) {
+  return escaped
+    .replace(/(&quot;.*?&quot;)(\s*:)/g, '<span class="j-key">$1</span>$2')
+    .replace(/(:\s*)(&quot;.*?&quot;)/g, '$1<span class="j-str">$2</span>');
+}
 
+/** 轻量 toast（右下角浮出，替代 alert 打断式反馈）；type: ok | err */
+export function showToast(message, type = 'ok') {
+  let host = document.querySelector('.tc-toast-host');
+  if (!host) {
+    host = document.createElement('div');
+    host.className = 'tc-toast-host';
+    document.body.appendChild(host);
+  }
+  const t = document.createElement('div');
+  t.className = `tc-toast ${type}`;
+  t.innerHTML = `${icon(type === 'ok' ? 'check' : 'info', 13)}<span>${escapeHtml(message)}</span>`;
+  host.appendChild(t);
+  requestAnimationFrame(() => t.classList.add('show'));
+  setTimeout(() => {
+    t.classList.remove('show');
+    setTimeout(() => t.remove(), 250);
+  }, 2400);
+}
+
+/** 配置指引（个人设置 → MCP 管理 → 配置指引）：mcp.json 实时生成 + 一键复制 */
 export async function renderTokenConfig(el) {
-  await load(el);
+  el.innerHTML = '<div class="placeholder-box">加载中…</div>';
+  let d = null;
+  let direct = null;
+  try {
+    const [resDefaults, resDirect] = await Promise.all([
+      fetch(apiUrl('tokens/defaults')),
+      fetch(apiUrl('mcp-direct')),
+    ]);
+    if (resDefaults.ok) d = await resDefaults.json();
+    if (resDirect.ok) direct = await resDirect.json();
+  } catch {
+    /* 网络异常 */
+  }
+  if (!d) {
+    el.innerHTML = '<div class="placeholder-box">加载失败，请稍后重试。</div>';
+    return;
+  }
+
+  const rate = d.limits?.tokenRateLimitPerMinute ?? 60;
+  const execSec = Math.round((d.limits?.execTimeoutMs ?? 60000) / 1000);
+
+  el.innerHTML = `
+    <div class="tc-card">
+      <div class="tc-card-title">${icon('plug', 15)} MCP 接入 <span class="tag">mcp.json</span></div>
+      <div class="tc-card-desc">保存为 AI 客户端的 mcp.json 即完成接入（CodeBuddy：<code>~/.codebuddy/mcp.json</code>；Claude Code：项目 <code>.mcp.json</code>；Cursor / Cline 等支持远程 MCP 的客户端按相同字段填写）。填入令牌明文后一键复制即用。</div>
+      <div class="tc-mcp-grid">
+        <div class="tc-field">
+          <label>接入端点</label>
+          <div class="tc-endpoint">
+            <code id="tc-endpoint"></code>
+            <button class="icon-btn" id="tc-endpoint-copy" title="复制端点地址">${icon('list', 13)}</button>
+          </div>
+        </div>
+        <div class="tc-field">
+          <label>令牌明文</label>
+          <div class="tc-input-wrap">
+            <input type="password" id="tc-token-input" class="pref-input" placeholder="粘贴令牌明文（mcp_ 开头，在「MCP 令牌」页创建）" autocomplete="off" spellcheck="false" />
+            <button class="icon-btn tc-input-eye" id="tc-token-eye" title="显示 / 隐藏令牌">${icon('eye', 13)}</button>
+          </div>
+        </div>
+      </div>
+      <div class="tc-code-win">
+        <div class="tc-code-bar">
+          <span class="tc-dots"><i class="red"></i><i class="yellow"></i><i class="green"></i></span>
+          <span class="tc-code-title">mcp.json</span>
+          <span class="tag" id="tc-token-state">待填令牌</span>
+          <span class="tc-flex-gap"></span>
+          <button class="tc-bar-link" id="tc-token-goto">去创建令牌 →</button>
+          <button class="tc-bar-btn" id="mcp-conf-copy">复制</button>
+        </div>
+        <pre class="tc-conf" id="mcp-conf"></pre>
+      </div>
+      <div class="tc-meta">
+        <span class="tc-meta-chip">认证：Bearer 令牌</span>
+        <span class="tc-meta-chip">限流：每令牌 ${rate} 次/分钟，超额返回 rate_limited</span>
+        <span class="tc-meta-chip">命令超时：${execSec} 秒，超时强制终止</span>
+      </div>
+    </div>`;
+
+  // —— mcp.json 实时生成（令牌输入 → 配置即时更新）——
+  const tokenInput = el.querySelector('#tc-token-input');
+  const confPre = el.querySelector('#mcp-conf');
+  const tokenState = el.querySelector('#tc-token-state');
+  const endpointEl = el.querySelector('#tc-endpoint');
+
+  // 端点优先级：自定义地址（反代）> 直连端口（用浏览器当前访问的主机名拼真实地址）> 页面 origin
+  const currentEndpoint = () =>
+    direct?.customEndpoint
+      ? direct.customEndpoint
+      : direct?.enabled
+        ? `http://${location.hostname}:${direct.port ?? 8422}/mcp`
+        : `${location.origin}/mcp`;
+
+  const renderConf = () => {
+    const ep = currentEndpoint();
+    endpointEl.textContent = ep;
+    const token = tokenInput.value.trim();
+    confPre.innerHTML = highlightJson(escapeHtml(buildMcpJson(ep, token)));
+    if (token) {
+      tokenState.textContent = '令牌已填入';
+      tokenState.className = 'tag ok';
+    } else {
+      tokenState.textContent = '待填令牌';
+      tokenState.className = 'tag warn';
+    }
+  };
+  tokenInput.addEventListener('input', renderConf);
+
+  // 令牌明文显示 / 隐藏切换
+  const eyeBtn = el.querySelector('#tc-token-eye');
+  eyeBtn.addEventListener('click', () => {
+    const show = tokenInput.type === 'password';
+    tokenInput.type = show ? 'text' : 'password';
+    eyeBtn.classList.toggle('on', show);
+    tokenInput.focus();
+  });
+
+  // 一键复制 mcp.json
+  const copyBtn = el.querySelector('#mcp-conf-copy');
+  copyBtn.addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText(confPre.textContent);
+      copyBtn.textContent = '已复制';
+      setTimeout(() => (copyBtn.textContent = '复制'), 1200);
+    } catch {
+      // 剪贴板不可用（如非安全上下文）：选中文本让用户手动复制
+      const r = document.createRange();
+      r.selectNode(confPre);
+      getSelection().removeAllRanges();
+      getSelection().addRange(r);
+      showToast('剪贴板不可用，已选中配置内容，请手动复制', 'err');
+    }
+  });
+
+  // 复制端点
+  el.querySelector('#tc-endpoint-copy').addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText(endpointEl.textContent);
+      showToast('端点地址已复制');
+    } catch {
+      showToast('剪贴板不可用', 'err');
+    }
+  });
+
+  // 直达「MCP 令牌」页创建令牌（切换设置弹窗页签）
+  el.querySelector('#tc-token-goto').addEventListener('click', () => {
+    el.closest('.settings-layout')?.querySelector('.settings-nav [data-pane="tokens"]')?.click();
+  });
+
+  renderConf();
+}
+
+/** 高级设置（个人设置 → MCP 管理 → 高级设置）：机器直连端口（统一脏检测 + 单保存） */
+export async function renderTokenAdvanced(el) {
+  el.innerHTML = '<div class="placeholder-box">加载中…</div>';
+  let direct = null;
+  try {
+    const res = await fetch(apiUrl('mcp-direct'));
+    if (res.ok) direct = await res.json();
+  } catch {
+    /* 网络异常 */
+  }
+  if (!direct) {
+    el.innerHTML = '<div class="placeholder-box">加载失败，请稍后重试。</div>';
+    return;
+  }
+
+  const defaultPort = direct.port ?? 8422;
+  el.innerHTML = `
+    <div class="tc-card">
+      <div class="tc-card-title">${icon('tunnel', 15)} 机器直连端口
+        <span class="tag ${direct.running ? 'ok' : ''}" id="tc-direct-state">${direct.running ? '运行中' : '未启用'}</span>
+      </div>
+      <div class="tc-card-desc">开启后监听独立 TCP 端口，仅提供 /mcp（令牌鉴权 + 限流 + 审计），不暴露 Web 界面与 REST/WS，供 AI 客户端（MCP 客户端）直连；关闭立即停止监听。未开启时也可经当前页面地址接入（见「配置指引」）。</div>
+      <div class="tc-rows">
+        <div class="tc-row">
+          <div class="tc-row-main">
+            <div class="tc-row-label">启用直连端口</div>
+          </div>
+          <label class="switch"><input type="checkbox" id="tc-mcp-on" ${direct.enabled ? 'checked' : ''} /><span></span></label>
+        </div>
+        <div class="tc-row tc-row-field" id="tc-mcp-port-row" style="${direct.enabled ? '' : 'display:none'}">
+          <div class="tc-row-main"><div class="tc-row-label">端口</div></div>
+          <div class="tc-row-ctrl col">
+            <input type="number" id="tc-mcp-port" class="pref-input tc-port-input" min="1" max="65535" value="${defaultPort}" />
+            <span class="tc-row-desc" id="tc-mcp-hint">${direct.running ? `当前监听 ${direct.bind ?? '0.0.0.0'}:${direct.port}` : '保存后开始监听'}</span>
+          </div>
+        </div>
+        <div class="tc-row tc-row-field">
+          <div class="tc-row-main"><div class="tc-row-label">自定义地址</div></div>
+          <div class="tc-row-ctrl col">
+            <input type="text" id="tc-mcp-custom" class="pref-input tc-custom-input" placeholder="https://example.com/mcp（留空使用直连端口）" value="${escapeHtml(direct.customEndpoint ?? '')}" spellcheck="false" />
+            <span class="tc-row-desc">反向代理场景填写（如 <code>https://example.com/mcp</code>），保存后接入端点以该地址为准，优先级最高</span>
+          </div>
+        </div>
+      </div>
+      <div class="tc-card-foot">
+        <span class="tc-dirty-note" id="tc-direct-msg" hidden>有未保存的修改</span>
+        <button class="btn primary" id="tc-mcp-save" disabled>保存</button>
+      </div>
+    </div>`;
+
+  const onEl = el.querySelector('#tc-mcp-on');
+  const portRow = el.querySelector('#tc-mcp-port-row');
+  const portEl = el.querySelector('#tc-mcp-port');
+  const hintEl = el.querySelector('#tc-mcp-hint');
+  const customEl = el.querySelector('#tc-mcp-custom');
+  const saveBtn = el.querySelector('#tc-mcp-save');
+  const msgEl = el.querySelector('#tc-direct-msg');
+  const stateTag = el.querySelector('#tc-direct-state');
+
+  const snapshot = () => ({
+    enabled: onEl.checked,
+    port: Number(portEl.value),
+    custom: customEl.value.trim(),
+  });
+  let saved = snapshot();
+
+  const portValid = () => {
+    const p = Number(portEl.value);
+    return Number.isInteger(p) && p >= 1 && p <= 65535;
+  };
+
+  const refresh = () => {
+    portRow.style.display = onEl.checked ? '' : 'none';
+    const ok = !onEl.checked || portValid();
+    portEl.classList.toggle('tc-input-error', !ok);
+    const isDirty = ok && JSON.stringify(snapshot()) !== JSON.stringify(saved);
+    saveBtn.disabled = !isDirty;
+    msgEl.hidden = !isDirty;
+    msgEl.textContent = '有未保存的修改';
+    msgEl.classList.remove('tc-error');
+  };
+  [onEl, portEl, customEl].forEach((i) =>
+    ['change', 'input'].forEach((ev) => i.addEventListener(ev, refresh))
+  );
+
+  const save = async () => {
+    if (!portValid()) {
+      msgEl.hidden = false;
+      msgEl.textContent = '端口必须为 1–65535 的整数';
+      msgEl.classList.add('tc-error');
+      portEl.focus();
+      return;
+    }
+    const payload = snapshot();
+    saveBtn.disabled = true;
+    saveBtn.textContent = '保存中…';
+    try {
+      const res = await fetch(apiUrl('mcp-direct'), {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled: payload.enabled, port: payload.port, customEndpoint: payload.custom }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        msgEl.hidden = false;
+        msgEl.textContent = body?.error?.message ?? `保存失败（${res.status}）`;
+        msgEl.classList.add('tc-error');
+        showToast('保存失败', 'err');
+      } else {
+        // 用服务端返回的权威状态回填（含运行标记）
+        Object.assign(direct, body);
+        onEl.checked = body.enabled;
+        portEl.value = body.port ?? 8422;
+        customEl.value = body.customEndpoint ?? '';
+        saved = snapshot();
+        stateTag.textContent = body.running ? '运行中' : '未启用';
+        stateTag.className = `tag ${body.running ? 'ok' : ''}`;
+        hintEl.textContent = body.running
+          ? `当前监听 ${body.bind ?? '0.0.0.0'}:${body.port}`
+          : '保存后开始监听';
+        if (body.saved === false) {
+          showToast('端口已生效，但配置文件保存失败，重启后可能回退', 'err');
+        } else {
+          showToast(body.running ? `直连端口已监听 ${body.bind ?? '0.0.0.0'}:${body.port}` : '直连端口已停止监听');
+        }
+      }
+    } catch (e) {
+      msgEl.hidden = false;
+      msgEl.textContent = `网络错误：${e.message}`;
+      msgEl.classList.add('tc-error');
+      showToast('网络错误', 'err');
+    } finally {
+      saveBtn.textContent = '保存';
+      refresh();
+    }
+  };
+  saveBtn.addEventListener('click', save);
+  [portEl, customEl].forEach((i) =>
+    i.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        if (!saveBtn.disabled) save();
+      }
+    })
+  );
 }
 
 /** 权限策略页（设置 → 权限策略）：全局默认目录矩阵 + 系统敏感路径（独立页签） */
@@ -124,201 +386,6 @@ export async function renderPermPolicy(el) {
             .join('')}</div>`
         : '<div class="placeholder-box">未配置（建议在配置文件 security.sensitivePaths 中维护）。</div>'
     }`;
-}
-
-async function load(el) {
-  el.innerHTML = '<div class="placeholder-box">加载中…</div>';
-  let d = null;
-  let direct = null;
-  try {
-    const [resDefaults, resDirect] = await Promise.all([
-      fetch(apiUrl('tokens/defaults')),
-      fetch(apiUrl('mcp-direct')),
-    ]);
-    if (resDefaults.ok) d = await resDefaults.json();
-    if (resDirect.ok) direct = await resDirect.json();
-  } catch {
-    /* 网络异常 */
-  }
-  if (!d) {
-    el.innerHTML = '<div class="placeholder-box">加载失败，请稍后重试。</div>';
-    return;
-  }
-
-  const rate = d.limits?.tokenRateLimitPerMinute ?? 60;
-  const execSec = Math.round((d.limits?.execTimeoutMs ?? 60000) / 1000);
-
-  // 机器直连端口开关（双模式通用）：AI 客户端不持有登录态（fnOS 网关）/主服务回环绑定（standalone），经此端口接入
-  const isFnos = direct?.mode === 'fnos';
-  const directSection = direct
-    ? `
-    <div class="tc-title">机器直连端口 <span class="tag ${direct.running ? 'ok' : ''}">${direct.running ? '运行中' : '未启用'}</span></div>
-    <div class="audit-list">
-      <div class="audit-row" style="flex-wrap:wrap">
-        <span class="audit-event" style="min-width:72px">启用</span>
-        <span class="audit-detail" style="flex:1">开启后监听独立 TCP 端口（默认 0.0.0.0），仅提供 /mcp（令牌鉴权 + 限流 + 审计），不暴露 Web 界面与 REST/WS，供 AI 工具（MCP 客户端）直连；关闭立即停止监听</span>
-        <label class="switch"><input type="checkbox" id="tc-mcp-on" ${direct.enabled ? 'checked' : ''} /><span></span></label>
-      </div>
-      <div class="audit-row" id="tc-mcp-port-row" style="${direct.enabled ? '' : 'display:none'}">
-        <span class="audit-event" style="min-width:72px">端口</span>
-        <span class="pref-inline" style="flex:1">
-          <input type="number" id="tc-mcp-port" class="pref-input" style="width:100px" min="1" max="65535" value="${direct.port ?? 8422}" />
-          <span class="pref-desc" id="tc-mcp-hint">${direct.running ? `当前监听 ${direct.bind ?? '0.0.0.0'}:${direct.port}` : '保存后开始监听'}</span>
-        </span>
-        <button class="btn primary" id="tc-mcp-save">保存</button>
-      </div>
-      <div class="audit-row" style="flex-wrap:wrap">
-        <span class="audit-event" style="min-width:72px">自定义地址</span>
-        <span class="pref-inline" style="flex:1;min-width:240px">
-          <input type="text" id="tc-mcp-custom" class="pref-input" style="flex:1" placeholder="https://example.com/mcp（反向代理地址）" value="${escapeHtml(direct.customEndpoint ?? '')}" />
-        </span>
-        <button class="btn primary" id="tc-mcp-custom-save">保存</button>
-      </div>
-    </div>
-    <p class="form-note" style="margin-top:8px">提示：直连端口为 HTTP 明文（内网可用），客户端配置 <code>http://&lt;${isFnos ? 'NAS IP' : '主机 IP'}&gt;:${direct.port ?? 8422}/mcp</code> + Bearer 令牌。若配置了自定义 MCP 地址（反向代理），接入配置将以该地址为准。</p>`
-    : '';
-
-  // MCP 接入端点优先级：自定义地址（反代）> 直连端口 > 当前页面 origin
-  const mcpEndpoint = direct?.customEndpoint
-    ? direct.customEndpoint
-    : direct?.enabled
-      ? `http://<${isFnos ? 'NAS IP' : '主机 IP'}>:${direct.port ?? 8422}/mcp`
-      : `${location.origin}/mcp`;
-
-  el.innerHTML = `
-    <div class="audit-toolbar">
-      <span style="font-size:12px;color:var(--text-faint)">新令牌以全局默认矩阵初始化，创建时只能收紧；修改默认需编辑配置文件后重启</span>
-    </div>
-
-    ${directSection}
-
-    <div class="tc-title">MCP 接入</div>
-    <div class="mcp-preset-row">
-      ${CLIENT_PRESETS.map(
-        (p) => `<button type="button" class="mcp-preset" data-preset="${p.id}">${escapeHtml(p.label)}</button>`
-      ).join('')}
-    </div>
-    <div class="audit-list" id="mcp-preset-panel"></div>
-    <div class="audit-list" style="margin-top:8px">
-      <div class="audit-row"><span class="audit-event">认证方式</span><span class="tc-mono">Authorization: Bearer &lt;令牌明文&gt;</span></div>
-      <div class="audit-row"><span class="audit-event">限流</span><span class="audit-detail">每令牌 ${rate} 次/分钟，超额返回 rate_limited，不影响其他令牌与人工会话</span></div>
-      <div class="audit-row"><span class="audit-event">命令超时</span><span class="audit-detail">${execSec} 秒，超时强制终止并返回已产生的输出摘要</span></div>
-    </div>`;
-
-
-  // —— MCP 客户端预设单选：切换展示对应配置（选中项持久化到 localStorage）——
-  const presetBtns = el.querySelectorAll('.mcp-preset');
-  const presetPanel = el.querySelector('#mcp-preset-panel');
-  const savedPreset = localStorage.getItem(PRESET_KEY);
-  let activePreset = CLIENT_PRESETS.some((p) => p.id === savedPreset) ? savedPreset : CLIENT_PRESETS[0].id;
-
-  const renderPreset = () => {
-    const p = CLIENT_PRESETS.find((x) => x.id === activePreset);
-    presetBtns.forEach((b) => b.classList.toggle('selected', b.dataset.preset === activePreset));
-    const conf = p.build(mcpEndpoint);
-    presetPanel.innerHTML = `
-      <div class="audit-row" style="flex-direction:column;align-items:stretch;gap:8px">
-        <div class="pref-row" style="justify-content:space-between;align-items:center">
-          <span class="pref-desc" style="flex:1">${escapeHtml(p.note)}</span>
-          <button class="btn" id="mcp-conf-copy">复制配置</button>
-        </div>
-        <pre class="mcp-conf">${escapeHtml(conf)}</pre>
-        <div class="pref-desc">端点：<code>${escapeHtml(mcpEndpoint)}</code>　令牌明文在「MCP 令牌」创建令牌时一次性显示，请先创建再填入。</div>
-      </div>`;
-    presetPanel.querySelector('#mcp-conf-copy').addEventListener('click', () => {
-      navigator.clipboard?.writeText(conf).then(() => {
-        const b = presetPanel.querySelector('#mcp-conf-copy');
-        b.textContent = '已复制';
-        setTimeout(() => (b.textContent = '复制配置'), 1200);
-      });
-    });
-  };
-  presetBtns.forEach((b) =>
-    b.addEventListener('click', () => {
-      activePreset = b.dataset.preset;
-      localStorage.setItem(PRESET_KEY, activePreset);
-      renderPreset();
-    })
-  );
-  renderPreset();
-
-  if (direct) {
-    const onEl = el.querySelector('#tc-mcp-on');
-    const portRow = el.querySelector('#tc-mcp-port-row');
-    const portEl = el.querySelector('#tc-mcp-port');
-    const hintEl = el.querySelector('#tc-mcp-hint');
-    const saveBtn = el.querySelector('#tc-mcp-save');
-    onEl.addEventListener('change', () => {
-      portRow.style.display = onEl.checked ? '' : 'none';
-    });
-    const save = async () => {
-      const port = Number(portEl.value);
-      if (!Number.isInteger(port) || port < 1 || port > 65535) {
-        alert('端口必须为 1–65535 的整数');
-        return;
-      }
-      saveBtn.disabled = true;
-      saveBtn.textContent = '保存中…';
-      try {
-        const res = await fetch(apiUrl('mcp-direct'), {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ enabled: onEl.checked, port, customEndpoint: el.querySelector('#tc-mcp-custom')?.value ?? '' }),
-        });
-        const body = await res.json().catch(() => ({}));
-        if (!res.ok) {
-          alert(body?.error?.message ?? `保存失败（${res.status}）`);
-        } else if (body.saved === false) {
-          alert('端口已生效，但配置文件保存失败（详见服务端日志），重启后可能回退');
-        }
-        await load(el); // 重新拉取状态（含运行中标记）
-      } catch (e) {
-        alert(`网络错误：${e.message}`);
-      } finally {
-        saveBtn.disabled = false;
-        saveBtn.textContent = '保存';
-      }
-    };
-    saveBtn.addEventListener('click', save);
-    portEl.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') save();
-    });
-    void hintEl;
-
-    // 自定义 MCP 地址（反代）独立保存：只更新端点，不触碰端口开关状态
-    const customBtn = el.querySelector('#tc-mcp-custom-save');
-    const customEl = el.querySelector('#tc-mcp-custom');
-    const saveCustom = async () => {
-      const v = customEl.value.trim();
-      if (v && !/^https?:\/\/.+/.test(v)) {
-        return alert('自定义地址必须以 http:// 或 https:// 开头');
-      }
-      customBtn.disabled = true;
-      customBtn.textContent = '保存中…';
-      try {
-        const res = await fetch(apiUrl('mcp-direct'), {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ enabled: onEl.checked, customEndpoint: v }),
-        });
-        const body = await res.json().catch(() => ({}));
-        if (!res.ok) {
-          alert(body?.error?.message ?? `保存失败（${res.status}）`);
-        } else {
-          await load(el); // 重渲：MCP 接入预设端点立即切换为自定义地址
-        }
-      } catch (e) {
-        alert(`网络错误：${e.message}`);
-      } finally {
-        customBtn.disabled = false;
-        customBtn.textContent = '保存';
-      }
-    };
-    customBtn.addEventListener('click', saveCustom);
-    customEl.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') saveCustom();
-    });
-  }
 }
 
 function escapeHtml(s) {

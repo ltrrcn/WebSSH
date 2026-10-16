@@ -62,7 +62,7 @@ export async function renderGroups(el, { onChanged } = {}) {
     <div class="qc-add-box" id="group-add" title="点击展开新增表单">${icon('plus', 12)} 新增分组</div>`;
 
   // 新增分组：点击底部新增框，在列表末尾「长」出一行编辑行（包装层高度过渡，新增框被丝滑推下移），
-  // 与快捷命令同款交互：✓/Enter 保存，✗/Esc 取消并收起上移；成功后行闪绿再整页刷新
+  // 与快捷命令同款交互：对勾/Enter 保存，叉号/Esc 取消并收起上移；成功后行闪绿再整页刷新
   const list = el.querySelector('.audit-list');
   const addBox = el.querySelector('#group-add');
   let editWrap = null; // 展开/收起动画的包装层（高度过渡，内容不变形）

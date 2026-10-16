@@ -264,6 +264,67 @@ describe('受保护路由拦截与票据', () => {
     }
   });
 
+  test('验证有效期：ticket-ttl 需票据 → 新 TTL 反映在 verify 与 status；越界值 422', async () => {
+    const { base, cleanup } = ctx;
+    try {
+      // 绑定（confirm 同步签发票据）
+      const setup = await json(await fetch(`${base}/api/2fa/setup`, { method: 'POST' }));
+      const confirm = await json(
+        await fetch(`${base}/api/2fa/confirm`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ code: totpAt(setup.secret, currentStep()) }),
+        })
+      );
+      const ticket = confirm.ticket;
+      assert.equal(confirm.ttlSeconds, 300, '默认有效期应为 5 分钟');
+
+      // status 返回当前有效期
+      const status = await json(
+        await fetch(`${base}/api/2fa/status`, { headers: { 'x-2fa-ticket': ticket } })
+      );
+      assert.equal(status.ticketTtlMinutes, 5);
+
+      // 无票据修改 → 403
+      const noTicket = await fetch(`${base}/api/2fa/ticket-ttl`, {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ ticketTtlMinutes: 10 }),
+      });
+      assert.equal(noTicket.status, 403);
+
+      // 越界值（0 / 61 / 非整数）→ 422
+      for (const bad of [0, 61, 7.5]) {
+        const res = await fetch(`${base}/api/2fa/ticket-ttl`, {
+          method: 'PUT',
+          headers: { 'content-type': 'application/json', 'x-2fa-ticket': ticket },
+          body: JSON.stringify({ ticketTtlMinutes: bad }),
+        });
+        assert.equal(res.status, 422, `ticketTtlMinutes=${bad} 应 422`);
+      }
+
+      // 合法值 10 分钟 → 200；verify 新票据按新 TTL 签发
+      const update = await fetch(`${base}/api/2fa/ticket-ttl`, {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json', 'x-2fa-ticket': ticket },
+        body: JSON.stringify({ ticketTtlMinutes: 10 }),
+      });
+      assert.equal(update.status, 200);
+      assert.equal((await json(update)).ticketTtlMinutes, 10);
+
+      const verify = await json(
+        await fetch(`${base}/api/2fa/verify`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ code: confirm.recoveryCodes[0] }),
+        })
+      );
+      assert.equal(verify.ttlSeconds, 600, 'verify 应按新有效期签发票据');
+    } finally {
+      await cleanup();
+    }
+  });
+
   test('disable：需 TOTP/恢复码；关闭后拦截解除；输出摘要开着时拒绝关闭', async () => {
     const { base, cleanup } = ctx;
     try {

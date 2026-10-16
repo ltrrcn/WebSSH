@@ -43,10 +43,10 @@ export function auditSettingsRoutes(deps) {
         if (typeof recordTerminalOutput !== 'boolean') {
           return sendError(res, 422, 'invalid_field', 'recordTerminalOutput 必须为布尔值');
         }
-        // 开启输出摘要记录属敏感行为（捕获终端输出内容）：必须先绑定两步验证。
+        // 开启输出摘要记录属敏感行为（捕获终端输出内容）：必须先绑定2FA验证。
         // 关闭不受限（减少数据捕获，允许随时关）。
         if (recordTerminalOutput === true && config.twofa?.enabled !== true) {
-          return sendError(res, 422, 'twofa_not_enabled', '开启输出摘要记录前需先启用两步验证（设置 → 两步验证）');
+          return sendError(res, 422, 'twofa_not_enabled', '开启输出摘要记录前需先启用2FA验证（设置 → 双因子认证）');
         }
 
         // 热更新内存配置（bridge 每次提交命令时读取，即刻生效）

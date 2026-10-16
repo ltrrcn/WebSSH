@@ -1,6 +1,7 @@
-// REST：两步验证（TOTP）管理 + 高危操作拦截
+// REST：2FA验证（TOTP）管理 + 高危操作拦截
 // 流程：setup（secret 仅存内存 5 分钟）→ 扫码 → confirm（加密落盘 + 一次性恢复码）
-//       → verify（校验码/恢复码 → 签发 5 分钟可复用票据，X-2FA-Ticket 头携带）。
+//       → verify（校验码/恢复码 → 签发可复用票据（有效期见 ticketTtlMinutes，默认 5 分钟），
+//         X-2FA-Ticket 头携带）。票据有效期由服务端统一执行，对所有终端生效。
 // 防爆破：失败计数持久化，连续 5 次失败锁定 5 分钟（期间 setup/confirm/verify/disable 全部拒绝）。
 import { sendJson, sendError, readJsonBody } from '../net/router.js';
 import { resolveIdentity } from '../net/auth.js';
@@ -22,6 +23,18 @@ const SETUP_TTL_MS = 5 * 60 * 1000;
 // （hosts.json/.bak/.tmp 全删，UI 与 API 响应均不提示该后果——威慑语义「错误无法恢复」）。
 const RECOVERY_MAX_ATTEMPTS = 3;
 
+// 验证票据有效期（分钟）：服务端配置（config.twofa.ticketTtlMinutes），对所有终端统一执行
+const TICKET_TTL_MIN_MINUTES = 1;
+const TICKET_TTL_MAX_MINUTES = 60;
+const TICKET_TTL_DEFAULT_MINUTES = 5;
+
+/** 读取票据有效期（分钟）：非法/越界值回退默认（不放大配置错误） */
+function ticketTtlMinutes(twofa) {
+  const n = Number(twofa?.ticketTtlMinutes);
+  if (!Number.isInteger(n)) return TICKET_TTL_DEFAULT_MINUTES;
+  return Math.min(TICKET_TTL_MAX_MINUTES, Math.max(TICKET_TTL_MIN_MINUTES, n));
+}
+
 // 绑定中的未确认 secret：仅内存（确认前绝不落盘），TTL 5 分钟
 const pendingSetups = new Map(); // userId -> { secret, account, expires }
 
@@ -31,7 +44,7 @@ function requireAdmin(res, identity) {
     return false;
   }
   if (!identity.isAdmin) {
-    sendError(res, 403, 'forbidden', '仅管理员可操作两步验证');
+    sendError(res, 403, 'forbidden', '仅管理员可操作2FA验证');
     return false;
   }
   return true;
@@ -137,7 +150,7 @@ export function require2fa(deps, req, res, action) {
     ? req.headers['x-2fa-ticket'][0]
     : req.headers['x-2fa-ticket'];
   if (consume2faTicket(ticket, identity.id)) return false; // 有效票据 → 放行
-  sendError(res, 403, 'twofa_required', '该操作已启用两步验证保护，请先完成验证');
+  sendError(res, 403, 'twofa_required', '该操作已启用2FA验证保护，请先完成验证');
   return true;
 }
 
@@ -162,7 +175,7 @@ export function twofaRoutes(deps) {
             ? req.headers['x-2fa-ticket'][0]
             : req.headers['x-2fa-ticket'];
           if (!consume2faTicket(ticket, identity.id)) {
-            return sendError(res, 403, 'twofa_required', '查看两步验证状态需先完成验证');
+            return sendError(res, 403, 'twofa_required', '查看2FA验证状态需先完成验证');
           }
         }
         const pending = pendingSetups.get(identity.id);
@@ -174,6 +187,7 @@ export function twofaRoutes(deps) {
           lockedUntil: isLocked(t) ? t.lockedUntil : null,
           remainingRecoveryCodes: Array.isArray(t.recoveryCodes) ? t.recoveryCodes.length : 0,
           pendingSetup: Boolean(pending && pending.expires > Date.now()),
+          ticketTtlMinutes: ticketTtlMinutes(t),
         });
       },
     },
@@ -185,7 +199,7 @@ export function twofaRoutes(deps) {
         const identity = resolveIdentity(req, runtime);
         if (!requireAdmin(res, identity)) return;
         if (config.twofa?.enabled) {
-          return sendError(res, 409, 'already_enabled', '已绑定两步验证，如需更换请先关闭');
+          return sendError(res, 409, 'already_enabled', '已绑定2FA验证，如需更换请先关闭');
         }
         if (isLocked(config.twofa)) {
           return sendError(res, 423, 'locked', `失败次数过多已锁定，请 ${lockRetrySeconds(config.twofa)} 秒后重试`);
@@ -214,7 +228,7 @@ export function twofaRoutes(deps) {
         const identity = resolveIdentity(req, runtime);
         if (!requireAdmin(res, identity)) return;
         if (config.twofa?.enabled) {
-          return sendError(res, 409, 'already_enabled', '已绑定两步验证');
+          return sendError(res, 409, 'already_enabled', '已绑定2FA验证');
         }
         if (isLocked(config.twofa)) {
           return sendError(res, 423, 'locked', `失败次数过多已锁定，请 ${lockRetrySeconds(config.twofa)} 秒后重试`);
@@ -256,7 +270,10 @@ export function twofaRoutes(deps) {
           result: 'success',
         });
         // 契约：恢复码明文仅此一次返回；同时签发票据（confirm 本身已验证，面板后续操作免重弹）
-        sendJson(res, 200, { recoveryCodes: codes, ...create2faTicket(identity.id) });
+        sendJson(res, 200, {
+          recoveryCodes: codes,
+          ...create2faTicket(identity.id, ticketTtlMinutes(config.twofa) * 60 * 1000),
+        });
       },
     },
     {
@@ -267,7 +284,7 @@ export function twofaRoutes(deps) {
         const identity = resolveIdentity(req, runtime);
         if (!requireAdmin(res, identity)) return;
         if (!config.twofa?.enabled) {
-          return sendError(res, 409, 'not_enabled', '未绑定两步验证');
+          return sendError(res, 409, 'not_enabled', '未绑定2FA验证');
         }
         if (isLocked(config.twofa)) {
           return sendError(res, 423, 'locked', `失败次数过多已锁定，请 ${lockRetrySeconds(config.twofa)} 秒后重试`);
@@ -293,11 +310,11 @@ export function twofaRoutes(deps) {
           result: 'success',
           reason: matched.kind,
         });
-        sendJson(res, 200, create2faTicket(identity.id));
+        sendJson(res, 200, create2faTicket(identity.id, ticketTtlMinutes(config.twofa) * 60 * 1000));
       },
     },
     {
-      // 关闭两步验证：必须提供 TOTP 码或恢复码（防降级攻击）；
+      // 关闭2FA验证：必须提供 TOTP 码或恢复码（防降级攻击）；
       // 且需先关闭「记录终端输出摘要」（该功能依赖 2FA 保护，见 audit-settings 校验）
       method: 'POST',
       path: '/api/2fa/disable',
@@ -305,10 +322,10 @@ export function twofaRoutes(deps) {
         const identity = resolveIdentity(req, runtime);
         if (!requireAdmin(res, identity)) return;
         if (!config.twofa?.enabled) {
-          return sendError(res, 409, 'not_enabled', '未绑定两步验证');
+          return sendError(res, 409, 'not_enabled', '未绑定2FA验证');
         }
         if (config.audit?.recordTerminalOutput === true) {
-          return sendError(res, 422, 'audit_output_enabled', '请先关闭「记录终端输出摘要」再关闭两步验证（两步验证 → 管理区）');
+          return sendError(res, 422, 'audit_output_enabled', '请先关闭「记录终端输出摘要」再关闭2FA验证（双因子认证 → 管理区）');
         }
         if (isLocked(config.twofa)) {
           return sendError(res, 423, 'locked', `失败次数过多已锁定，请 ${lockRetrySeconds(config.twofa)} 秒后重试`);
@@ -355,14 +372,14 @@ export function twofaRoutes(deps) {
         const identity = resolveIdentity(req, runtime);
         if (!requireAdmin(res, identity)) return;
         if (!config.twofa?.enabled) {
-          return sendError(res, 409, 'not_enabled', '未绑定两步验证');
+          return sendError(res, 409, 'not_enabled', '未绑定2FA验证');
         }
         // 修改保护范围本身即高危操作：必须持有效票据
         const ticket = Array.isArray(req.headers['x-2fa-ticket'])
           ? req.headers['x-2fa-ticket'][0]
           : req.headers['x-2fa-ticket'];
         if (!consume2faTicket(ticket, identity.id)) {
-          return sendError(res, 403, 'twofa_required', '修改保护范围需先完成两步验证');
+          return sendError(res, 403, 'twofa_required', '修改保护范围需先完成2FA验证');
         }
         let body;
         try {
@@ -388,6 +405,46 @@ export function twofaRoutes(deps) {
           reason: JSON.stringify(actions),
         });
         sendJson(res, 200, { protectedActions: actions });
+      },
+    },
+    {
+      // 设置验证票据有效期（需已绑定 + 有效票据——修改安全参数本身即高危操作）。
+      // 服务端统一执行：TTL 内存于票据表，对所有终端生效，浏览器本地无法延长。
+      method: 'PUT',
+      path: '/api/2fa/ticket-ttl',
+      handler: async (req, res) => {
+        const identity = resolveIdentity(req, runtime);
+        if (!requireAdmin(res, identity)) return;
+        if (!config.twofa?.enabled) {
+          return sendError(res, 409, 'not_enabled', '未绑定2FA验证');
+        }
+        const ticket = Array.isArray(req.headers['x-2fa-ticket'])
+          ? req.headers['x-2fa-ticket'][0]
+          : req.headers['x-2fa-ticket'];
+        if (!consume2faTicket(ticket, identity.id)) {
+          return sendError(res, 403, 'twofa_required', '修改验证有效期需先完成2FA验证');
+        }
+        let body;
+        try {
+          body = await readJsonBody(req);
+        } catch (e) {
+          return sendError(res, 422, 'invalid_json', e.message);
+        }
+        const n = Number(body?.ticketTtlMinutes);
+        if (!Number.isInteger(n) || n < TICKET_TTL_MIN_MINUTES || n > TICKET_TTL_MAX_MINUTES) {
+          return sendError(res, 422, 'invalid_field',
+            `ticketTtlMinutes 必须为 ${TICKET_TTL_MIN_MINUTES}-${TICKET_TTL_MAX_MINUTES} 之间的整数（分钟）`);
+        }
+        config.twofa.ticketTtlMinutes = n;
+        await persist(deps);
+        audit?.log({
+          event: 'twofa_ticket_ttl_update',
+          actorType: 'user',
+          userId: identity.id,
+          result: 'success',
+          reason: `${n}min`,
+        });
+        sendJson(res, 200, { ticketTtlMinutes: n });
       },
     },
     {
@@ -417,7 +474,7 @@ export function twofaRoutes(deps) {
         if (!requireAdmin(res, identity)) return;
         const t = config.twofa;
         if (!t?.enabled) {
-          return sendError(res, 409, 'not_enabled', '未绑定两步验证');
+          return sendError(res, 409, 'not_enabled', '未绑定2FA验证');
         }
         let body;
         try {
@@ -491,8 +548,8 @@ export function twofaRoutes(deps) {
         sendJson(res, 200, {
           ok: true,
           message: hadOutputRecording
-            ? '两步验证已关闭，「记录终端输出摘要」已一并关闭，请重新绑定'
-            : '两步验证已关闭，请重新绑定',
+            ? '2FA验证已关闭，「记录终端输出摘要」已一并关闭，请重新绑定'
+            : '2FA验证已关闭，请重新绑定',
         });
       },
     },
