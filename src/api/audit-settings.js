@@ -65,7 +65,7 @@ export function auditSettingsRoutes(deps) {
           actorType: 'user',
           userId: identity.id,
           result: saved ? 'success' : 'error',
-          reason: `recordTerminalOutput=${recordTerminalOutput}`,
+          reason: `记录终端输出=${recordTerminalOutput}`,
         });
 
         sendJson(res, 200, { recordTerminalOutput, saved });

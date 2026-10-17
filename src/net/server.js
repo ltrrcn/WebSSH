@@ -30,6 +30,7 @@ import { profileRoutes } from '../api/profile.js';
 import { authenticateToken } from '../mcp/tokens.js';
 import { handleMcpCall, handleMcpDelete, validMcpSessionId } from '../mcp/server.js';
 import { checkRateLimit } from '../mcp/rate-limit.js';
+import { createSshPool } from '../ssh/pool.js';
 import { readJsonBody } from './router.js';
 
 /** /mcp 处理：Bearer 鉴权 → 限流 → JSON-RPC 分发 */
@@ -70,6 +71,7 @@ async function mcpHandler(req, res, deps) {
     store: deps.store,
     audit: deps.audit,
     masterKey: deps.masterKey,
+    sshPool: deps.sshPool,
     clientSessionId,
   };
 
@@ -154,8 +156,10 @@ export async function startApp(opts = {}) {
   const store = createFileStore({ configDir: runtime.paths.config });
   const audit = createAuditLogger({ logDir: runtime.paths.log, config });
   const sessionManager = createSessionManager({ config, store, audit, masterKey, runtime });
+  // MCP 工具调用用 SSH 连接池：同主机连续调用复用连接，空闲自动断开（limits.mcpSshIdleMs，0=关闭）
+  const sshPool = createSshPool({ getIdleMs: () => config.limits?.mcpSshIdleMs ?? 10000 });
 
-  const deps = { runtime, config, store, audit, masterKey, sessionManager, resolveIdentity };
+  const deps = { runtime, config, store, audit, masterKey, sessionManager, sshPool, resolveIdentity };
 
   // REST 路由（Phase 2：/api/runtime；US1：/api/hosts 只读；后续故事在此扩展）
   const apiRoutes = [
@@ -295,6 +299,7 @@ export async function startApp(opts = {}) {
   const close = async () => {
     // 优雅退出：先终止全部会话（否则存活的 WS 连接会阻塞 httpServer.close）
     deps.sessionManager.killAll();
+    deps.sshPool?.closeAll(); // 关闭 MCP 连接池中的空闲 SSH 连接
     await deps.audit.drain?.(); // 等待审计队列落盘，避免清理竞态
     await new Promise((resolve) => httpServer.close(resolve));
     httpServer.closeIdleConnections?.();

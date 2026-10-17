@@ -35,6 +35,17 @@ const EVENT_LABEL = {
   twofa_recovery_success: '恢复码恢复成功',
   twofa_recovery_failure: '恢复码恢复失败',
   twofa_recovery_wipe: '恢复失败触发数据清除',
+  'mcp-session-start': 'MCP 连接初始化',
+  'mcp-session-end': 'MCP 连接结束',
+  token_rename: '令牌重命名',
+  token_restore: '令牌恢复',
+  token_delete: '令牌永久删除',
+  'twofa_ticket_ttl_update': '2FA验证票据有效期更新',
+  'audit_settings_update': '审计设置更新',
+  'mcp_direct_update': 'MCP直连配置更新',
+  profile_update: '个人资料更新',
+  avatar_upload: '头像上传',
+  avatar_delete: '头像删除',
 };
 const RESULT_LABEL = { success: '成功', denied: '拒绝', error: '失败' };
 
@@ -91,20 +102,31 @@ export function auditRoutes(deps) {
             s = {
               sessionId: e.sessionId,
               source: isMcp ? 'mcp' : 'user',
-              hostId: e.hostId,
-              hostAddress: e.hostAddress,
+              hostId: null,
+              hostAddress: null,
               tokenId: isMcp ? e.tokenId : undefined,
               createdAt: e.ts,
               endedAt: null,
               commandCount: 0,
               failed: false,
+              // 会话涉及的全体主机（MCP 会话首条握手事件无 hostId，需跨事件收集）
+              hostIds: new Set(),
             };
             bySid.set(e.sessionId, s);
+          }
+          if (e.hostId) {
+            s.hostIds.add(e.hostId);
+            if (!s.hostId) {
+              s.hostId = e.hostId;
+              s.hostAddress = e.hostAddress;
+            }
           }
           if (isMcp) {
             // MCP 会话：创建时间取 mcp-session-start（无则最早事件），结束时间取 mcp-session-end
             if (e.event === 'mcp-session-start' && e.ts < s.createdAt) s.createdAt = e.ts;
             if (e.event === 'mcp-session-end') s.endedAt = e.ts;
+            // 除握手（start/end）外还有事件（工具调用）才算有活动
+            if (e.event !== 'mcp-session-start' && e.event !== 'mcp-session-end') s.hasToolCall = true;
           } else {
             if (e.event === 'connect-attempt' && e.ts < s.createdAt) s.createdAt = e.ts;
             if (e.event === 'disconnect') s.endedAt = e.ts;
@@ -115,14 +137,20 @@ export function auditRoutes(deps) {
         const onlineIds = new Set(
           (sessionManager?.listSessions(identity.id) ?? []).map((s) => s.id)
         );
-        let sessions = [...bySid.values()].map((s) => ({
-          ...s,
-          // MCP 会话服务端无状态，永远不在线（前端以 MCP 标签替代在线状态展示）
-          online: s.source === 'mcp' ? false : onlineIds.has(s.sessionId),
-        }));
+        let sessions = [...bySid.values()]
+          // 纯握手的 MCP 会话（客户端 initialize 后未调任何工具）不进命令审计列表；审计数据保留
+          .filter((s) => !(s.source === 'mcp' && !s.hasToolCall))
+          .map(({ hasToolCall, hostIds, ...s }) => ({
+            ...s,
+            // 会话涉及的主机数与清单（前端：MCP 会话显示「N 台主机」，命令行显示主机名）
+            hostCount: hostIds.size,
+            hostIds: [...hostIds],
+            // MCP 会话服务端无状态，永远不在线（前端以 MCP 标签替代在线状态展示）
+            online: s.source === 'mcp' ? false : onlineIds.has(s.sessionId),
+          }));
         if (from) sessions = sessions.filter((s) => Date.parse(s.createdAt) >= from);
         if (to) sessions = sessions.filter((s) => Date.parse(s.createdAt) <= to);
-        if (hostId) sessions = sessions.filter((s) => s.hostId === hostId);
+        if (hostId) sessions = sessions.filter((s) => s.hostIds.includes(hostId));
         // 创建时间倒序：最新会话在前
         sessions.sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
         sendJson(res, 200, { sessions });

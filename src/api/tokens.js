@@ -239,7 +239,7 @@ export function tokensRoutes(deps) {
           userId: identity.id,
           tokenId: token.id,
           result: 'success',
-          reason: 'permanent',
+          reason: '永久删除，不可恢复',
         });
         sendJson(res, 200, { ok: true });
       },

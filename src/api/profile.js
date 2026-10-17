@@ -135,7 +135,7 @@ export function profileRoutes(deps) {
           actorType: 'user',
           userId: identity.id,
           result: 'success',
-          reason: 'nickname',
+          reason: '昵称修改',
         });
         sendJson(res, 200, { ok: true, nickname: rec.nickname });
       },

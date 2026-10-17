@@ -442,7 +442,7 @@ export function twofaRoutes(deps) {
           actorType: 'user',
           userId: identity.id,
           result: 'success',
-          reason: `${n}min`,
+          reason: `${n}分钟`,
         });
         sendJson(res, 200, { ticketTtlMinutes: n });
       },
@@ -501,7 +501,7 @@ export function twofaRoutes(deps) {
               actorType: 'user',
               userId: identity.id,
               result: 'success',
-              reason: 'recovery attempts exhausted',
+              reason: '恢复码尝试次数耗尽，触发数据清除',
             });
             return sendError(res, 403, 'recovery_exhausted', '错误次数已达上限，无法恢复');
           }
@@ -510,7 +510,7 @@ export function twofaRoutes(deps) {
             actorType: 'user',
             userId: identity.id,
             result: 'denied',
-            reason: `attempts=${t.recoveryAttempts}`,
+            reason: `失败次数=${t.recoveryAttempts}`,
           });
           return sendJson(res, 401, {
             error: {

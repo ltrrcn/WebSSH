@@ -137,7 +137,7 @@ export function mcpDirectRoutes(deps) {
           actorType: 'user',
           userId: identity.id,
           result: actionError ? 'failure' : 'success',
-          reason: actionError ?? `enabled=${enabled} port=${port} bind=${bind}`,
+          reason: actionError ?? `启用=${enabled} 端口=${port} 绑定=${bind}`,
         });
 
         if (actionError) {

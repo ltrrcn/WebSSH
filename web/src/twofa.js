@@ -170,7 +170,7 @@ export async function apiFetch(path, opts = {}) {
 
 // —— 进入面板自动弹验证偏好（localStorage，仅本浏览器） ——
 // true（默认）：打开2FA验证页即弹验证码框；
-// false：先进引导页（开启2FA验证 + 恢复入口），手动点「开启2FA验证」才弹码。
+// false：先进引导页（进入2FA验证 + 恢复入口），手动点「进入2FA验证」才弹码。
 const AUTO_PROMPT_KEY = 'webssh:2fa-auto-prompt';
 
 function getAutoPrompt() {
@@ -205,7 +205,7 @@ function qrSvg(uri) {
 
 /**
  * 未验证引导页（2FA验证/审计/命令审计页共用）：
- * 开启2FA验证入口 + 恢复入口 + 「进入面板自动弹出验证」开关。
+ * 进入2FA验证入口 + 恢复入口 + 「进入面板自动弹出验证」开关。
  * @param {HTMLElement} el 容器
  * @param {{onDone?: ()=>void}} [opts] 验证/恢复成功后的回调（默认重载2FA验证面板）
  */
@@ -218,12 +218,12 @@ export function renderTwofaGate(el, { onDone } = {}) {
       <div class="twofa-intro">
         <div class="twofa-intro-icon">${icon('shield', 30)}</div>
         <p class="twofa-intro-title">面板已受2FA验证保护</p>
-        <button class="btn primary" id="twofa-retry">${icon('shield')} 开启2FA验证</button>
+        <button class="btn primary" id="twofa-retry">${icon('shield')} 进入2FA验证</button>
         <button class="btn" id="twofa-recover">恢复</button>
       </div>
     </div>`;
   const finish = onDone ?? (() => renderTwofaPane(el));
-  // 「开启2FA验证」直接弹码（无视偏好——点按钮即表示愿意输码），成功后回调重载
+  // 「进入2FA验证」直接弹码（无视偏好——点按钮即表示愿意输码），成功后回调重载
   el.querySelector('#twofa-retry').addEventListener('click', async () => {
     const ok = await promptTwofaVerify();
     if (ok) finish();
@@ -237,7 +237,7 @@ export async function renderTwofaPane(el) {
   try {
     // 已绑定时 status 受 2FA 保护（面板本身是高危入口）。
     // apiFetch 遵循偏好：开启（默认）→ 403 自动弹码，进来即认证；
-    // 关闭 → 返回 403，由下方渲染引导页（点「开启2FA验证」才弹码）。
+    // 关闭 → 返回 403，由下方渲染引导页（点「进入2FA验证」才弹码）。
     const res = await apiFetch('2fa/status');
     if (res.ok) status = await res.json();
     else if (res.status === 403) {
@@ -452,7 +452,7 @@ function renderBound(el, status) {
         </select>
       </div>
       <div class="pref-row">
-        <div class="pref-label">进入面板自动弹出验证<div class="pref-desc">开启后打开2FA验证/审计等受保护页面即要求输码；关闭则先显示引导页，点「开启2FA验证」时才输码（仅本浏览器）</div></div>
+        <div class="pref-label">进入面板自动弹出验证<div class="pref-desc">开启后打开2FA验证/审计等受保护页面即要求输码；关闭则先显示引导页，点「进入2FA验证」时才输码（仅本浏览器）</div></div>
         <label class="switch"><input type="checkbox" id="twofa-auto-prompt-bound" ${getAutoPrompt() ? 'checked' : ''} /><span></span></label>
       </div>
       <div class="pref-row">

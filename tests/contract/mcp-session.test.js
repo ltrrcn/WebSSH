@@ -134,7 +134,7 @@ test('/api/audit/sessions：MCP 会话归组（source=mcp、命令数、endedAt�
   }
 });
 
-test('多次 initialize：各自成组，互不串扰', async () => {
+test('多次 initialize：各自成组，纯握手会话不进会话列表但审计保留', async () => {
   const { app, cleanup, base, token } = await setup();
   try {
     const s1 = (await rpc(base, token, 'initialize', {})).headers.get('mcp-session-id');
@@ -143,8 +143,11 @@ test('多次 initialize：各自成组，互不串扰', async () => {
     await rpc(base, token, 'tools/call', { name: 'list_hosts', arguments: {} }, { 'mcp-session-id': s2 });
     await new Promise((r) => setTimeout(r, 200));
     const { sessions } = await (await fetch(`${base}/api/audit/sessions`)).json();
-    assert.ok(sessions.some((s) => s.sessionId === s1 && s.commandCount === 0), '会话 1 独立归组');
+    assert.ok(!sessions.some((s) => s.sessionId === s1), '纯握手（无工具调用）的 MCP 会话不出现在会话列表');
     assert.ok(sessions.some((s) => s.sessionId === s2 && s.commandCount === 1), '会话 2 独立归组');
+    // 审计数据保留：握手事件仍在事件流中（操作审计可见）
+    const audit = await (await fetch(`${base}/api/audit?source=mcp`)).json();
+    assert.ok(audit.items.some((e) => e.event === 'mcp-session-start' && e.sessionId === s1), '握手事件仍保留在审计流');
   } finally {
     await app.close();
     await cleanup();

@@ -270,7 +270,7 @@ export function createSessionManager({ config, store, audit, masterKey, runtime 
   function detachSession(session) {
     if (session.state === 'closing' || session.state === 'closed' || session.state === 'detached') return;
     session.state = 'detached';
-    audit.log(auditBase(session, { event: 'detach', result: 'success', reason: 'network' }));
+    audit.log(auditBase(session, { event: 'detach', result: 'success', reason: '网络断开' }));
     session.detachTimer = setTimeout(() => {
       closeSession(session, 'detach-timeout', 1000);
     }, detachedTtlMs);

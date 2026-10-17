@@ -10,7 +10,7 @@ import { activateTab, restoreTab, findLocalTab } from './terminal.js';
 import { apiFetch, renderTwofaGate } from './twofa.js';
 
 /**
- * 403 twofa_required → 在容器内渲染2FA验证引导页（开启2FA验证/恢复入口/自动弹码开关）。
+ * 403 twofa_required → 在容器内渲染2FA验证引导页（进入2FA验证/恢复入口/自动弹码开关）。
  * 「自动弹出验证」偏好关闭时审计加载请求不再自动弹码，改由此呈现引导页；
  * 偏好开启时用户取消弹码同样落此页。验证/恢复成功后 retry 重载原内容。
  * @returns {boolean} true = 已渲染引导页（调用方应终止本次加载）
@@ -50,8 +50,17 @@ const EVENT_LABEL = {
   twofa_recovery_success: '恢复码恢复成功',
   twofa_recovery_failure: '恢复码恢复失败',
   twofa_recovery_wipe: '恢复失败触发数据清除',
-  'mcp-session-start': 'MCP 会话建立',
-  'mcp-session-end': 'MCP 会话结束',
+  'mcp-session-start': 'MCP 连接初始化',
+  'mcp-session-end': 'MCP 连接结束',
+  token_rename: '令牌重命名',
+  token_restore: '令牌恢复',
+  token_delete: '令牌永久删除',
+  'twofa_ticket_ttl_update': '2FA验证票据有效期更新',
+  'audit_settings_update': '审计设置更新',
+  'mcp_direct_update': 'MCP直连配置更新',
+  profile_update: '个人资料更新',
+  avatar_upload: '头像上传',
+  avatar_delete: '头像删除',
 };
 const RESULT_LABEL = { success: '成功', denied: '拒绝', error: '失败' };
 
@@ -61,8 +70,9 @@ const NOTE = {
     元数据脱敏留存，不含凭据与终端输出全文。支持按时间范围、会话 ID、来源、结果与主机过滤、分页与导出。`,
   sessions: `<b>命令审计</b>：按会话组织——每行是一个终端会话（创建时间、主机、命令数、在线状态），
     点击展开可查看该会话执行过的全部命令。AI Agent（MCP）会话同样按会话归组（m_ 前缀，
-    含该次 Agent 连接的全部 run_command 调用）；不带会话的旧客户端令牌调用归入「MCP 令牌调用」组。
-    支持按会话创建时间范围与主机过滤。`,
+    主机列显示该会话涉及的主机台数，展开后每条命令标明目标主机）；仅完成协议握手（initialize）
+    而未调用任何工具的 MCP 会话不在此列（可在操作审计中查看其连接记录）；不带会话的旧客户端
+    令牌调用归入「MCP 令牌调用」组。支持按会话创建时间范围与主机过滤。`,
 };
 
 // 命令审计：会话表头（与数据行共用 grid 模板，保证列对齐）
@@ -88,6 +98,9 @@ const CONDS = [
 ];
 
 let state = { category: 'operation', result: '', hostId: '', source: '', command: '', sessionId: '', from: '', to: '', offset: 0, limit: 30, total: 0 };
+
+// 主机 ID → 名称缓存（会话视图加载时填充，命令行显示主机名用）
+const hostNames = {};
 
 /**
  * 渲染审计页。
@@ -552,6 +565,13 @@ async function renderSessionView(el) {
 
 async function loadSessions(el) {
   const list = el.querySelector('#session-list');
+  // 命令行需显示主机名：先填充 ID → 名称映射（失败不阻塞列表加载）
+  fetch(apiUrl('hosts'))
+    .then((r) => r.json())
+    .then((hs) => {
+      for (const h of hs) hostNames[h.id] = h.name;
+    })
+    .catch(() => {});
   const params = new URLSearchParams();
   if (state.from) params.set('from', state.from);
   if (state.to) params.set('to', state.to);
@@ -581,6 +601,13 @@ async function loadSessions(el) {
         const statusTag = isMcp
           ? '<span class="tag" title="AI Agent 经 MCP 令牌发起的会话">MCP</span>'
           : `<span class="tag ${s.online ? 'ok' : 'closed'}">${s.online ? '在线' : '已关闭'}</span>`;
+        // 主机列：人工会话显示主机名；MCP 会话显示涉及的主机数（悬停列出全部主机）
+        const hostTitle = isMcp
+          ? (s.hostIds ?? []).map((id) => hostNames[id] ?? id).join(' · ')
+          : s.hostAddress ?? '';
+        const hostCell = isMcp
+          ? `<span class="session-host" title="${escapeHtml(hostTitle)}">${s.hostCount ? `${s.hostCount}台主机` : '-'}</span>`
+          : `<span class="session-host" title="${escapeHtml(hostTitle)}">${escapeHtml(s.hostId ?? '-')}</span>`;
         const flags = isMcp
           ? (s.tokenId ? `<span class="tag" title="令牌 ${escapeHtml(s.tokenId)}">令牌调用</span>` : '')
           : `${s.failed ? '<span class="tag warn">连接失败</span>' : ''}${
@@ -591,7 +618,7 @@ async function loadSessions(el) {
             <span class="session-toggle">${icon('chevron', 13)}</span>
             ${statusTag}
             <span class="session-sid" title="会话 ID">${escapeHtml(s.sessionId)}</span>
-            <span class="session-host" title="${escapeHtml(s.hostAddress ?? '')}">${escapeHtml(s.hostId ?? '-')}</span>
+            ${hostCell}
             <span class="session-time">${formatTime(s.createdAt)} 创建</span>
             <span class="session-flags">${flags}</span>
             <span class="session-count">${s.commandCount} 条命令</span>
@@ -691,6 +718,7 @@ async function loadSessionCommands(panel, sid) {
         .map(
           (ev, idx) => `<div class="cmd-row" data-idx="${idx}">
             <span class="audit-time">${formatTime(ev.ts)}</span>
+            <span class="cmd-host" title="${escapeHtml(ev.hostId ?? '')}">${escapeHtml(ev.hostId ? (hostNames[ev.hostId] ?? ev.hostId) : '-')}</span>
             <span class="audit-cmd" title="${escapeHtml(ev.command ?? '')}">${escapeHtml(ev.command ?? '-')}</span>
             <span class="tag ${ev.result === 'success' ? 'ok' : ev.result === 'denied' ? 'warn' : ''}">${RESULT_LABEL[ev.result] ?? ev.result}</span>
             <button class="audit-view" type="button">查看</button>

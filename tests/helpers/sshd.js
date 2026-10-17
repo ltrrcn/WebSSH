@@ -111,10 +111,11 @@ export async function startSshd() {
   ].join('\n');
   const confPath = join(dir, 'sshd_config');
   await writeFile(confPath, `${config}\n`);
+  const logPath = join(dir, 'sshd.log');
 
   const sshdPath = await findSshdPath();
-  // sshd 要求以绝对路径执行；-D 前台运行便于随测试进程销毁
-  const proc = spawn(sshdPath, ['-D', '-e', '-f', confPath], {
+  // sshd 要求以绝对路径执行；-D 前台运行便于随测试进程销毁；-E 日志落文件供连接计数
+  const proc = spawn(sshdPath, ['-D', '-E', logPath, '-f', confPath], {
     stdio: ['ignore', 'ignore', 'pipe'],
   });
   let stderr = '';
@@ -131,6 +132,16 @@ export async function startSshd() {
   }
 
   let stopped = false;
+  // 连接计数：每条 TCP 连接认证成功记一行 "Accepted publickey/password ..."
+  // （macOS sshd 不记 Linux 的 "Connection from" 行，跨平台以认证行计数；连接池复用测试用）
+  const connectionCount = async () => {
+    try {
+      const text = await readFile(logPath, 'utf8');
+      return (text.match(/^Accepted (publickey|password|keyboard-interactive)/gm) ?? []).length;
+    } catch {
+      return 0;
+    }
+  };
   const stop = async () => {
     if (stopped) return;
     stopped = true;
@@ -144,5 +155,5 @@ export async function startSshd() {
   // 测试进程退出时兜底清理
   process.once('exit', stop);
 
-  return { port, host: '127.0.0.1', clientKey, hostKey, proc, stop };
+  return { port, host: '127.0.0.1', clientKey, hostKey, proc, stop, connectionCount };
 }

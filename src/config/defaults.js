@@ -10,6 +10,11 @@ export const DEFAULT_CONFIG = {
     execTimeoutMs: 60000,
     tokenRateLimitPerMinute: 60,
     outputDigestBytes: 2048,
+    // MCP 工具调用（run_command/read_file）的 SSH 连接空闲复用时长：
+    // 同主机的连续调用复用同一条连接（单连接多通道），空闲超过该时长自动断开。
+    // 0 = 关闭复用（每次调用独立建连）。默认 10s，缓解批量执行时高频建连
+    // 触发对端 sshd 并发限制（MaxStartups）导致的连续 ECONNRESET。
+    mcpSshIdleMs: 10000,
   },
   audit: {
     retentionDays: 30,

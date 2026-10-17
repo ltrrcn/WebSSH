@@ -67,7 +67,7 @@ export async function saveConfig(paths, config) {
 function validateConfig(cfg) {
   const { limits } = cfg;
   if (limits) {
-    for (const key of ['sessionsPerUser', 'connectTimeoutMs', 'idleTimeoutMs', 'execTimeoutMs', 'tokenRateLimitPerMinute', 'outputDigestBytes', 'detachedTtlMs']) {
+    for (const key of ['sessionsPerUser', 'connectTimeoutMs', 'idleTimeoutMs', 'execTimeoutMs', 'tokenRateLimitPerMinute', 'outputDigestBytes', 'detachedTtlMs', 'mcpSshIdleMs']) {
       if (limits[key] !== undefined && (!Number.isFinite(limits[key]) || limits[key] < 0)) {
         throw new Error(`config.limits.${key} 必须为非负数值`);
       }

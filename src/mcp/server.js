@@ -197,12 +197,18 @@ async function dispatchTool(name, args, ctx) {
     throw Object.assign(new Error('目标主机不在令牌授权范围'), { code: 'host_not_allowed' });
   }
 
+  // 连接策略：优先走连接池（同主机复用，空闲断开，见 ssh/pool.js）；未注入时退回一次性连接
+  const withConn = (fn) =>
+    ctx.sshPool
+      ? ctx.sshPool.withPooled(`${token.ownerId}:${host.id}`, { host, masterKey, config }, fn)
+      : withSsh({ host, masterKey, config }, fn);
+
   if (name === 'run_command') {
     const verdict = checkCommand(args.command, config.security, { level: token.level });
     if (!verdict.allowed) {
       throw Object.assign(new Error(`命令被拒绝（${verdict.reason}）`), { code: 'command_denied' });
     }
-    const out = await withSsh({ host, masterKey, config }, (conn) =>
+    const out = await withConn((conn) =>
       execCommand(conn, args.command, config.limits.execTimeoutMs ?? 60000)
     );
     const t = truncateDigest(redact(out.stdout), config.limits.outputDigestBytes ?? 2048);
@@ -215,7 +221,7 @@ async function dispatchTool(name, args, ctx) {
     if (!verdict.allowed) {
       throw Object.assign(new Error(`路径被拒绝（${verdict.reason}）`), { code: 'path_denied' });
     }
-    return withSsh({ host, masterKey, config }, (conn) => sftpRead(conn, args.path, MAX_READ_BYTES));
+    return withConn((conn) => sftpRead(conn, args.path, MAX_READ_BYTES));
   }
 
   throw Object.assign(new Error(`未知工具: ${name}`), { code: 'tool_error' });

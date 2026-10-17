@@ -465,7 +465,7 @@ export function hostsRoutes(deps) {
             authType: host.authType,
             event: 'credential-update',
             result: 'success',
-            reason: 'remember-passphrase',
+            reason: '记住私钥口令',
           });
         }
         const ticket = createPassTicket({ hostId: id, ownerId: identity.id, passphrase, password });

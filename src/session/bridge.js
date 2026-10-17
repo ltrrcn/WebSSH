@@ -128,7 +128,7 @@ export function bridgeSession({ ws, stream, session, idleTimeoutMs, detachedTtlM
         sessionId: session.id,
         event: 'command',
         result: 'denied',
-        reason: 'non-binary-frame',
+        reason: '非二进制帧（拒绝）',
       });
       return;
     }
@@ -160,7 +160,7 @@ export function bridgeSession({ ws, stream, session, idleTimeoutMs, detachedTtlM
           sessionId: session.id,
           event: 'command',
           result: 'denied',
-          reason: `invalid-frame:${frame.reason}`,
+          reason: `非法帧:${frame.reason}`,
         });
     }
   };

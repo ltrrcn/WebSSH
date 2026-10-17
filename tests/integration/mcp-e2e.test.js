@@ -123,3 +123,94 @@ test('MCP 全链路：令牌 → 工具调用 → 真实 sshd 执行/读写（FR
   assert.equal(byCmdNone.items.length, 0, '无命中时应为空');
   assert.ok(events.items.every((e) => !JSON.stringify(e).includes(created.token)), '审计不含令牌明文');
 });
+
+test('MCP 连接池：批量命令复用同一条 SSH 连接，审计仍归同一会话', async (t) => {
+  const sshd = await startSshd();
+  const { dir, cleanup } = await makeTempDir('webssh-mcp-pool-');
+  const { stdout } = await execFileAsync('ssh-keygen', ['-lf', `${sshd.hostKey}.pub`]);
+  const fp = stdout.match(/(SHA256:[^\s]+)/)[1];
+  await seedHost({
+    configDir: `${dir}/etc`,
+    id: 'h_ssh',
+    host: '127.0.0.1',
+    port: sshd.port,
+    username: userInfo().username,
+    privateKey: await readFile(sshd.clientKey, 'utf8'),
+    fingerprint: fp,
+  });
+  const app = await startApp({
+    env: { WEBSSH_HOME: dir },
+    config: {
+      standalone: { bind: '127.0.0.1', port: 0 },
+      // 空闲复用 10s：测试内连续调用远小于该窗口
+      limits: { sessionsPerUser: 10, tokenRateLimitPerMinute: 100, execTimeoutMs: 8000, outputDigestBytes: 1024, mcpSshIdleMs: 10000 },
+      security: {
+        allowedOrigins: [],
+        sensitivePaths: [],
+        readOnlyCommands: ['echo', 'ls'],
+        dangerousCommands: ['rm'],
+      },
+    },
+  });
+  const base = `http://127.0.0.1:${app.port}`;
+  t.after(async () => {
+    await app.close();
+    await cleanup();
+    await sshd.stop();
+  });
+
+  const { token } = await (
+    await fetch(`${base}/api/tokens`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name: 'pool-e2e', level: 'writable', hostScope: ['h_ssh'] }),
+    })
+  ).json();
+
+  // 1) initialize 拿会话 ID（此后所有调用共用该会话）
+  const sid = (
+    await fetch(`${base}/mcp`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 0, method: 'initialize', params: {} }),
+    })
+  ).headers.get('mcp-session-id');
+  assert.match(sid, /^m_[0-9a-f]{12}$/);
+
+  // 2) 批量执行 5 条命令（同一会话、同一主机，间隔远小于空闲窗口）
+  const callToolSid = (name, args) =>
+    fetch(`${base}/mcp`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${token}`, 'mcp-session-id': sid },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } }),
+    })
+      .then(async (r) => JSON.parse((await r.json()).result.content[0].text));
+  for (let i = 0; i < 5; i++) {
+    const r = await callToolSid('run_command', { hostId: 'h_ssh', command: `echo batch-${i}` });
+    assert.equal(r.exitCode, 0, `第 ${i} 条命令应成功: ${JSON.stringify(r)}`);
+  }
+
+  // 3) 连接数断言：池化复用 → sshd 只见到 1 条 TCP 连接
+  await new Promise((r) => setTimeout(r, 200));
+  assert.equal(await sshd.connectionCount(), 1, '5 条命令应复用同一条 SSH 连接');
+
+  // 4) 等空闲窗口过后再执行 → 新建连接
+  await new Promise((r) => setTimeout(r, 10500));
+  const r2 = await callToolSid('run_command', { hostId: 'h_ssh', command: 'echo after-idle' });
+  assert.equal(r2.exitCode, 0);
+  await new Promise((r) => setTimeout(r, 200));
+  assert.equal(await sshd.connectionCount(), 2, '空闲断开后再次调用应重建连接');
+
+  // 5) 审计归组：全部命令记录到同一 MCP 会话 ID
+  await new Promise((r) => setTimeout(r, 300));
+  const events = await (await fetch(`${base}/api/audit?source=mcp`)).json();
+  const cmds = events.items.filter((e) => e.event === 'command' && e.result === 'success' && e.sessionId === sid);
+  assert.equal(cmds.length, 6, '6 条命令全部归属同一会话 ID');
+  // 6) 会话聚合：MCP 会话主机列取命令事件（首条握手事件无 hostId）
+  const { sessions } = await (await fetch(`${base}/api/audit/sessions`)).json();
+  const sess = sessions.find((x) => x.sessionId === sid);
+  assert.ok(sess, 'MCP 会话出现在会话聚合视图');
+  assert.equal(sess.hostId, 'h_ssh', 'hostId 取首个带主机的命令事件');
+  assert.equal(sess.hostCount, 1, '单主机会话 hostCount=1');
+  assert.deepEqual(sess.hostIds, ['h_ssh']);
+});
