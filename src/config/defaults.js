@@ -15,6 +15,10 @@ export const DEFAULT_CONFIG = {
     // 0 = 关闭复用（每次调用独立建连）。默认 10s，缓解批量执行时高频建连
     // 触发对端 sshd 并发限制（MaxStartups）导致的连续 ECONNRESET。
     mcpSshIdleMs: 10000,
+    // MCP 会话粘性窗口：客户端不回传 Mcp-Session-Id 头时，按令牌把命令归入
+    // 「当前活跃会话」；静默超过该窗口视为会话结束，下次调用开新会话。
+    // 0 = 关闭粘性（无头调用不归组，落入「MCP 令牌调用（无会话）」）。默认 30 分钟。
+    mcpSessionWindowMs: 1800000,
   },
   audit: {
     retentionDays: 30,

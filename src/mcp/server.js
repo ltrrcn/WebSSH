@@ -8,13 +8,12 @@ import { withSsh, execCommand } from '../ssh/exec.js';
 import { redact, truncateDigest } from '../crypto/redact.js';
 import { checkRateLimit } from './rate-limit.js';
 import { normalizeDefaultGroup } from '../api/groups.js';
+import { newMcpSessionId } from './session-registry.js';
 
 const MAX_READ_BYTES = 1024 * 512; // read_file 单次上限 512KB
 
-/** MCP 会话 ID：m_ 前缀 + 12 位 hex（与用户终端会话 s_ 前缀区分） */
-export function newMcpSessionId() {
-  return `m_${randomUUID().replace(/-/g, '').slice(0, 12)}`;
-}
+// 会话 ID 生成统一在 session-registry.js（粘性归组也需生成合成会话 ID）；此处 re-export 保持既有导入路径
+export { newMcpSessionId };
 
 /** 客户端回传的会话头格式校验：非法值一律视为无会话（防审计注入垃圾值） */
 export function validMcpSessionId(v) {
@@ -80,6 +79,8 @@ export async function handleMcpCall(body, ctx) {
     // 服务端不存储会话状态——每次 initialize 即一个新 AI Agent 会话。
     const sessionId = newMcpSessionId();
     ctx.onSessionCreated?.(sessionId);
+    // 粘性归组：绑定该令牌的当前会话——客户端不回传会话头时，后续调用也归入此会话
+    ctx.mcpSessions?.bind(token.id, sessionId);
     audit.log({
       actor: token.ownerId,
       actorType: 'token',
@@ -108,16 +109,21 @@ export async function handleMcpCall(body, ctx) {
     if (!allowed) {
       return rpcError(body.id, -32602, `工具不存在或令牌级别（${token.level}）无权调用: ${name}`);
     }
+    // 归档会话：客户端回传了有效会话头则尊重；否则归入该令牌的当前活跃会话
+    // （粘性归组，见 session-registry.js）——AI 客户端不透传 Mcp-Session-Id 时命令仍按会话归档
+    const auditSid = ctx.mcpSessions
+      ? ctx.mcpSessions.resolve(token.id, ctx.clientSessionId ?? null)
+      : (ctx.clientSessionId ?? null);
     try {
       const result = await dispatchTool(name, args, ctx);
-      auditToolCall(audit, token, name, args, result, 'success', null, ctx.clientSessionId ?? null);
+      auditToolCall(audit, token, name, args, result, 'success', null, auditSid);
       return {
         jsonrpc: '2.0',
         id: body.id ?? null,
         result: { content: [{ type: 'text', text: JSON.stringify(result) }] },
       };
     } catch (err) {
-      auditToolCall(audit, token, name, args, null, err.code === 'rate_limited' ? 'denied' : 'error', err.code ?? err.message, ctx.clientSessionId ?? null);
+      auditToolCall(audit, token, name, args, null, err.code === 'rate_limited' ? 'denied' : 'error', err.code ?? err.message, auditSid);
       return {
         jsonrpc: '2.0',
         id: body.id ?? null,
@@ -132,9 +138,10 @@ export async function handleMcpCall(body, ctx) {
   return rpcError(body.id ?? null, -32601, `Method not found: ${method}`);
 }
 
-/** DELETE /mcp：客户端主动结束会话（Streamable HTTP 规范）→ 记 mcp-session-end */
+/** DELETE /mcp：客户端主动结束会话（Streamable HTTP 规范）→ 解除粘性并记 mcp-session-end */
 export function handleMcpDelete(ctx) {
   const { token, audit } = ctx;
+  ctx.mcpSessions?.end(token.id);
   audit.log({
     actor: token.ownerId,
     actorType: 'token',

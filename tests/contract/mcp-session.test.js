@@ -69,7 +69,7 @@ test('tools/call 携带会话头：审计事件 sessionId 与会话一致', asyn
   }
 });
 
-test('无会话头/非法会话头：sessionId 为 null（向后兼容）', async () => {
+test('无会话头/非法会话头：粘性归组到当前活跃会话（AI 客户端兼容）', async () => {
   const { app, cleanup, base, token } = await setup();
   try {
     await rpc(base, token, 'tools/call', { name: 'list_hosts', arguments: {} });
@@ -78,7 +78,9 @@ test('无会话头/非法会话头：sessionId 为 null（向后兼容）', asyn
     await new Promise((r) => setTimeout(r, 200));
     const audit = await (await fetch(`${base}/api/audit?source=mcp&category=commands`)).json();
     assert.equal(audit.items.length, 3);
-    assert.ok(audit.items.every((e) => e.sessionId === null), '非法/缺失会话头一律视为无会话');
+    const sids = new Set(audit.items.map((e) => e.sessionId));
+    assert.equal(sids.size, 1, '同一令牌的连续无头/非法头调用归入同一粘性会话');
+    assert.match([...sids][0], /^m_[0-9a-f]{12}$/, '粘性会话为合成 m_ 会话 ID');
   } finally {
     await app.close();
     await cleanup();
@@ -108,12 +110,12 @@ test('DELETE /mcp：204 并记录 mcp-session-end', async () => {
   }
 });
 
-test('/api/audit/sessions：MCP 会话归组（source=mcp、命令数、endedAt），null 不成组', async () => {
+test('/api/audit/sessions：MCP 会话归组（source=mcp、命令数、endedAt），无头调用粘性归入当前会话', async () => {
   const { app, cleanup, base, token } = await setup();
   try {
     const sid = (await rpc(base, token, 'initialize', {})).headers.get('mcp-session-id');
     await rpc(base, token, 'tools/call', { name: 'list_hosts', arguments: {} }, { 'mcp-session-id': sid });
-    await rpc(base, token, 'tools/call', { name: 'list_hosts', arguments: {} }); // 无会话头（旧客户端）
+    await rpc(base, token, 'tools/call', { name: 'list_hosts', arguments: {} }); // 无会话头 → 粘性归入 initialize 会话
     await fetch(`${base}/mcp`, { method: 'DELETE', headers: { authorization: `Bearer ${token}`, 'mcp-session-id': sid } });
     await new Promise((r) => setTimeout(r, 300));
 
@@ -121,13 +123,30 @@ test('/api/audit/sessions：MCP 会话归组（source=mcp、命令数、endedAt�
     const mcp = sessions.find((s) => s.sessionId === sid);
     assert.ok(mcp, 'MCP 会话出现在会话聚合视图');
     assert.equal(mcp.source, 'mcp');
-    assert.equal(mcp.commandCount, 1, '仅统计成功命令');
+    assert.equal(mcp.commandCount, 2, '带头与无头（粘性）调用均归入该会话');
     assert.ok(mcp.endedAt, 'DELETE 结束时间已记录');
     assert.equal(mcp.online, false, 'MCP 会话无在线态');
     assert.ok(mcp.tokenId, 'MCP 会话标明令牌');
     // 会话视图按创建时间倒序混排（MCP 与用户会话同列）
     const ts = sessions.map((x) => x.createdAt);
     assert.deepEqual(ts, [...ts].sort().reverse());
+  } finally {
+    await app.close();
+    await cleanup();
+  }
+});
+
+test('initialize 绑定：客户端不回传会话头时，命令归入该 initialize 会话', async () => {
+  const { app, cleanup, base, token } = await setup();
+  try {
+    // 模拟 CodeBuddy 等 AI 客户端：initialize 拿到会话 ID，但 tools/call 不回传头
+    const sid = (await rpc(base, token, 'initialize', {})).headers.get('mcp-session-id');
+    await rpc(base, token, 'tools/call', { name: 'list_hosts', arguments: {} });
+    await rpc(base, token, 'tools/call', { name: 'list_hosts', arguments: {} });
+    await new Promise((r) => setTimeout(r, 200));
+    const audit = await (await fetch(`${base}/api/audit?source=mcp&category=commands`)).json();
+    assert.equal(audit.items.length, 2);
+    assert.ok(audit.items.every((e) => e.sessionId === sid), '无头调用粘性归入 initialize 建立的会话');
   } finally {
     await app.close();
     await cleanup();

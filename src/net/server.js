@@ -30,6 +30,7 @@ import { profileRoutes } from '../api/profile.js';
 import { authenticateToken } from '../mcp/tokens.js';
 import { handleMcpCall, handleMcpDelete, validMcpSessionId } from '../mcp/server.js';
 import { checkRateLimit } from '../mcp/rate-limit.js';
+import { createSessionRegistry } from '../mcp/session-registry.js';
 import { createSshPool } from '../ssh/pool.js';
 import { readJsonBody } from './router.js';
 
@@ -72,6 +73,7 @@ async function mcpHandler(req, res, deps) {
     audit: deps.audit,
     masterKey: deps.masterKey,
     sshPool: deps.sshPool,
+    mcpSessions: deps.mcpSessions,
     clientSessionId,
   };
 
@@ -158,8 +160,10 @@ export async function startApp(opts = {}) {
   const sessionManager = createSessionManager({ config, store, audit, masterKey, runtime });
   // MCP 工具调用用 SSH 连接池：同主机连续调用复用连接，空闲自动断开（limits.mcpSshIdleMs，0=关闭）
   const sshPool = createSshPool({ getIdleMs: () => config.limits?.mcpSshIdleMs ?? 10000 });
+  // MCP 会话粘性注册表：客户端不回传 Mcp-Session-Id 时按令牌归入当前活跃会话（limits.mcpSessionWindowMs，0=关闭）
+  const mcpSessions = createSessionRegistry({ getWindowMs: () => config.limits?.mcpSessionWindowMs ?? 1800000 });
 
-  const deps = { runtime, config, store, audit, masterKey, sessionManager, sshPool, resolveIdentity };
+  const deps = { runtime, config, store, audit, masterKey, sessionManager, sshPool, mcpSessions, resolveIdentity };
 
   // REST 路由（Phase 2：/api/runtime；US1：/api/hosts 只读；后续故事在此扩展）
   const apiRoutes = [
