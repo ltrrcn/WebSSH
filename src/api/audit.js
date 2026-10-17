@@ -174,6 +174,9 @@ export function auditRoutes(deps) {
         const command = q.get('command')?.trim().toLowerCase() ?? '';
         // 会话筛选：查看某一会话的全部事件（如该会话执行过的命令）
         const sessionId = q.get('sessionId')?.trim() ?? '';
+        // 无会话筛选（noSession=1）：仅 sessionId 为空的事件（命令审计「MCP 令牌调用（无会话）」组专用，
+        // 避免已归组的命令重复出现在该组）
+        const noSession = q.get('noSession') === '1';
         // 类别筛选：commands=仅命令执行事件（Web 终端 + MCP），
         // operation=登录/连接与操作调用记录（connect-* / disconnect / file-* / group-* 等非命令事件）
         const category = q.get('category');
@@ -191,6 +194,7 @@ export function auditRoutes(deps) {
         if (result) items = items.filter((e) => e.result === result);
         if (command) items = items.filter((e) => typeof e.command === 'string' && e.command.toLowerCase().includes(command));
         if (sessionId) items = items.filter((e) => e.sessionId === sessionId);
+        if (noSession) items = items.filter((e) => !e.sessionId);
         if (category === 'commands') items = items.filter((e) => e.event === 'command');
         else if (category === 'operation') items = items.filter((e) => e.event !== 'command');
 

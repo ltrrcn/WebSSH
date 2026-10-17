@@ -147,6 +147,9 @@ test('initialize 绑定：客户端不回传会话头时，命令归入该 initi
     const audit = await (await fetch(`${base}/api/audit?source=mcp&category=commands`)).json();
     assert.equal(audit.items.length, 2);
     assert.ok(audit.items.every((e) => e.sessionId === sid), '无头调用粘性归入 initialize 建立的会话');
+    // noSession=1（「MCP 令牌调用（无会话）」组专用）：已归组的命令不得混入
+    const noSession = await (await fetch(`${base}/api/audit?source=mcp&category=commands&noSession=1`)).json();
+    assert.equal(noSession.items.length, 0, '已归组命令不应出现在无会话查询结果中');
   } finally {
     await app.close();
     await cleanup();

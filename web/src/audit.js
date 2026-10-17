@@ -700,7 +700,7 @@ async function loadSessionCommands(panel, sid) {
   panel.innerHTML = '<div class="placeholder-box" style="padding:12px 0">加载中…</div>';
   const path =
     sid === '__mcp__'
-      ? `audit?category=commands&source=mcp&limit=500`
+      ? `audit?category=commands&source=mcp&noSession=1&limit=500` // 仅真正未归组的命令（noSession）
       : sid.startsWith('m_')
         ? `audit?category=commands&source=mcp&sessionId=${encodeURIComponent(sid)}&limit=500`
         : `audit?category=commands&sessionId=${encodeURIComponent(sid)}&limit=500`;
