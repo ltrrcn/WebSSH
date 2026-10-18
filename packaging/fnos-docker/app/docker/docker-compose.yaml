@@ -1,0 +1,18 @@
+# 飞牛 Docker 版编排（fnOS docker-project 资源规范）
+# image + build 并存：NAS 上已有 webssh:<版本> 镜像（docker load 导入）则直接复用，
+# 否则按包内构建上下文（./app）现场构建；基础镜像 node:22-alpine 走 fnnas 镜像源
+services:
+  webssh:
+    image: webssh:0.0.0
+    build:
+      context: ./app
+      dockerfile: Dockerfile
+    container_name: webssh-docker
+    restart: unless-stopped
+    ports:
+      - "${TRIM_SERVICE_PORT}:8080"
+    volumes:
+      - "${TRIM_PKGVAR}/webssh:/data"
+    environment:
+      PUID: "${TRIM_UID:-1000}"
+      PGID: "${TRIM_GID:-1000}"

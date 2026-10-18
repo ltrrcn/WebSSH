@@ -1,0 +1,12 @@
+node_modules
+packaging
+tests
+docs
+specs
+.git
+.codebuddy
+.specify
+*.md
+*.fpk
+*.tar.gz
+.npmrc

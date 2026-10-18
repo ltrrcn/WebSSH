@@ -23,6 +23,24 @@ WEBSSH_HOME=~/.webssh npm start
 - Node.js ≥ 22
 - 默认仅监听 `127.0.0.1:8080`；数据目录 `~/.webssh/`（`etc/` 配置与凭据、`var/log/` 审计）
 
+## Docker 运行
+
+```bash
+npm run docker:build            # 构建镜像 webssh:<version> + latest（node:22-alpine，非 root 运行）
+# 或交叉构建：npm run docker:build -- linux/amd64
+
+docker run -d --name webssh \
+  -p 8080:8080 \
+  -v webssh-data:/data \
+  webssh:latest
+# 打开 http://<主机>:8080
+```
+
+- 容器以 standalone 模式运行（自动探测），首启由入口脚本生成默认配置（`bind 0.0.0.0:8080`）
+- 数据全部落在卷 `/data`（= `WEBSSH_HOME`），备份同上「数据与备份」
+- `PUID`/`PGID`（默认 1000）控制容器内运行身份；挂载宿主目录时按需指定
+- MCP 直连端口（`mcpDirect`，默认 8422）启用后需一并 `-p 8422:8422` 映射
+
 ## 配置
 
 `$WEBSSH_HOME/etc/config.json`（缺省自动生成，字段见 `specs/001-webssh-base-terminal/contracts/storage-schema.md`）：
@@ -65,6 +83,19 @@ npm run pack:fnos    # 同步产物 + 纯 JS 依赖校验 + fnpack build
 ```
 
 安装：应用中心 → 手动安装 → 选择 `.fpk`。桌面图标经统一网关 `/app/webssh` 访问，数据由系统按 `TRIM_*` 注入目录管理。
+
+### 飞牛 Docker 版
+
+```bash
+npm run pack:fnos:docker                    # 产出 packaging/fnos-docker/webssh-docker-<version>.fpk
+npm run pack:fnos:docker -- --image         # 额外导出离线镜像 tar.gz（NAS 无法拉取基础镜像时用）
+```
+
+- `appname=webssh-docker`，与 native 版（`webssh`，依赖 nodejs_v22 运行时）可共存安装
+- 容器形态运行（docker-project 资源声明），不依赖 fnOS Node 运行时；镜像基于 `node:22-alpine` 以最少资源运行
+- 入口走端口服务（默认 `service_port=8421`，安装向导可改），数据落 `${TRIM_PKGVAR}/webssh`
+- 镜像获取二选一：① NAS 配有 docker.fnnas.com 镜像源 → 安装时自动从包内源码构建；② 离线导入 → `gunzip -c webssh-<version>-image.tar.gz | docker load` 后安装，compose 复用本地镜像
+- 数据持久化目录（`TRIM_PKGVAR/webssh`）与 native 版（`TRIM_PKGETC`/`TRIM_PKGVAR`）相互独立，两版本数据不互通
 
 ## MCP 接入（AI 工具）
 
