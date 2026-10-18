@@ -1,7 +1,7 @@
 // 应用外壳（FR-044）：左侧主机栏 + 右侧多 tab 终端区 + 左下角设置 + beforeunload 会话保护
 import { initTheme, currentThemeMode, setTheme } from './theme.js';
 import { icon } from './icons.js';
-import { renderHostList, openHostFormModal } from './hosts.js';
+import { renderHostList } from './hosts.js';
 import { openSettingsModal, openProfileModal, openDocsModal } from './settings.js';
 import { isModalOpen, closeModal } from './modal.js';
 import { renderAudit } from './audit.js';
@@ -177,10 +177,7 @@ document.getElementById('btn-user').addEventListener('click', (e) => {
   });
 });
 
-// 新增主机入口：侧栏头部（按钮在 index.html 中）
-document
-  .getElementById('btn-add-host')
-  .addEventListener('click', () => openHostFormModal(null, refreshHostList));
+// 新增主机入口：侧栏主机列表底部虚线新增框（在 hosts.js renderHostList 中绑定）
 
 // 关闭页面前检查活动会话（FR-046；可在通用设置中关闭确认）
 window.addEventListener('beforeunload', (e) => {

@@ -119,12 +119,12 @@
     .brand-text .sub { font-size: 9.5px; font-weight: 500; color: var(--text-faint); letter-spacing: .14em; }
     .sidebar-header .count { font-size: 11px; color: var(--text-faint); font-weight: 400; }
     .sidebar-header-right { display: flex; align-items: center; gap: 6px; }
-    #host-list { flex: 1; overflow-y: auto; padding: 2px 10px 10px; }
-    /* 竖状树形分组（FR-054 强化）：分区头吸顶置前，组内条目缩进带树形引导线 */
-    .side-group { margin-bottom: 2px; }
+    #host-list { flex: 1; overflow-y: auto; padding: 0 0 8px; }
+    /* 列表风格参考设置→分组管理（FR-054）：连续行 + 行间细分隔线，分组头为列表小节行 */
+    .side-group { margin-bottom: 0; }
     .side-group-head {
       display: flex; align-items: center; gap: 6px; width: 100%;
-      padding: 7px 8px 7px 6px; border: none; border-radius: var(--radius-sm);
+      padding: 8px 14px 8px 12px; border: none; border-bottom: 1px solid var(--border);
       background: transparent; color: var(--text-faint); cursor: pointer; user-select: none;
       font-size: 11px; font-weight: 600; letter-spacing: .06em; text-align: left;
     }
@@ -146,15 +146,10 @@
       transition: grid-template-rows .22s ease;
     }
     .side-group.collapsed .group-items { grid-template-rows: 0fr; }
-    .group-items-inner { overflow: hidden; min-height: 0; position: relative; padding-left: 10px; }
-    .group-items-inner::before {
-      content: ''; position: absolute; left: 3px; top: 6px; bottom: 6px;
-      width: 1.5px; border-radius: 1px; background: var(--border);
-    }
-    .side-group.collapsed .group-items-inner::before { display: none; }
+    .group-items-inner { overflow: hidden; min-height: 0; position: relative; }
     .host-item {
       display: flex; align-items: center; gap: 10px; width: 100%;
-      padding: 9px 10px; margin-bottom: 2px; border-radius: var(--radius-md); border: none;
+      padding: 9px 14px 9px 34px; margin: 0; border: none; border-bottom: 1px solid var(--border);
       background: transparent; color: var(--text); cursor: pointer; text-align: left;
       font-size: 13px; position: relative;
     }
@@ -189,7 +184,7 @@
       color: var(--text-faint); font-size: 12px; text-align: center;
       padding: 40px 16px; line-height: 1.8;
     }
-    .sidebar-footer { display: flex; gap: 6px; padding: 10px; border-top: 1px solid var(--border); }
+    .sidebar-footer { display: flex; gap: 6px; padding: 10px; /* border-top: 1px solid var(--border); */ }
     .sidebar-footer button {
       display: flex; align-items: center; justify-content: flex-start; gap: 8px; flex: 1;
       padding: 7px 8px; border-radius: var(--radius-md); border: none; cursor: pointer;
@@ -550,6 +545,8 @@
       transition: border-color .18s, color .18s, background .18s;
     }
     .qc-add-box:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+    /* 侧栏底部新增入口：分组管理同款虚线新增框，独立成行、四周留白 */
+    .qc-add-box.sidebar-add { border-radius: var(--radius-md); margin: 8px 12px 4px; }
     /* 编辑行包装层：追加在列表容器内末尾，高度过渡动画（0→auto），内容不变形 */
     .qc-edit-wrap { overflow: hidden; transition: height .22s ease; }
     /* 编辑行与列表行完全同网格、同 padding：就像列表多长出一行（上行 border-bottom 即分隔线） */
@@ -1462,7 +1459,6 @@
         </span>
         <span class="sidebar-header-right">
           <span class="count" id="host-count"></span>
-          <button class="icon-btn" id="btn-add-host" title="新增主机"><svg class="icon" width="15" height="15" viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#plus"/></svg></button>
         </span>
       </div>
       <div id="host-list"></div>

@@ -24,10 +24,6 @@ export async function renderHostList(container, { onConnect, connectedIds = [], 
   const countEl = document.getElementById('host-count');
   if (countEl) countEl.textContent = hosts.length ? `${hosts.length} 台` : '';
 
-  if (!hosts.length) {
-    container.innerHTML =
-      '<div class="sidebar-empty">暂无会话连接<br/>点击右上角「新增」或右键新建</div>';
-  }
   const connected = new Set(connectedIds);
   const groups = new Map();
   for (const h of hosts) {
@@ -53,7 +49,7 @@ export async function renderHostList(container, { onConnect, connectedIds = [], 
   });
   for (const [, list] of sortedGroups) list.sort((a, b) => a.name.localeCompare(b.name, 'zh'));
 
-  container.innerHTML = sortedGroups
+  const groupsHtml = sortedGroups
     .map(
       ([g, list]) => `
       <div class="side-group ${expanded.has(g) ? '' : 'collapsed'}" data-group="${escapeHtml(g)}">
@@ -85,6 +81,15 @@ export async function renderHostList(container, { onConnect, connectedIds = [], 
       </div>`
     )
     .join('');
+  // 新增入口放在列表底部：分组管理同款虚线新增框（qc-add-box）
+  const addBoxHtml = `<div class="qc-add-box sidebar-add" id="sidebar-add-host" title="新建会话连接">${icon('plus', 12)} 新建会话连接</div>`;
+  const emptyHtml = hosts.length
+    ? ''
+    : '<div class="sidebar-empty">暂无会话连接<br/>点击下方「新建会话连接」或右键新建</div>';
+  container.innerHTML = emptyHtml + groupsHtml + addBoxHtml;
+  container
+    .querySelector('#sidebar-add-host')
+    .addEventListener('click', () => openHostFormModal(null, onChanged));
 
   // FR-054：分组展开/折叠（竖状树形），状态持久化到 localStorage
   container.querySelectorAll('.side-group-head').forEach((head) => {
