@@ -106,6 +106,8 @@ export function auditRoutes(deps) {
               hostAddress: null,
               tokenId: isMcp ? e.tokenId : undefined,
               createdAt: e.ts,
+              // 最近活跃时间：该会话最近一次事件（命令/断开等）——会话列表按此排序
+              lastActivityAt: e.ts,
               endedAt: null,
               commandCount: 0,
               failed: false,
@@ -114,6 +116,7 @@ export function auditRoutes(deps) {
             };
             bySid.set(e.sessionId, s);
           }
+          if (e.ts > s.lastActivityAt) s.lastActivityAt = e.ts;
           if (e.hostId) {
             s.hostIds.add(e.hostId);
             if (!s.hostId) {
@@ -151,8 +154,8 @@ export function auditRoutes(deps) {
         if (from) sessions = sessions.filter((s) => Date.parse(s.createdAt) >= from);
         if (to) sessions = sessions.filter((s) => Date.parse(s.createdAt) <= to);
         if (hostId) sessions = sessions.filter((s) => s.hostIds.includes(hostId));
-        // 创建时间倒序：最新会话在前
-        sessions.sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+        // 最近活跃时间倒序：越活跃（最近有命令/事件）的会话越靠前
+        sessions.sort((a, b) => (a.lastActivityAt < b.lastActivityAt ? 1 : -1));
         sendJson(res, 200, { sessions });
       },
     },

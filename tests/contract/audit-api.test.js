@@ -94,8 +94,9 @@ test('GET /api/audit/sessions：按会话聚合，含在线状态与命令数', 
     assert.equal(s.online, false, '连接失败的会话不在线');
     assert.equal(s.failed, true, 'connect-failure 应标记 failed');
     assert.equal(typeof s.commandCount, 'number');
-    // 创建时间倒序
-    const ts = sessions.map((x) => x.createdAt);
+    assert.ok('lastActivityAt' in s, '会话条目应包含 lastActivityAt');
+    // 最近活跃时间倒序（越活跃越靠前）
+    const ts = sessions.map((x) => x.lastActivityAt);
     assert.deepEqual(ts, [...ts].sort().reverse());
     // hostId 过滤
     const filtered = await (await fetch(`${base}/api/audit/sessions?hostId=h_dead`)).json();

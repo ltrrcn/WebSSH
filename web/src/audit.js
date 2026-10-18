@@ -68,12 +68,12 @@ const RESULT_LABEL = { success: '成功', denied: '拒绝', error: '失败' };
 const NOTE = {
   operation: `<b>操作审计</b>：按时间顺序记录登录（连接尝试/成功/失败，时间即会话创建时间）与操作调用（断开、文件读取、分组管理等非命令事件）。
     元数据脱敏留存，不含凭据与终端输出全文。支持按时间范围、会话 ID、来源、结果与主机过滤、分页与导出。`,
-  sessions: `<b>命令审计</b>：按会话组织——每行是一个终端会话（创建时间、主机、命令数、在线状态），
-    点击展开可查看该会话执行过的全部命令。AI Agent（MCP）会话同样按会话归组（m_ 前缀，
-    主机列显示该会话涉及的主机台数，展开后每条命令标明目标主机）；不回传会话头的客户端
-    按令牌粘性归入其当前活跃会话（静默超时自动开新会话）；「MCP 令牌调用（无会话）」组
-    仅收留未归组的历史调用；仅完成协议握手（initialize）而未调用任何工具的 MCP 会话不在此列。
-    支持按会话创建时间范围与主机过滤。`,
+  sessions: `<b>命令审计</b>：按会话组织——每行是一个终端会话（活跃时间、主机、命令数、在线状态），
+    列表按最近活跃时间排序（最近有命令执行的会话靠前），点击展开可查看该会话执行过的全部命令。
+    AI Agent（MCP）会话同样按会话归组（m_ 前缀，主机列显示该会话涉及的主机台数，展开后每条命令
+    标明目标主机）；不回传会话头的客户端按令牌粘性归入其当前活跃会话（静默超时自动开新会话）；
+    「MCP 令牌调用（无会话）」组仅收留未归组的历史调用；仅完成协议握手（initialize）而未调用任何
+    工具的 MCP 会话不在此列。支持按会话创建时间范围与主机过滤。`,
 };
 
 // 命令审计：会话表头（与数据行共用 grid 模板，保证列对齐）
@@ -83,7 +83,7 @@ const SESSION_HEAD = `
     <span>状态</span>
     <span>会话 ID</span>
     <span>主机名</span>
-    <span>创建时间</span>
+    <span>活跃时间</span>
     <span>标记</span>
     <span class="session-count">命令数</span>
     <span>操作</span>
@@ -620,7 +620,7 @@ async function loadSessions(el) {
             ${statusTag}
             <span class="session-sid" title="会话 ID">${escapeHtml(s.sessionId)}</span>
             ${hostCell}
-            <span class="session-time">${formatTime(s.createdAt)} 创建</span>
+            <span class="session-time">${formatTime(s.lastActivityAt ?? s.createdAt)} 活跃</span>
             <span class="session-flags">${flags}</span>
             <span class="session-count">${s.commandCount} 条命令</span>
             ${sessionActionHtml(s)}

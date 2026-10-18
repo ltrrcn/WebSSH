@@ -127,8 +127,8 @@ test('/api/audit/sessions：MCP 会话归组（source=mcp、命令数、endedAt�
     assert.ok(mcp.endedAt, 'DELETE 结束时间已记录');
     assert.equal(mcp.online, false, 'MCP 会话无在线态');
     assert.ok(mcp.tokenId, 'MCP 会话标明令牌');
-    // 会话视图按创建时间倒序混排（MCP 与用户会话同列）
-    const ts = sessions.map((x) => x.createdAt);
+    // 会话视图按最近活跃时间倒序混排（MCP 与用户会话同列）
+    const ts = sessions.map((x) => x.lastActivityAt ?? x.createdAt);
     assert.deepEqual(ts, [...ts].sort().reverse());
   } finally {
     await app.close();
@@ -150,6 +150,24 @@ test('initialize 绑定：客户端不回传会话头时，命令归入该 initi
     // noSession=1（「MCP 令牌调用（无会话）」组专用）：已归组的命令不得混入
     const noSession = await (await fetch(`${base}/api/audit?source=mcp&category=commands&noSession=1`)).json();
     assert.equal(noSession.items.length, 0, '已归组命令不应出现在无会话查询结果中');
+  } finally {
+    await app.close();
+    await cleanup();
+  }
+});
+
+test('会话列表按最近活跃时间排序：创建早但后活跃的会话排前面', async () => {
+  const { app, cleanup, base, token } = await setup();
+  try {
+    // s1 建立早、命令晚；s2 建立晚、命令早——按活跃排序 s1 应在前（按创建排序则 s2 在前）
+    const s1 = (await rpc(base, token, 'initialize', {})).headers.get('mcp-session-id');
+    const s2 = (await rpc(base, token, 'initialize', {})).headers.get('mcp-session-id');
+    await rpc(base, token, 'tools/call', { name: 'list_hosts', arguments: {} }, { 'mcp-session-id': s2 });
+    await rpc(base, token, 'tools/call', { name: 'list_hosts', arguments: {} }, { 'mcp-session-id': s1 });
+    await new Promise((r) => setTimeout(r, 200));
+    const { sessions } = await (await fetch(`${base}/api/audit/sessions`)).json();
+    const ids = sessions.map((s) => s.sessionId);
+    assert.ok(ids.indexOf(s1) < ids.indexOf(s2), `最近活跃的会话（s1）应排在前面: ${ids.join(', ')}`);
   } finally {
     await app.close();
     await cleanup();
