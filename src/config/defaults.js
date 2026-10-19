@@ -48,6 +48,7 @@ export const DEFAULT_CONFIG = {
     protectedActions: {
       audit: true, // 命令/操作审计查看与审计设置修改
       tokens: true, // MCP 令牌创建/撤销/删除
+      hosts: true, // 会话连接「仅 MCP」授权范围的创建与编辑（终端入口已关闭，编辑是唯一入口）
     },
     // 验证票据有效期（分钟，1-60）：验证通过后该时长内受保护操作免重复输码。
     // 服务端统一执行（票据存内存，浏览器无法延长），对所有终端生效。

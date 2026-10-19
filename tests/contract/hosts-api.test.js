@@ -5,6 +5,7 @@ import assert from 'node:assert';
 import { makeTempDir } from '../helpers/tmpdir.js';
 import { seedHost } from '../helpers/seed-host.js';
 import { startApp } from '../../src/net/server.js';
+import { totpAt, currentStep } from '../../src/crypto/totp.js';
 
 async function setup() {
   const { dir, cleanup } = await makeTempDir('webssh-hosts-');
@@ -301,6 +302,255 @@ test('duplicate 越权/不存在：他人条目 403，不存在 404（FR-056）'
     assert.equal(r1.status, 403);
     const r2 = await fetch(`${base}/api/hosts/h_nonexistent/duplicate`, { method: 'POST' });
     assert.equal(r2.status, 404);
+  } finally {
+    await app.close();
+    await cleanup();
+  }
+});
+
+test('授权范围 scope：默认全选；MCP 模式保留终端提示词；终端模式不携带提示词', async () => {
+  const { app, cleanup, base } = await setup();
+  try {
+    const post = async (over) =>
+      (await fetch(`${base}/api/hosts`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(createBody(over)),
+      })).json();
+
+    // 默认：全选
+    const all = await post({ name: '默认范围' });
+    assert.equal(all.scope, 'all');
+    assert.deepEqual(all.mcpPrompt, {
+      preferHostId: null,
+      scenario: '',
+      requireConsent: false, // 默认关闭：需 Agent 经用户同意后执行
+    });
+
+    // MCP 模式：提示词落盘并回读
+    const mcp = await post({
+      name: 'MCP 范围',
+      scope: 'mcp',
+      mcpPrompt: { scenario: '排查磁盘' },
+    });
+    assert.equal(mcp.scope, 'mcp');
+    assert.deepEqual(mcp.mcpPrompt, {
+      preferHostId: null,
+      scenario: '排查磁盘',
+      requireConsent: false,
+    });
+
+    // 「需经用户同意」默认关闭，可显式开启并落盘
+    const on = await (await fetch(`${base}/api/hosts/${encodeURIComponent(mcp.id)}`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ mcpPrompt: { scenario: '排查磁盘', requireConsent: true } }),
+    })).json();
+    assert.equal(on.mcpPrompt.requireConsent, true);
+
+    // 终端模式：提示词恒为 null
+    const term = await post({ name: '终端范围', scope: 'terminal' });
+    assert.equal(term.scope, 'terminal');
+    assert.equal(term.mcpPrompt, null);
+
+    // 终端模式携带提示词 → 422
+    const bad = await fetch(`${base}/api/hosts`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(createBody({ name: '非法组合', scope: 'terminal', mcpPrompt: { scenario: 'x' } })),
+    });
+    assert.equal(bad.status, 422);
+    assert.match((await bad.json()).error.message, /mcpPrompt/);
+
+    // 切到终端模式：已保存的提示词被清空
+    const switched = await (await fetch(`${base}/api/hosts/${encodeURIComponent(mcp.id)}`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ scope: 'terminal' }),
+    })).json();
+    assert.equal(switched.scope, 'terminal');
+    assert.equal(switched.mcpPrompt, null);
+  } finally {
+    await app.close();
+    await cleanup();
+  }
+});
+
+test('MCP 优先使用：仅同分组内其他连接可选；顺序默认 1，指定后顺延（前面是 2 则当前 3）', async () => {
+  const { app, cleanup, base } = await setup();
+  try {
+    const post = async (over) =>
+      (await fetch(`${base}/api/hosts`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(createBody(over)),
+      })).json();
+    const put = async (id, body) =>
+      fetch(`${base}/api/hosts/${encodeURIComponent(id)}`, {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+    const orders = async () =>
+      Object.fromEntries((await (await fetch(`${base}/api/hosts`)).json()).map((h) => [h.id, h.mcpOrder]));
+
+    const c = await post({ name: 'C', group: 'Default' });
+    const b = await post({ name: 'B', group: 'Default' });
+    const a = await post({ name: 'A', group: 'Default' });
+    const x = await post({ name: 'X', group: '生产' }); // 不同分组
+    // 未指定优先使用 → 顺序均为 1
+    assert.deepEqual(
+      [a, b, c].map((h) => h.mcpOrder),
+      [1, 1, 1]
+    );
+
+    // A 优先使用 B：B 保持 1，A 顺延为 2
+    const r1 = await put(a.id, { mcpPrompt: { preferHostId: b.id } });
+    assert.equal(r1.status, 200);
+    assert.equal((await orders())[a.id], 2);
+    assert.equal((await orders())[b.id], 1);
+
+    // B 优先使用 C：C=1，B=2 → A 顺延为 3（前面已是 2 则当前为 3）
+    const r2 = await put(b.id, { mcpPrompt: { preferHostId: c.id } });
+    assert.equal(r2.status, 200);
+    const chain = await orders();
+    assert.deepEqual([chain[c.id], chain[b.id], chain[a.id]], [1, 2, 3]);
+
+    // 非法指向：跨分组 / 自身 / 不存在 / 成环
+    for (const [target, self, re] of [
+      [x.id, a.id, /同一分组/],
+      [a.id, a.id, /自身/],
+      ['不存在', a.id, /不存在或无权访问/],
+      [a.id, c.id, /循环依赖/], // C→A 与既有 A→B→C 成环
+    ]) {
+      const bad = await put(self, { mcpPrompt: { preferHostId: target } });
+      assert.equal(bad.status, 422, `应 422: ${self} → ${target}`);
+      assert.match((await bad.json()).error.message, re);
+    }
+    // 创建时同样校验：跨分组 → 422
+    const badCreate = await fetch(`${base}/api/hosts`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(createBody({ name: '跨分组优先', group: 'Default', mcpPrompt: { preferHostId: x.id } })),
+    });
+    assert.equal(badCreate.status, 422);
+
+    // 删除被指向的连接 → 引用失效置回默认（B 回到 1，A 顺延为 2）
+    await fetch(`${base}/api/hosts/${encodeURIComponent(c.id)}`, { method: 'DELETE' });
+    const after = await orders();
+    assert.equal(after[b.id], 1);
+    assert.equal(after[a.id], 2);
+  } finally {
+    await app.close();
+    await cleanup();
+  }
+});
+
+test('仅 MCP 授权范围：编辑受 2FA 保护（未验证 403 twofa_required，持票据放行）', async () => {
+  const { app, cleanup, base } = await setup();
+  try {
+    // 绑定 2FA（setup → TOTP 确认），拿到受保护操作票据
+    const { secret } = await (await fetch(`${base}/api/2fa/setup`, { method: 'POST' })).json();
+    const code = totpAt(secret, currentStep());
+    const confirm = await (await fetch(`${base}/api/2fa/confirm`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ code }),
+    })).json();
+    const ticket = confirm.ticket;
+    assert.ok(ticket, '确认绑定应签发票据');
+
+    // 创建「仅 MCP」连接：未验证 → 403
+    const blocked = await fetch(`${base}/api/hosts`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(createBody({ name: '仅MCP', scope: 'mcp' })),
+    });
+    assert.equal(blocked.status, 403);
+    assert.equal((await blocked.json()).error.code, 'twofa_required');
+
+    // 持票据创建成功
+    const created = await (await fetch(`${base}/api/hosts`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-2fa-ticket': ticket },
+      body: JSON.stringify(createBody({ name: '仅MCP', scope: 'mcp' })),
+    })).json();
+    assert.equal(created.scope, 'mcp');
+
+    // 编辑（唯一变更入口）同样受保护
+    const editBlocked = await fetch(`${base}/api/hosts/${encodeURIComponent(created.id)}`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name: '仅MCP改名' }),
+    });
+    assert.equal(editBlocked.status, 403);
+    assert.equal((await editBlocked.json()).error.code, 'twofa_required');
+
+    const edited = await (await fetch(`${base}/api/hosts/${encodeURIComponent(created.id)}`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json', 'x-2fa-ticket': ticket },
+      body: JSON.stringify({ name: '仅MCP改名' }),
+    })).json();
+    assert.equal(edited.name, '仅MCP改名');
+
+    // 全选范围的普通编辑不受 2FA 影响
+    const plain = await (await fetch(`${base}/api/hosts`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(createBody({ name: '普通连接' })),
+    })).json();
+    const plainEdit = await fetch(`${base}/api/hosts/${encodeURIComponent(plain.id)}`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name: '普通连接改名' }),
+    });
+    assert.equal(plainEdit.status, 200);
+  } finally {
+    await app.close();
+    await cleanup();
+  }
+});
+
+test('「仅终端」范围的会话连接对 MCP 不可见（list_hosts 不列出、工具调用越权）', async () => {
+  const { app, cleanup, base } = await setup();
+  try {
+    const post = async (over) =>
+      (await fetch(`${base}/api/hosts`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(createBody(over)),
+      })).json();
+    const visible = await post({ name: '可被MCP使用' });
+    const hidden = await post({ name: '仅终端', scope: 'terminal' });
+
+    const token = await (await fetch(`${base}/api/tokens`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name: '范围可见性', level: 'readonly', hostScope: [], hostGroups: [], allHosts: true }),
+    })).json();
+
+    const rpc = await fetch(`${base}/mcp`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${token.token}` },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'list_hosts', arguments: {} } }),
+    });
+    const listed = JSON.parse((await rpc.json()).result.content[0].text).hosts.map((h) => h.id);
+    assert.ok(listed.includes(visible.id), '全选范围的连接应可见');
+    assert.ok(!listed.includes(hidden.id), '仅终端范围的连接对 MCP 不可见');
+
+    // 即便直接指定目标主机也判定越权
+    const call = await fetch(`${base}/mcp`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${token.token}` },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 2,
+        method: 'tools/call',
+        params: { name: 'read_file', arguments: { hostId: hidden.id, path: '/var/log/syslog' } },
+      }),
+    });
+    const err = JSON.parse((await call.json()).result.content[0].text);
+    assert.equal(err.error, 'host_not_allowed');
   } finally {
     await app.close();
     await cleanup();

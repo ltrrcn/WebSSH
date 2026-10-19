@@ -8,6 +8,7 @@ import { withSsh, execCommand } from '../ssh/exec.js';
 import { redact, truncateDigest } from '../crypto/redact.js';
 import { checkRateLimit } from './rate-limit.js';
 import { normalizeDefaultGroup } from '../api/groups.js';
+import { computeMcpOrders } from '../api/hosts.js';
 import { newMcpSessionId } from './session-registry.js';
 
 const MAX_READ_BYTES = 1024 * 512; // read_file 单次上限 512KB
@@ -183,16 +184,31 @@ async function dispatchTool(name, args, ctx) {
 
   // 授权范围判定：allHosts（全部，含后续新增）或固定 hostScope 或按分组（分组下新增主机自动附带权限）
   // 分组匹配用归一化语义：主机的 Default/default/默认/null 与令牌的 Default 视为同一内置分组
+  // 连接自身范围优先：terminal（仅终端）的连接对 MCP 恒定不可见（不在列示与调用范围内）
   const inScope = (h) =>
-    token.allHosts === true ||
-    token.hostScope.includes(h.id) ||
-    (Array.isArray(token.hostGroups) &&
-      token.hostGroups.some((n) => normalizeDefaultGroup(n) === normalizeDefaultGroup(h.group)));
+    (h.scope ?? 'all') !== 'terminal' &&
+    (token.allHosts === true ||
+      token.hostScope.includes(h.id) ||
+      (Array.isArray(token.hostGroups) &&
+        token.hostGroups.some((n) => normalizeDefaultGroup(n) === normalizeDefaultGroup(h.group))));
 
   if (name === 'list_hosts') {
     const hosts = (await store.listHosts(token.ownerId)).filter(inScope);
+    // MCP 使用顺序：配置了「优先使用」的连接排在前面（1 最先），Agent 按此顺序选用
+    const orders = computeMcpOrders(hosts);
     return {
-      hosts: hosts.map((h) => ({ id: h.id, name: h.name, host: h.host, port: h.port, username: h.username, group: h.group ?? null })),
+      hosts: hosts
+        .map((h) => ({
+          id: h.id,
+          name: h.name,
+          host: h.host,
+          port: h.port,
+          username: h.username,
+          group: h.group ?? null,
+          mcpOrder: orders.get(h.id) ?? 1,
+          preferHostId: h.mcpPrompt?.preferHostId ?? null,
+        }))
+        .sort((a, b) => a.mcpOrder - b.mcpOrder || a.name.localeCompare(b.name)),
     };
   }
 

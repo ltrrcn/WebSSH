@@ -126,6 +126,11 @@ function buildTabbar() {
  *  R001：tmux=true 时以 tmux 保活会话连接（远端探测可用后自动 attach，同一主机共享屏幕）
  *  R003：指纹未确认时先弹确认（有 pendingFingerprint 才拦，无指纹记录直接连、由 4005 流程接管） */
 export async function connectHost(host, { tmux = false } = {}) {
+  // 「仅 MCP」授权范围：网页终端入口关闭（服务端同样拒绝），只能编辑该连接
+  if ((host.scope ?? 'all') === 'mcp') {
+    alert(`「${host.name}」仅授权 MCP，网页终端不可连接。如需使用终端，请先编辑该会话连接把范围改为全选。`);
+    return null;
+  }
   if (!host.fingerprintConfirmed && host.pendingFingerprint) {
     const ok = await confirmFingerprintModal(host);
     if (!ok) return null; // 取消确认 = 放弃连接
@@ -1047,7 +1052,8 @@ function ensureTabVisible(id) {
 
 /** 新建会话：弹出主机选择（连接需要选定主机） */
 async function openSessionPicker() {
-  const hosts = await fetchHosts();
+  // 「仅 MCP」范围的连接不出现在终端会话选择器中（终端入口对其关闭）
+  const hosts = (await fetchHosts()).filter((h) => (h.scope ?? 'all') !== 'mcp');
   const prefs = getPrefs();
   const m = openModal(
     hosts.length

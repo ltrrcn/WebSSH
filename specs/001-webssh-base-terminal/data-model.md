@@ -30,12 +30,26 @@
 | `authType` | enum | `password` \| `privateKey` | 必填 |
 | `secret` | object | 加密后的凭据（见 Credential） | 必填，结构见下 |
 | `group` | string \| null | 分组标签 | 可选 |
+| `scope` | enum | 授权范围：`all`（全选，默认）\| `terminal`（仅终端）\| `mcp`（仅 MCP） | 缺省按 `all`；`terminal` 对 MCP 不可见，`mcp` 关闭网页终端入口 |
+| `mcpPrompt` | object \| null | MCP 终端提示词（见 McpPrompt） | 仅 `all` / `mcp` 可携带；`terminal` 恒为 null |
 | `ownerId` | string | 归属使用者 | 必填；来自运行模式的身份来源 |
 | `fingerprint` | string \| null | 已确认的主机指纹 | 未确认时为 null |
 | `fingerprintConfirmedAt` | string \| null | 指纹确认时间 | ISO 8601 |
 | `createdAt` / `updatedAt` / `lastUsedAt` | string | 时间戳 | ISO 8601 |
 
 **状态迁移**：`指纹未确认`（`fingerprint = null`）→ 用户显式确认 → `可用`；指纹变更 → `被拒绝`（需重新确认）。
+
+**授权范围语义**：`terminal` 的条目不进入 MCP 的授权范围（`list_hosts` 不列出，工具调用判定 `host_not_allowed`）；`mcp` 的条目拒绝网页终端 WS 接入（关闭码 4003 `terminal_not_allowed`），且创建/编辑受 2FA 保护（`protectedActions.hosts`）。
+
+### McpPrompt（MCP 终端提示词，内嵌于 Host）
+
+| 字段 | 类型 | 说明 | 校验规则 |
+|---|---|---|---|
+| `preferHostId` | string \| null | 优先使用的另一条会话连接（同一分组内、对 MCP 可见、非自身、不成环）；`null` = 默认 | 指向存在的连接 id |
+| `scenario` | string | 什么场景下使用 | ≤ 500 字符 |
+| `requireConsent` | boolean | 使用当前会话连接需 Agent 经用户同意后执行 | 默认关闭（仅显式 `true` 才开启） |
+
+**MCP 使用顺序（`mcpOrder`，派生值）**：未指定 `preferHostId` 时为 `1`；指定后本连接 = 被指向连接的顺序 `+ 1`（被指向的连接本身是 `2` 时，本连接为 `3`，以此类推）。配置了 `preferHostId` 的连接必须先使用被指向的连接，前者不可用时才轮到本连接。目标被删除或移出分组后引用失效，顺序回到 `1`。
 
 ### Credential（凭据，内嵌于 Host）
 

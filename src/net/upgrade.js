@@ -142,6 +142,14 @@ async function handleTerminal(ws, identity, url, deps) {
     return ws.close(4003, 'host_not_allowed');
   }
 
+  // 「仅 MCP」授权范围：网页终端入口对该连接关闭（只有 AI 侧经 MCP 使用），
+  // 前端已禁用入口，此处为服务端强制——避免直接构造 WS 请求绕过。
+  if (host.scope === 'mcp') {
+    sessionManager.releaseReservation(identity.id);
+    auditDenied(audit, identity, hostId, 'terminal_not_allowed');
+    return ws.close(4003, 'terminal_not_allowed');
+  }
+
   // 指纹未确认：捕获当前指纹供使用者显式确认，禁止静默接受（FR-007）
   if (!host.fingerprint) {
     let pending = host.pendingFingerprint ?? null;

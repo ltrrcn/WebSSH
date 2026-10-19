@@ -92,6 +92,13 @@ export function tokensRoutes(deps) {
         if (badHost) {
           return sendError(res, 422, 'invalid_field', `hostScope 含无效或非本人主机: ${badHost}`);
         }
+        // 「仅终端」范围的会话连接对 MCP 不可见：不允许写入令牌授权清单（与 MCP 侧判定同口径）
+        const hiddenHost = hostScope.find(
+          (h) => (mine.find((m) => m.id === h)?.scope ?? 'all') === 'terminal'
+        );
+        if (hiddenHost) {
+          return sendError(res, 422, 'invalid_field', `hostScope 含「仅终端」范围的会话连接: ${hiddenHost}`);
+        }
         let expiresAt = null;
         if (body?.expiresAt) {
           expiresAt = new Date(body.expiresAt);

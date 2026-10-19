@@ -270,6 +270,7 @@ function renderIntro(el) {
         <div class="twofa-scope">
           <div class="twofa-scope-item">${icon('list', 15)}<span>命令审计（查看与设置）</span></div>
           <div class="twofa-scope-item">${icon('key', 15)}<span>MCP 令牌（创建 / 撤销 / 删除）</span></div>
+          <div class="twofa-scope-item">${icon('plug', 15)}<span>仅 MCP 会话连接（创建 / 编辑）</span></div>
         </div>
         <button class="btn primary" id="twofa-start">${icon('shield')} 启用2FA验证</button>
       </div>
@@ -438,6 +439,11 @@ function renderBound(el, status) {
         <label class="switch"><input type="checkbox" id="twofa-act-tokens"
           ${status.protectedActions.tokens ? 'checked' : ''} ${locked ? 'disabled' : ''} /><span></span></label>
       </div>
+      <div class="pref-row">
+        <div class="pref-label">仅 MCP 会话连接<div class="pref-desc">范围为「仅 MCP」的会话连接：创建与编辑（网页终端对其关闭，编辑是唯一变更入口）</div></div>
+        <label class="switch"><input type="checkbox" id="twofa-act-hosts"
+          ${status.protectedActions.hosts !== false ? 'checked' : ''} ${locked ? 'disabled' : ''} /><span></span></label>
+      </div>
     </div>
     <div class="pref-section">
       <div class="pref-title">管理</div>
@@ -550,9 +556,10 @@ function renderBound(el, status) {
     }, 1500);
   });
 
-  el.querySelectorAll('#twofa-act-audit, #twofa-act-tokens').forEach((cb) => {
+  el.querySelectorAll('#twofa-act-audit, #twofa-act-tokens, #twofa-act-hosts').forEach((cb) => {
     cb.addEventListener('change', async (e) => {
-      const key = cb.id === 'twofa-act-audit' ? 'audit' : 'tokens';
+      const key =
+        cb.id === 'twofa-act-audit' ? 'audit' : cb.id === 'twofa-act-tokens' ? 'tokens' : 'hosts';
       const on = e.target.checked;
       cb.disabled = true;
       try {

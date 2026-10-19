@@ -7,8 +7,29 @@ import { resolveIdentity } from '../net/auth.js';
 import { encryptSecret, decryptSecret } from '../crypto/secret.js';
 import { createPassTicket } from '../net/tickets.js';
 import { appendKnownHost } from '../ssh/hostkey.js';
+import { require2fa } from './twofa.js';
+import { normalizeDefaultGroup } from './groups.js';
 
 const SHORT_ID_CHARS = 'abcdefghijklmnopqrstuvwxyz0123456789';
+
+/**
+ * 会话连接的授权范围（连接内「范围」选项）：
+ * - all：全选（默认）——终端与 MCP 均可使用
+ * - terminal：仅终端——该连接对 MCP 不可见（list_hosts 不列出，工具调用判定越权）
+ * - mcp：仅 MCP——网页终端入口关闭（不可点连接），只能编辑，且编辑需 2FA 二次验证
+ */
+export const HOST_SCOPES = ['all', 'terminal', 'mcp'];
+
+/** 未知/缺省范围一律按最宽的 all 处理（历史记录无该字段时保持原有行为） */
+export function normalizeScope(v) {
+  return HOST_SCOPES.includes(v) ? v : 'all';
+}
+
+/** MCP 终端提示词（仅 MCP 范围可携带）取值约束 */
+const MCP_PROMPT_SCENARIO_MAX = 500;
+const MCP_PROMPT_PREFER_ID_MAX = 128;
+/** MCP 使用顺序：未指定「优先使用」时的基准值 */
+export const MCP_ORDER_BASE = 1;
 
 /** 4 位短随机后缀（base36，36^4≈168 万组合）：仅在名称无法用作 ID 时兜底 */
 function shortSuffix() {
@@ -57,13 +78,113 @@ function invalid(message) {
 }
 
 /**
+ * 校验 MCP 终端提示词（仅「全选/MCP」范围可携带）。
+ * @param {unknown} raw 请求体中的 mcpPrompt
+ * @param {'all'|'terminal'|'mcp'} scope 生效范围
+ * @returns {{preferHostId: string|null, scenario: string, requireConsent: boolean}|null}
+ */
+function validateMcpPrompt(raw, scope) {
+  if (raw === null || raw === undefined) return null; // 不携带 / 显式清空
+  if (typeof raw !== 'object' || Array.isArray(raw)) {
+    throw invalid('mcpPrompt 必须为对象或 null');
+  }
+  // 终端模式：MCP 对该连接不可见，提示词无意义（明确拒绝而非静默丢弃，便于调用方纠错）
+  if (scope === 'terminal') {
+    throw invalid('终端范围（terminal）的会话连接不接受 mcpPrompt');
+  }
+  // 优先使用：默认（null）或同分组内另一条会话连接的 id（指向是否合法在路由层结合主机清单校验）
+  const preferHostId = raw.preferHostId === undefined || raw.preferHostId === null ? null : raw.preferHostId;
+  if (
+    preferHostId !== null &&
+    (typeof preferHostId !== 'string' || preferHostId.length === 0 || preferHostId.length > MCP_PROMPT_PREFER_ID_MAX)
+  ) {
+    throw invalid('mcpPrompt.preferHostId 必须为会话连接 id 或 null（默认）');
+  }
+  const scenario = raw.scenario === undefined || raw.scenario === null ? '' : raw.scenario;
+  if (typeof scenario !== 'string' || scenario.length > MCP_PROMPT_SCENARIO_MAX) {
+    throw invalid(`mcpPrompt.scenario 必须为不超过 ${MCP_PROMPT_SCENARIO_MAX} 字符的字符串`);
+  }
+  if (raw.requireConsent !== undefined && raw.requireConsent !== null && typeof raw.requireConsent !== 'boolean') {
+    throw invalid('mcpPrompt.requireConsent 必须为布尔值');
+  }
+  // 「需 Agent 经用户同意后执行」默认关闭：显式 true 才开启
+  return { preferHostId, scenario, requireConsent: raw.requireConsent === true };
+}
+
+/**
+ * 校验「优先使用」指向：必须是同一分组内、对 MCP 可见的其他会话连接，且不得形成循环。
+ * 顺序语义：被指向的连接排在前面，本连接顺延一位（默认 1 → 指定后为 2；前面已是 2 则为 3）。
+ * @param {{preferHostId?: string|null, selfId?: string|null, group?: string|null, hosts: Array<object>}} args
+ * @returns {string|null} 合法返回 null；否则返回可直接作为 422 文案的错误说明
+ */
+export function validateMcpPrefer({ preferHostId, selfId = null, group = null, hosts = [] }) {
+  if (!preferHostId) return null;
+  if (selfId && preferHostId === selfId) {
+    return 'mcpPrompt.preferHostId 不能指向当前会话连接自身';
+  }
+  const byId = new Map(hosts.map((h) => [h.id, h]));
+  const target = byId.get(preferHostId);
+  if (!target) {
+    return `mcpPrompt.preferHostId 指向的会话连接不存在或无权访问: ${preferHostId}`;
+  }
+  if (normalizeScope(target.scope) === 'terminal') {
+    return `mcpPrompt.preferHostId 指向的会话连接对 MCP 不可见（终端范围）: ${preferHostId}`;
+  }
+  if (normalizeDefaultGroup(target.group) !== normalizeDefaultGroup(group)) {
+    return `mcpPrompt.preferHostId 必须指向同一分组内的会话连接: ${preferHostId}`;
+  }
+  // 循环依赖会让顺序无限递增：沿链走一遍，回到自身即拒绝
+  let cursor = target.mcpPrompt?.preferHostId ?? null;
+  for (let hop = 0; cursor && hop <= hosts.length; hop += 1) {
+    if (selfId && cursor === selfId) {
+      return 'mcpPrompt.preferHostId 形成循环依赖（优先使用链回到了当前会话连接）';
+    }
+    const next = byId.get(cursor);
+    if (!next) break;
+    cursor = next.mcpPrompt?.preferHostId ?? null;
+  }
+  return null;
+}
+
+/**
+ * 计算各会话连接在 MCP 中的使用顺序：
+ * 默认（未指定优先使用）为 1；指定了优先目标则本连接 = 目标顺序 + 1
+ * （目标本身已是 2 时，本连接为 3，以此类推）。悬空引用与环按默认 1 截断，保证有界。
+ * @param {Array<object>} hosts 同一使用者名下的全部会话连接
+ * @returns {Map<string, number>} id → 顺序
+ */
+export function computeMcpOrders(hosts) {
+  const list = Array.isArray(hosts) ? hosts : [];
+  const byId = new Map(list.map((h) => [h.id, h]));
+  const orders = new Map();
+  const onPath = new Set();
+  const resolve = (id) => {
+    if (orders.has(id)) return orders.get(id);
+    if (onPath.has(id)) return MCP_ORDER_BASE; // 环：截断，避免顺序无限递增
+    onPath.add(id);
+    const h = byId.get(id);
+    const pid = h && normalizeScope(h.scope) !== 'terminal' ? h.mcpPrompt?.preferHostId ?? null : null;
+    // 目标必须存在且对 MCP 可见（终端范围的连接不在 MCP 视野内，不能排在它后面）
+    const target = pid ? byId.get(pid) : null;
+    const n = target && pid !== id && normalizeScope(target.scope) !== 'terminal' ? resolve(pid) + 1 : MCP_ORDER_BASE;
+    onPath.delete(id);
+    orders.set(id, n);
+    return n;
+  };
+  for (const id of byId.keys()) resolve(id);
+  return orders;
+}
+
+/**
  * 校验主机创建/更新载荷。
  * @param {object} body 请求体
- * @param {{partial?: boolean}} [opts] partial=true 时字段可选（PUT），出现即校验
+ * @param {{partial?: boolean, current?: object|null}} [opts]
+ *   partial=true 时字段可选（PUT），出现即校验；
+ *   current 为待更新的既有记录（PUT 时用于推导未提交的 scope，避免提示词与范围判定脱节）
  * @returns {{value: object}} 规范化后的载荷（仅白名单字段）
  * @throws message 指明非法字段名（供 422 响应与测试断言）
  */
-export function validateHostPayload(body, { partial = false } = {}) {
+export function validateHostPayload(body, { partial = false, current = null } = {}) {
   if (!body || typeof body !== 'object' || Array.isArray(body)) {
     throw invalid('请求体必须为 JSON 对象');
   }
@@ -126,6 +247,21 @@ export function validateHostPayload(body, { partial = false } = {}) {
     // null 与历史别名归一化为内置 Default 分组
     value.group = body.group == null || body.group === '默认' || body.group === 'default' ? 'Default' : body.group;
   }
+  // 授权范围：未提交时沿用既有值（PUT），创建时回落 all（全选，默认）
+  const effectiveScope =
+    body.scope !== undefined && body.scope !== null ? body.scope : normalizeScope(current?.scope);
+  if (body.scope !== undefined || !partial) {
+    if (!HOST_SCOPES.includes(effectiveScope)) {
+      throw invalid('scope 必须为 all（全选）、terminal（终端）或 mcp（MCP）');
+    }
+    value.scope = effectiveScope;
+  }
+  // MCP 终端提示词：仅 MCP 可见的连接可携带；切到 terminal 时一并清空
+  if (body.mcpPrompt !== undefined) {
+    value.mcpPrompt = validateMcpPrompt(body.mcpPrompt, effectiveScope);
+  } else if (value.scope === 'terminal') {
+    value.mcpPrompt = null;
+  }
 
   // 凭据：出现即校验形态
   const hasPw = body.password !== undefined && body.password !== null;
@@ -160,8 +296,12 @@ export function validateHostPayload(body, { partial = false } = {}) {
   return { value };
 }
 
-/** 主机条目 → 公开视图（凭据绝不外泄，FR-005） */
-function publicView(h) {
+/**
+ * 主机条目 → 公开视图（凭据绝不外泄，FR-005）
+ * @param {number} [mcpOrder] MCP 使用顺序（由 computeMcpOrders 计算，默认 1）
+ */
+function publicView(h, mcpOrder = MCP_ORDER_BASE) {
+  const scope = normalizeScope(h.scope);
   return {
     id: h.id,
     name: h.name,
@@ -176,7 +316,54 @@ function publicView(h) {
     pendingFingerprint: h.pendingFingerprint ?? null,
     hasSecret: Boolean(h.secret),
     lastUsedAt: h.lastUsedAt ?? null,
+    // 授权范围（全选/终端/MCP）+ MCP 终端提示词：终端模式下恒为 null（对 MCP 不可见）
+    scope,
+    // MCP 使用顺序（默认 1；指定「优先使用」后顺延为被指向连接的顺序 + 1）
+    mcpOrder,
+    mcpPrompt:
+      scope === 'terminal'
+        ? null
+        : {
+            // 优先使用：默认 null；否则为同分组内另一条会话连接的 id
+            preferHostId: h.mcpPrompt?.preferHostId ?? null,
+            scenario: h.mcpPrompt?.scenario ?? '',
+            // 「需经用户同意」默认关闭（仅显式开启即为 true）
+            requireConsent: h.mcpPrompt?.requireConsent === true,
+          },
   };
+}
+
+/** 一批主机 → 公开视图（顺序按整份清单计算，前缀链可能跨条目） */
+function publicViews(hosts) {
+  const orders = computeMcpOrders(hosts);
+  return hosts.map((h) => publicView(h, orders.get(h.id) ?? MCP_ORDER_BASE));
+}
+
+/** 单条主机的公开视图（顺序需结合全量清单计算，故重新列出） */
+async function viewWithOrder(store, ownerId, host) {
+  const orders = computeMcpOrders(await store.listHosts(ownerId));
+  return publicView(host, orders.get(host.id) ?? MCP_ORDER_BASE);
+}
+
+/**
+ * 清理指向某条会话连接的「优先使用」引用：该连接被删除，或被移出分组导致不同组时，
+ * 其余连接的 preferHostId 会失效 → 置回默认（顺序回到 1）。
+ * @param {object} store
+ * @param {string} ownerId
+ * @param {string} targetId 被指向的连接
+ * @param {{requireSameGroup?: boolean}} [opts] requireSameGroup=true 时仅清理分组已不同的引用
+ */
+async function repairPreferRefs(store, ownerId, targetId, { requireSameGroup = false } = {}) {
+  const hosts = await store.listHosts(ownerId);
+  const target = hosts.find((h) => h.id === targetId);
+  for (const h of hosts) {
+    if (h.mcpPrompt?.preferHostId !== targetId) continue;
+    const broken = !target
+      ? true
+      : requireSameGroup && normalizeDefaultGroup(target.group) !== normalizeDefaultGroup(h.group);
+    if (!broken) continue;
+    await store.upsertHost({ ...h, mcpPrompt: { ...h.mcpPrompt, preferHostId: null } });
+  }
 }
 
 /**
@@ -212,7 +399,7 @@ export function hostsRoutes(deps) {
         const identity = resolveIdentity(req, runtime);
         if (!identity) return sendError(res, 401, 'unauthorized', '未认证');
         const hosts = await store.listHosts(identity.id);
-        sendJson(res, 200, hosts.map(publicView));
+        sendJson(res, 200, publicViews(hosts));
       },
     },
     {
@@ -233,6 +420,16 @@ export function hostsRoutes(deps) {
         } catch (e) {
           return sendError(res, 422, e.code ?? 'invalid_field', e.message);
         }
+        // 「仅 MCP」范围：网页终端入口将关闭，创建这类连接同步纳入 2FA 保护（与编辑一致）
+        if (value.scope === 'mcp' && require2fa(deps, req, res, 'hosts')) return;
+        // 优先使用：必须指向同分组内、对 MCP 可见的其他连接，且不形成循环
+        const preferErr = validateMcpPrefer({
+          preferHostId: value.mcpPrompt?.preferHostId ?? null,
+          selfId: null,
+          group: value.group ?? 'Default',
+          hosts: await store.listHosts(identity.id),
+        });
+        if (preferErr) return sendError(res, 422, 'invalid_field', preferErr);
         const jumpErr = await validateJump(value, identity, null);
         if (jumpErr) return sendError(res, 422, 'invalid_jump', jumpErr);
         const now = new Date().toISOString();
@@ -248,6 +445,9 @@ export function hostsRoutes(deps) {
           // none（不记录凭据）：不存 secret，连接时手动输入
           secret: value.secret ? encryptSecret(masterKey, value.secret) : null,
           group: value.group ?? 'Default',
+          // 授权范围（全选/终端/MCP）+ MCP 终端提示词
+          scope: value.scope ?? 'all',
+          mcpPrompt: value.mcpPrompt ?? null,
           ownerId: identity.id,
           fingerprint: null,
           pendingFingerprint: null,
@@ -267,7 +467,7 @@ export function hostsRoutes(deps) {
           event: 'host_create',
           result: 'success',
         });
-        sendJson(res, 201, publicView(entry));
+        sendJson(res, 201, await viewWithOrder(store, identity.id, entry));
       },
     },
     {
@@ -280,7 +480,7 @@ export function hostsRoutes(deps) {
         const { host, forbidden } = await requireHost(id, identity.id);
         if (forbidden) return sendError(res, 403, 'forbidden', '无权访问该资源');
         if (!host) return sendError(res, 404, 'not_found', '主机不存在');
-        sendJson(res, 200, publicView(host));
+        sendJson(res, 200, await viewWithOrder(store, identity.id, host));
       },
     },
     {
@@ -302,10 +502,29 @@ export function hostsRoutes(deps) {
         }
         let value;
         try {
-          ({ value } = validateHostPayload(body, { partial: true }));
+          ({ value } = validateHostPayload(body, { partial: true, current: host }));
         } catch (e) {
           return sendError(res, 422, e.code ?? 'invalid_field', e.message);
         }
+        // 「仅 MCP」授权范围：网页终端入口已关闭，编辑是唯一入口 → 需 2FA 二次验证。
+        // 判定用生效范围（既有值或本次提交值），避免把范围改成 mcp 绕过验证。
+        const effectiveScope = value.scope ?? normalizeScope(host.scope);
+        if (effectiveScope === 'mcp' && require2fa(deps, req, res, 'hosts')) return;
+
+        // 优先使用：目标须为同分组内、对 MCP 可见的其他连接，且不形成循环
+        const effectiveGroup = value.group !== undefined ? value.group : host.group ?? 'Default';
+        const preferHostId =
+          value.mcpPrompt !== undefined
+            ? value.mcpPrompt?.preferHostId ?? null
+            : host.mcpPrompt?.preferHostId ?? null;
+        const allHosts = await store.listHosts(identity.id);
+        const preferErr = validateMcpPrefer({
+          preferHostId,
+          selfId: id,
+          group: effectiveGroup,
+          hosts: allHosts,
+        });
+        if (preferErr) return sendError(res, 422, 'invalid_field', preferErr);
 
         // 更换认证方式必须同时提供新凭据（切到 none 除外：none 的本意就是清空凭据）
         if (value.authType && value.authType !== host.authType && value.authType !== 'none' && !value.secret) {
@@ -326,6 +545,9 @@ export function hostsRoutes(deps) {
           ...('username' in value && value.username !== undefined ? { username: value.username } : {}),
           ...('authType' in value && value.authType !== undefined ? { authType: value.authType } : {}),
           ...('group' in value ? { group: value.group } : {}),
+          // 授权范围与 MCP 终端提示词（切到 terminal 时 validate 已把提示词置空）
+          ...(value.scope !== undefined ? { scope: value.scope } : {}),
+          ...(value.mcpPrompt !== undefined ? { mcpPrompt: value.mcpPrompt } : {}),
           ...(value.connectVia !== undefined ? { connectVia: value.connectVia } : {}),
           // 直连时清空跳板引用；未提交 connectVia 时保持原值
           ...(value.connectVia === 'jump'
@@ -345,6 +567,10 @@ export function hostsRoutes(deps) {
           updated.fingerprintConfirmedAt = null;
         }
         await store.upsertHost(updated);
+        // 分组变更：其他连接若仍「优先使用」本连接可能已不同组 → 失效引用置回默认
+        const groupChanged = value.group !== undefined && normalizeDefaultGroup(value.group) !== normalizeDefaultGroup(host.group);
+        if (groupChanged) await repairPreferRefs(store, identity.id, id, { requireSameGroup: true });
+        const scopeChanged = value.scope !== undefined && value.scope !== normalizeScope(host.scope);
         audit?.log({
           actor: identity.id,
           actorType: 'user',
@@ -353,8 +579,10 @@ export function hostsRoutes(deps) {
           authType: updated.authType,
           event: 'host_update',
           result: 'success',
+          // 授权范围变更是高权限动作：审计里显式留痕原值与新值
+          reason: scopeChanged ? `授权范围 ${normalizeScope(host.scope)} → ${value.scope}` : undefined,
         });
-        sendJson(res, 200, publicView(updated));
+        sendJson(res, 200, await viewWithOrder(store, identity.id, updated));
       },
     },
     {
@@ -368,6 +596,8 @@ export function hostsRoutes(deps) {
         if (forbidden) return sendError(res, 403, 'forbidden', '无权访问该资源');
         if (!host) return sendError(res, 404, 'not_found', '主机不存在');
         await store.deleteHost(id, identity.id);
+        // 删除后指向本连接的「优先使用」全部失效 → 置回默认（顺序回到 1）
+        await repairPreferRefs(store, identity.id, id);
         audit?.log({
           actor: identity.id,
           actorType: 'user',
@@ -401,6 +631,8 @@ export function hostsRoutes(deps) {
           updatedAt: now,
           lastUsedAt: null,
         };
+        // 副本不继承「优先使用」（否则两条连接互指/重复占用同一顺序位）
+        if (copy.mcpPrompt) copy.mcpPrompt = { ...copy.mcpPrompt, preferHostId: null };
         await store.upsertHost(copy);
         // 审计留痕：复制会话（FR-056 duplicate），reason 溯源原主机 ID
         audit?.log({
@@ -413,7 +645,7 @@ export function hostsRoutes(deps) {
           result: 'success',
           reason: `源:${host.id}`,
         });
-        sendJson(res, 200, publicView(copy));
+        sendJson(res, 200, await viewWithOrder(store, identity.id, copy));
       },
     },
     {

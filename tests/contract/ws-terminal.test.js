@@ -94,6 +94,28 @@ test('关闭码 4003：主机不在授权清单（FR-020）', async () => {
   }
 });
 
+test('关闭码 4003：仅 MCP 授权范围的连接禁止网页终端接入（服务端强制）', async () => {
+  const { app, cleanup, base, wsBase } = await setup({}, [
+    { id: 'h_mcp', host: '127.0.0.1', port: 1, password: 'unused', fingerprint: 'SHA256:fake' },
+  ]);
+  try {
+    // 前端已禁用入口；服务端同样拒绝，避免直接构造 WS 请求绕过
+    const put = await fetch(`${base}/api/hosts/h_mcp`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ scope: 'mcp' }),
+    });
+    assert.equal(put.status, 200);
+    const origin = `http://127.0.0.1:${app.port}`;
+    const r = await connectWs(`${wsBase}/ws/terminal?hostId=h_mcp&version=1`, origin);
+    assert.equal(r.code, 4003);
+    assert.ok(r.reason.includes('terminal_not_allowed'), `reason 应说明终端未授权，实际: ${r.reason}`);
+  } finally {
+    await app.close();
+    await cleanup();
+  }
+});
+
 test('关闭码 4005：主机指纹未确认（FR-007，禁止静默接受）', async () => {
   const { app, cleanup, wsBase } = await setup({}, [
     { id: 'h_unconf', host: '127.0.0.1', port: 1, password: 'unused', fingerprint: null },

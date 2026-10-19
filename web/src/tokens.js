@@ -273,11 +273,11 @@ function startTokenRename(el, row, id, currentName, onFinished) {
 }
 
 async function openTokenForm(el) {
-  // 主机清单（勾选授权范围）
+  // 主机清单（勾选授权范围）：「仅终端」范围的会话连接对 MCP 不可见，不列入
   let hosts = [];
   try {
     const res = await fetch(apiUrl('hosts'));
-    if (res.ok) hosts = await res.json();
+    if (res.ok) hosts = (await res.json()).filter((h) => (h.scope ?? 'all') !== 'terminal');
   } catch {
     /* 忽略 */
   }

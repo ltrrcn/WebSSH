@@ -135,7 +135,7 @@ async function checkCode(deps, code) {
  * @param {object} deps { runtime, config }
  * @param {import('node:http').IncomingMessage} req
  * @param {import('node:http').ServerResponse} res
- * @param {'audit'|'tokens'} action 受保护动作标识
+ * @param {'audit'|'tokens'|'hosts'} action 受保护动作标识
  * @returns {boolean} true = 已拦截（调用方直接 return），false = 放行
  */
 export function require2fa(deps, req, res, action) {
@@ -182,7 +182,7 @@ export function twofaRoutes(deps) {
         sendJson(res, 200, {
           enabled: t.enabled === true,
           confirmedAt: t.confirmedAt ?? null,
-          protectedActions: { audit: true, tokens: true, ...(t.protectedActions ?? {}) },
+          protectedActions: { audit: true, tokens: true, hosts: true, ...(t.protectedActions ?? {}) },
           locked: isLocked(t),
           lockedUntil: isLocked(t) ? t.lockedUntil : null,
           remainingRecoveryCodes: Array.isArray(t.recoveryCodes) ? t.recoveryCodes.length : 0,
@@ -256,7 +256,7 @@ export function twofaRoutes(deps) {
           secret: encryptSecret(deps.masterKey, { secret: pending.secret }),
           confirmedAt: new Date().toISOString(),
           recoveryCodes: codes.map(hashRecoveryCode),
-          protectedActions: config.twofa?.protectedActions ?? { audit: true, tokens: true },
+          protectedActions: config.twofa?.protectedActions ?? { audit: true, tokens: true, hosts: true },
           failedAttempts: 0,
           lockedUntil: null,
           recoveryAttempts: 0, // 新绑定周期：恢复入口重新给 3 次
@@ -388,7 +388,7 @@ export function twofaRoutes(deps) {
           return sendError(res, 422, 'invalid_json', e.message);
         }
         const actions = config.twofa.protectedActions ?? (config.twofa.protectedActions = {});
-        for (const key of ['audit', 'tokens']) {
+        for (const key of ['audit', 'tokens', 'hosts']) {
           if (body?.[key] !== undefined) {
             if (typeof body[key] !== 'boolean') {
               return sendError(res, 422, 'invalid_field', `${key} 必须为布尔值`);

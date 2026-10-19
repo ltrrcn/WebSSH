@@ -107,6 +107,10 @@ export function createFileStore({ configDir, now = () => new Date().toISOString(
     if (host.connectVia !== undefined && host.connectVia !== 'direct' && host.connectVia !== 'jump') {
       throw new Error('connectVia 必须为 direct 或 jump');
     }
+    // 授权范围（all/terminal/mcp）：缺省记录按 all 处理，显式值必须合法
+    if (host.scope !== undefined && !['all', 'terminal', 'mcp'].includes(host.scope)) {
+      throw new Error(`scope 必须为 all、terminal 或 mcp: ${JSON.stringify(host.scope)}`);
+    }
     return host;
   }
 

@@ -1,6 +1,6 @@
 {
   "name": "webssh",
-  "version": "0.6.13",
+  "version": "0.6.14",
   "private": true,
   "type": "module",
   "description": "WebSSH 基础版：网页端 SSH 终端，同时支持飞牛 fnOS 应用形态与通用 Linux 部署，零外部数据库",

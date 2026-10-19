@@ -87,7 +87,7 @@ function validateConfig(cfg) {
     if (twofa.enabled !== undefined && typeof twofa.enabled !== 'boolean') {
       throw new Error('config.twofa.enabled 必须为布尔值');
     }
-    for (const key of ['audit', 'tokens']) {
+    for (const key of ['audit', 'tokens', 'hosts']) {
       const v = twofa.protectedActions?.[key];
       if (v !== undefined && typeof v !== 'boolean') {
         throw new Error(`config.twofa.protectedActions.${key} 必须为布尔值`);
