@@ -111,6 +111,15 @@ export function createFileStore({ configDir, now = () => new Date().toISOString(
     if (host.scope !== undefined && !['all', 'terminal', 'mcp'].includes(host.scope)) {
       throw new Error(`scope 必须为 all、terminal 或 mcp: ${JSON.stringify(host.scope)}`);
     }
+    // 登录后自动执行脚本：可选字段，存在时必须为数组（条目为字符串或 {command} 对象）
+    if (
+      host.scripts !== undefined &&
+      host.scripts !== null &&
+      (!Array.isArray(host.scripts) ||
+        host.scripts.some((s) => typeof s !== 'string' && (typeof s !== 'object' || s === null || typeof s.command !== 'string')))
+    ) {
+      throw new Error('scripts 必须为数组（字符串或 {command, delaySec} 条目）');
+    }
     return host;
   }
 

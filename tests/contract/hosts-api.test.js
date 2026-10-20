@@ -586,3 +586,54 @@ test('verify-hostkey：确认指纹后可连接前的状态翻转（FR-007）', 
     await cleanup();
   }
 });
+
+// —— 登录后自动执行脚本（scripts 字段全链路：创建回读 / 更新清空 / 非法拒绝）——
+test('scripts 字段：创建保存 → GET 回读 → PUT 整体替换与清空 → 非法值 422', async () => {
+  const { app, cleanup, base } = await setup();
+  try {
+    // 创建携带脚本 → 201 且回读可见
+    const res = await fetch(`${base}/api/hosts`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(createBody({ scripts: [' df -h ', 'uptime'] })),
+    });
+    assert.equal(res.status, 201);
+    const created = await res.json();
+    assert.deepEqual(created.scripts, [{ command: 'df -h', delaySec: 0 }, { command: 'uptime', delaySec: 0 }], '脚本应 trim 后按序返回（字符串简写归一为对象）');
+    const id = created.id;
+
+    // 不携带 scripts 的 GET 同样可见
+    const got = await (await fetch(`${base}/api/hosts/${id}`)).json();
+    assert.deepEqual(got.scripts, [{ command: 'df -h', delaySec: 0 }, { command: 'uptime', delaySec: 0 }]);
+
+    // PUT 整体替换
+    const put = await fetch(`${base}/api/hosts/${id}`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ scripts: [{ command: 'free -m', delaySec: 3 }] }),
+    });
+    assert.equal(put.status, 200);
+    assert.deepEqual((await put.json()).scripts, [{ command: 'free -m', delaySec: 3 }]);
+
+    // PUT 空数组 = 清空
+    const clear = await fetch(`${base}/api/hosts/${id}`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ scripts: [] }),
+    });
+    assert.equal(clear.status, 200);
+    assert.deepEqual((await clear.json()).scripts, []);
+
+    // 非法形态：含换行 → 422
+    const bad = await fetch(`${base}/api/hosts`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(createBody({ scripts: ['a\nb'] })),
+    });
+    assert.equal(bad.status, 422);
+    assert.match((await bad.json()).error.message, /换行/);
+  } finally {
+    await app.close();
+    await cleanup();
+  }
+});

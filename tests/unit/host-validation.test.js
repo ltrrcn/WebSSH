@@ -233,3 +233,40 @@ test('优先使用目标校验：须为同分组、对 MCP 可见的其他连接
   assert.match(validateMcpPrefer({ preferHostId: 'a', selfId: 'b', group: 'Default', hosts: cyclic }), /循环依赖/);
   assert.equal(validateMcpPrefer({ preferHostId: 'a', selfId: 'c', group: 'Default', hosts: cyclic }), null);
 });
+
+test('scripts 校验：对象/字符串条目规范化，延迟/条数/长度/换行受限', () => {
+  const base = { name: 'n', host: '1.2.3.4', username: 'u', authType: 'none' };
+  // 不携带 → 不出现在白名单值中（PUT 保持原值）
+  assert.equal('scripts' in validateHostPayload({ ...base }).value, false);
+  // 字符串简写 → 归一为 {command, delaySec: 0}，trim + 保留顺序
+  assert.deepEqual(validateHostPayload({ ...base, scripts: [' df -h ', 'uptime'] }).value.scripts, [
+    { command: 'df -h', delaySec: 0 },
+    { command: 'uptime', delaySec: 0 },
+  ]);
+  // 对象形态：带延迟
+  assert.deepEqual(
+    validateHostPayload({ ...base, scripts: [{ command: 'free -m', delaySec: 5 }] }).value.scripts,
+    [{ command: 'free -m', delaySec: 5 }]
+  );
+  // 延迟缺省 0；非法值（负数/小数/超 60/非整数）→ 拒绝
+  assert.equal(validateHostPayload({ ...base, scripts: [{ command: 'ls' }] }).value.scripts[0].delaySec, 0);
+  assert.throws(() => validateHostPayload({ ...base, scripts: [{ command: 'ls', delaySec: -1 }] }), /delaySec/);
+  assert.throws(() => validateHostPayload({ ...base, scripts: [{ command: 'ls', delaySec: 1.5 }] }), /delaySec/);
+  assert.throws(() => validateHostPayload({ ...base, scripts: [{ command: 'ls', delaySec: 61 }] }), /delaySec/);
+  // null / 空数组 → 清空
+  assert.deepEqual(validateHostPayload({ ...base, scripts: null }).value.scripts, []);
+  assert.deepEqual(validateHostPayload({ ...base, scripts: [] }).value.scripts, []);
+  // 全空白条目 → 拒绝
+  assert.throws(() => validateHostPayload({ ...base, scripts: ['   '] }), /非空/);
+  // 非数组 / 非法成员 → 拒绝
+  assert.throws(() => validateHostPayload({ ...base, scripts: 'ls' }), /数组/);
+  assert.throws(() => validateHostPayload({ ...base, scripts: [42] }), /字符串或/);
+  // 换行 → 拒绝（一条 = 一行）
+  assert.throws(() => validateHostPayload({ ...base, scripts: ['a\nb'] }), /换行/);
+  // 单条超长 → 拒绝
+  assert.throws(() => validateHostPayload({ ...base, scripts: ['x'.repeat(501)] }), /500/);
+  // 条数超限 → 拒绝
+  assert.throws(() => validateHostPayload({ ...base, scripts: Array.from({ length: 21 }, () => 'ls') }), /20 条/);
+  // 条数上限边界 → 通过
+  assert.equal(validateHostPayload({ ...base, scripts: Array.from({ length: 20 }, () => 'ls') }).value.scripts.length, 20);
+});

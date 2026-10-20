@@ -3,7 +3,8 @@
 // WS 层关闭码：4001 未授权、4003 主机不在授权范围、4004 并发上限、4005 指纹未确认
 import { WebSocketServer } from 'ws';
 import { resolveIdentity } from './auth.js';
-import { captureFingerprint } from '../ssh/client.js';
+import { captureFingerprint, captureFingerprintViaJump } from '../ssh/client.js';
+import { decryptSecret } from '../crypto/secret.js';
 import { stripGatewayPrefix } from './router.js';
 import { consumeWsTicket, consumePassTicket } from './tickets.js';
 import { PROTOCOL_VERSION } from '../../web/src/protocol/frames.js';
@@ -154,12 +155,35 @@ async function handleTerminal(ws, identity, url, deps) {
   if (!host.fingerprint) {
     let pending = host.pendingFingerprint ?? null;
     if (!pending) {
+      const connectTimeoutMs = deps.config?.limits?.connectTimeoutMs ?? 10000;
       try {
-        pending = await captureFingerprint({
-          host: host.host,
-          port: host.port,
-          connectTimeoutMs: deps.config?.limits?.connectTimeoutMs ?? 10000,
-        });
+        // 跳板机连接的目标多为内网地址，本机直连不可达——必须经跳板通道捕获指纹；
+        // 跳板不可用（无凭据/指纹未确认）或跳板捕获失败时回退直连探测（原行为）
+        let captured = null;
+        if (host.connectVia === 'jump' && host.jumpHostId && host.jumpHostId !== host.id) {
+          const jump = await store.getHost(host.jumpHostId, identity.id);
+          if (jump && jump.connectVia !== 'jump' && jump.secret && jump.fingerprint) {
+            captured = await captureFingerprintViaJump({
+              jump: {
+                host: jump.host,
+                port: jump.port,
+                username: jump.username,
+                secret: decryptSecret(deps.masterKey, jump.secret),
+                connectTimeoutMs,
+                expectedFingerprint: jump.fingerprint,
+              },
+              target: { host: host.host, port: host.port },
+              connectTimeoutMs,
+            }).catch(() => null);
+          }
+        }
+        pending =
+          captured ??
+          (await captureFingerprint({
+            host: host.host,
+            port: host.port,
+            connectTimeoutMs,
+          }));
         await deps.store.touchHost(host.id, { pendingFingerprint: pending });
       } catch {
         /* 捕获失败（不可达等）：仍以未确认关闭，不区分原因以免泄漏 */

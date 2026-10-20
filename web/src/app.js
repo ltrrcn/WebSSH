@@ -151,15 +151,27 @@ document.getElementById('btn-user').addEventListener('click', (e) => {
     // 外观快速开关（自动/浅色/深色）：点了立即生效且菜单保留
     section: (el) => {
       el.innerHTML = `<div class="ctx-theme-switch">
-        <button type="button" data-t="auto">${icon('monitor', 13)} 自动</button>
-        <button type="button" data-t="light">${icon('sun', 13)} 浅色</button>
-        <button type="button" data-t="dark">${icon('moon', 13)} 深色</button>
+        <span class="ctx-theme-thumb"></span>
+        <button type="button" data-t="auto">${icon('monitor', 13)}自动</button>
+        <button type="button" data-t="light">${icon('sun', 13)}浅色</button>
+        <button type="button" data-t="dark">${icon('moon', 13)}深色</button>
       </div>`;
-      const paint = () =>
+      const thumb = el.querySelector('.ctx-theme-thumb');
+      const paint = () => {
         el.querySelectorAll('button').forEach((b) =>
           b.classList.toggle('active', b.dataset.t === currentThemeMode())
         );
-      paint();
+        const active = el.querySelector('button.active');
+        if (!active) return;
+        // 滑块贴合选中项：offsetLeft 含容器 3px 内边距，滑块 left 已锚定 3px
+        thumb.style.width = `${active.offsetWidth}px`;
+        thumb.style.transform = `translateX(${active.offsetLeft - 3}px)`;
+      };
+      // 菜单 display:none 时无法测量：首帧（显示后）无动画定位，次帧开启滑动过渡
+      requestAnimationFrame(() => {
+        paint();
+        requestAnimationFrame(() => thumb.classList.add('anim'));
+      });
       el.querySelectorAll('button').forEach((b) =>
         b.addEventListener('click', () => {
           setTheme(b.dataset.t);

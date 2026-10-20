@@ -139,6 +139,12 @@ export async function connectShell(opts) {
  * @returns {Promise<{conn: import('ssh2').Client, stream: import('ssh2').Channel, jumpConn: import('ssh2').Client}>}
  */
 export async function connectShellViaJump({ jump, target }) {
+  // 同机换用户（跳板与目标同 host:port，如 user@X → root@X）：
+  // 跳板本身就是从本机直连的，再经它回环转发毫无网络意义，还会受目标侧
+  // AllowTcpForwarding/PermitOpen 限制——直接本机开第二连接，效果等价于 ProxyJump 到自己
+  if (jump.host === target.host && Number(jump.port) === Number(target.port)) {
+    return connectShell(target);
+  }
   // 跳板机私钥若需口令而未保存 → 以专用错误码抛出，由上层映射为明确提示
   const jumpConn = await openConn(jump).catch((err) => {
     const msg = String(err?.message ?? '');
@@ -154,7 +160,16 @@ export async function connectShellViaJump({ jump, target }) {
   const sock = await new Promise((resolve, reject) => {
     // 源地址/端口仅作协议占位，sshd 忽略
     jumpConn.forwardOut('127.0.0.1', 0, target.host, target.port, (err, stream) => {
-      if (err) return reject(new Error('jump_forward_failed'));
+      if (err) {
+        // sshd 错误不含凭据，可安全记日志。OpenSSH 的 description 恒为 "open failed"，
+        // 可靠分类依据是 SSH 通道拒绝 reason 码：1=配置禁止（AllowTcpForwarding/PermitOpen），
+        // 2=连接失败（跳板侧连不上目标），4=资源不足（MaxSessions 等）
+        const raw = String(err?.message ?? '');
+        const code = typeof err?.reason === 'number' ? err.reason : null;
+        console.warn(`[webssh][jump] direct-tcpip → ${target.host}:${target.port} 失败 (reason=${code}): ${raw}`);
+        const denied = code === 1 || /disallow|prohibit|admin/i.test(raw);
+        return reject(new Error(denied ? 'jump_forward_denied' : 'jump_forward_failed'));
+      }
       resolve(stream);
     });
   }).catch((err) => {
@@ -194,7 +209,7 @@ export async function connectShellViaJump({ jump, target }) {
  * 用于「首次连接 + 指纹未确认」时向使用者展示待确认指纹（Edge Case：禁止静默接受）。
  * @returns {Promise<string>} SHA256:xxx 形式指纹
  */
-export function captureFingerprint({ host, port, connectTimeoutMs }) {
+export function captureFingerprint({ host, port, connectTimeoutMs, sock }) {
   return new Promise((resolve, reject) => {
     const conn = new Client();
     let done = false;
@@ -215,6 +230,8 @@ export function captureFingerprint({ host, port, connectTimeoutMs }) {
       port,
       username: 'probe',
       readyTimeout: connectTimeoutMs,
+      // 跳板模式：底层 socket 替换为跳板机的 direct-tcpip 通道
+      ...(sock ? { sock } : {}),
       hostVerifier: (keyBlob) => {
         if (!done) {
           done = true;
@@ -226,4 +243,34 @@ export function captureFingerprint({ host, port, connectTimeoutMs }) {
       },
     });
   });
+}
+
+/**
+ * 经跳板机捕获目标主机指纹：跳板机直连可达不代表目标直连可达，
+ * 仅跳板授权的连接（内网目标）必须经跳板 forwardOut 才能触达目标 sshd。
+ * 跳板约束与 connectShellViaJump 一致（已确认指纹全等校验）；任何失败由调用方兜底。
+ * @param {{jump: object, target: {host: string, port: number}, connectTimeoutMs: number}} opts
+ * @returns {Promise<string>} SHA256:xxx 形式指纹
+ */
+export async function captureFingerprintViaJump({ jump, target, connectTimeoutMs }) {
+  // 同机换用户：本机直连捕获（跳板能从本机直连，目标同机必然可达）
+  if (jump.host === target.host && Number(jump.port) === Number(target.port)) {
+    return captureFingerprint({ ...target, connectTimeoutMs });
+  }
+  const jumpConn = await openConn(jump);
+  try {
+    const sock = await new Promise((resolve, reject) => {
+      jumpConn.forwardOut('127.0.0.1', 0, target.host, target.port, (err, stream) => {
+        if (err) return reject(err);
+        resolve(stream);
+      });
+    });
+    return await captureFingerprint({ ...target, connectTimeoutMs, sock });
+  } finally {
+    try {
+      jumpConn.end();
+    } catch {
+      /* 忽略 */
+    }
+  }
 }

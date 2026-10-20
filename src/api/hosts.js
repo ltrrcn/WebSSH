@@ -175,6 +175,46 @@ export function computeMcpOrders(hosts) {
   return orders;
 }
 
+/** 登录后自动执行脚本的取值约束：条数与单条长度都设上限（防滥用与载荷膨胀） */
+const SCRIPTS_MAX_COUNT = 20;
+const SCRIPT_MAX_LEN = 500;
+const SCRIPT_DELAY_MAX_SEC = 60;
+
+/** 校验登录后自动执行脚本：数组（可为空数组 = 清空）。
+ *  每条支持两种形态：字符串（无延迟）或 {command, delaySec}（执行本条前等待的秒数，0–60）。
+ *  规范化输出统一为 {command, delaySec}。 */
+function validateScripts(raw) {
+  if (raw === null || raw === undefined) return []; // 不携带 → 空
+  if (!Array.isArray(raw)) {
+    throw invalid('scripts 必须为数组或 null');
+  }
+  if (raw.length > SCRIPTS_MAX_COUNT) {
+    throw invalid(`scripts 最多 ${SCRIPTS_MAX_COUNT} 条`);
+  }
+  return raw.map((item) => {
+    // 字符串形态（简写）：延迟 0
+    if (typeof item === 'string') item = { command: item };
+    if (typeof item !== 'object' || item === null || Array.isArray(item)) {
+      throw invalid('scripts 每条必须为字符串或 {command, delaySec} 对象');
+    }
+    const cmd = typeof item.command === 'string' ? item.command.trim() : '';
+    if (!cmd) {
+      throw invalid('scripts 每条必须为非空命令');
+    }
+    if (cmd.length > SCRIPT_MAX_LEN) {
+      throw invalid(`scripts 单条不超过 ${SCRIPT_MAX_LEN} 字符`);
+    }
+    if (/[\r\n]/.test(cmd)) {
+      throw invalid('scripts 单条不得包含换行（一条命令一行）');
+    }
+    const delaySec = item.delaySec ?? 0;
+    if (!Number.isInteger(delaySec) || delaySec < 0 || delaySec > SCRIPT_DELAY_MAX_SEC) {
+      throw invalid(`scripts 每条 delaySec 必须为 0–${SCRIPT_DELAY_MAX_SEC} 的整数（秒）`);
+    }
+    return { command: cmd, delaySec };
+  });
+}
+
 /**
  * 校验主机创建/更新载荷。
  * @param {object} body 请求体
@@ -262,6 +302,10 @@ export function validateHostPayload(body, { partial = false, current = null } = 
   } else if (value.scope === 'terminal') {
     value.mcpPrompt = null;
   }
+  // 登录后自动执行脚本：出现即校验并规范化（trim + 去空条目上限）
+  if (body.scripts !== undefined) {
+    value.scripts = validateScripts(body.scripts);
+  }
 
   // 凭据：出现即校验形态
   const hasPw = body.password !== undefined && body.password !== null;
@@ -330,6 +374,12 @@ function publicView(h, mcpOrder = MCP_ORDER_BASE) {
             // 「需经用户同意」默认关闭（仅显式开启即为 true）
             requireConsent: h.mcpPrompt?.requireConsent === true,
           },
+    // 登录后自动执行脚本（历史记录无该字段时为空数组；字符串条目归一为延迟 0 的对象）
+    scripts: Array.isArray(h.scripts)
+      ? h.scripts.map((s) =>
+          typeof s === 'string' ? { command: s, delaySec: 0 } : { command: s.command, delaySec: s.delaySec ?? 0 }
+        )
+      : [],
   };
 }
 
@@ -448,6 +498,8 @@ export function hostsRoutes(deps) {
           // 授权范围（全选/终端/MCP）+ MCP 终端提示词
           scope: value.scope ?? 'all',
           mcpPrompt: value.mcpPrompt ?? null,
+          // 登录后自动执行脚本（不携带 = 空）
+          scripts: value.scripts ?? [],
           ownerId: identity.id,
           fingerprint: null,
           pendingFingerprint: null,
@@ -548,6 +600,8 @@ export function hostsRoutes(deps) {
           // 授权范围与 MCP 终端提示词（切到 terminal 时 validate 已把提示词置空）
           ...(value.scope !== undefined ? { scope: value.scope } : {}),
           ...(value.mcpPrompt !== undefined ? { mcpPrompt: value.mcpPrompt } : {}),
+          // 登录后自动执行脚本：提交即整体替换（空数组 = 清空）
+          ...(value.scripts !== undefined ? { scripts: value.scripts } : {}),
           ...(value.connectVia !== undefined ? { connectVia: value.connectVia } : {}),
           // 直连时清空跳板引用；未提交 connectVia 时保持原值
           ...(value.connectVia === 'jump'

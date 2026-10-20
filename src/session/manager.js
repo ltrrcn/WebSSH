@@ -207,6 +207,37 @@ export function createSessionManager({ config, store, audit, masterKey, runtime 
       onSessionEnd: (endReason, closeCode) => closeSession(session, endReason, closeCode),
     });
 
+    // 登录后自动执行脚本：shell 就绪后按序写入（每条可配置执行前延迟秒数；
+    // 条间留基础间隔保证输出归属清晰）。写入走用户自己的终端会话，
+    // 命令与输出由 bridge 的命令记录器照常审计。
+    const scripts = (Array.isArray(host.scripts) ? host.scripts : [])
+      .map((s) => (typeof s === 'string' ? { command: s, delaySec: 0 } : s))
+      .filter((s) => s && typeof s.command === 'string' && s.command.trim());
+    if (scripts.length) {
+      // 执行前延迟：0–60s 钳制 + 基础间隔（首条 250ms 等提示符，后续 300ms 分隔输出）
+      const delayOf = (item) => Math.max(0, Math.min(60, Number(item.delaySec) || 0)) * 1000;
+      let i = 0;
+      const step = () => {
+        // 会话已关闭/挂起：停止注入（用户断开或空闲回收）
+        if (session.state !== 'ready') return;
+        const item = scripts[i++];
+        if (item == null) return;
+        try {
+          stream.write(`${item.command}\n`);
+        } catch {
+          /* 远端已断开：交由 bridge 的关闭流程收尾 */
+          return;
+        }
+        const next = scripts[i];
+        if (next) {
+          const t = setTimeout(step, delayOf(next) + 300);
+          t.unref?.();
+        }
+      };
+      const t = setTimeout(step, delayOf(scripts[0]) + 250);
+      t.unref?.();
+    }
+
     return session;
   }
 

@@ -127,18 +127,12 @@ export async function renderHostList(container, { onConnect, connectedIds = [], 
           <div class="group-items-inner">
             ${list
               .map(
-                (h) => `<div class="host-item ${connected.has(h.id) ? 'connected' : ''}" data-id="${escapeHtml(h.id)}">
+                (h) => `<div class="host-item ${connected.has(h.id) ? 'connected' : ''} ${isMcpOnly(h) ? 'mcp-only' : ''}" data-id="${escapeHtml(h.id)}">
                 <div class="host-main">
                   <span class="host-name">${escapeHtml(h.name)}</span>
-                  <span class="host-meta">${escapeHtml(h.username)}@${escapeHtml(h.host)}:${h.port} · ${{ password: '密码', privateKey: '密钥', none: '每次输入' }[h.authType] ?? h.authType}</span>
+                  <span class="host-meta">${escapeHtml(h.username)}@${escapeHtml(h.host)}:${h.port} · ${isMcpOnly(h) ? 'MCP' : ({ password: '密码', privateKey: '密钥', none: '每次输入' }[h.authType] ?? h.authType)}</span>
                 </div>
-                <span class="host-actions">
-                  ${hostBadge(h)}
-                  ${scopeBadge(h)}
-                  <button class="icon-btn act-connect" title="${isMcpOnly(h) ? '仅授权 MCP：终端不可连接，只能编辑' : '连接终端'}" ${isMcpOnly(h) ? 'disabled' : ''}>${icon('play', 13)}</button>
-                  <button class="icon-btn act-edit" title="编辑">${icon('pencil', 13)}</button>
-                  <button class="icon-btn danger act-delete" title="删除">${icon('trash', 13)}</button>
-                </span>
+                <span class="host-actions">${hostBadge(h)}${scopeBadge(h)}</span>
               </div>`
               )
               .join('')}
@@ -172,10 +166,10 @@ export async function renderHostList(container, { onConnect, connectedIds = [], 
   container.querySelectorAll('.host-item').forEach((item) => {
     const host = hosts.find((h) => h.id === item.dataset.id);
     if (!host) return;
-    // 主条目点击 = 连接（每次新建一个会话卡）；仅 MCP 授权的连接不可连终端 → 直接进入编辑
+    // 主条目单击 = 连接（每次新建一个会话卡）；仅 MCP 授权的连接无终端可连，单击不响应（编辑/删除走右键菜单）
     item.addEventListener('click', () => {
-      if (isMcpOnly(host)) openHostFormModal(host, onChanged);
-      else onConnect(host);
+      if (isMcpOnly(host)) return;
+      onConnect(host);
     });
     // FR-055：会话连接右键菜单
     item.addEventListener('contextmenu', (e) => {
@@ -207,24 +201,6 @@ export async function renderHostList(container, { onConnect, connectedIds = [], 
         ],
       });
     });
-    item.querySelector('.act-edit').addEventListener('click', (e) => {
-      e.stopPropagation();
-      openHostFormModal(host, onChanged);
-    });
-    item.querySelector('.act-delete').addEventListener('click', async (e) => {
-      e.stopPropagation();
-      if (!confirm(`确定删除「${host.name}」？其凭据将一并删除。`)) return;
-      await fetch(apiUrl(`hosts/${encodeURIComponent(host.id)}`), { method: 'DELETE' });
-      onChanged();
-    });
-    const cf = item.querySelector('.act-confirm-fp');
-    if (cf) {
-      cf.addEventListener('click', async (e) => {
-        e.stopPropagation();
-        const ok = await confirmFingerprintModal(host);
-        if (ok) onChanged();
-      });
-    }
   });
 
   // FR-055：列表空白处右键 → 新建会话连接
@@ -266,7 +242,8 @@ function scopeBadge(h) {
 function hostBadge(h) {
   if (h.fingerprintConfirmed) return '';
   if (h.pendingFingerprint) {
-    return `<button class="icon-btn act-confirm-fp" title="确认指纹 ${escapeHtml(h.pendingFingerprint)}" style="color: var(--warn)">${icon('key', 13)}</button>`;
+    // 指纹已捕获待确认：仅作状态提示，确认动作在右键「连接」流程中弹出（connectHost 前置拦截）
+    return `<span class="tag warn" title="指纹待确认：${escapeHtml(h.pendingFingerprint)}（右键→连接时将提示确认）">待确认</span>`;
   }
   return '<span class="tag" title="首次连接需确认指纹">待确认</span>';
 }
@@ -348,8 +325,7 @@ export async function openHostFormModal(host, onSaved) {
   const NAV = [
     { key: 'connect', label: '连接', icon: 'terminal' },
     { key: 'mcp', label: 'MCP 授权', icon: 'plug' },
-    { key: 'scripts', label: '脚本', icon: 'code', soon: '登录后自动执行的命令脚本' },
-    { key: 'tunnels', label: '隧道', icon: 'tunnel', soon: '本地 / 远程端口转发' },
+    { key: 'scripts', label: '脚本', icon: 'code' },
     { key: 'advanced', label: '高级', icon: 'sliders', soon: '连接参数与高级选项' },
   ];
   const m = openModal(
@@ -358,7 +334,7 @@ export async function openHostFormModal(host, onSaved) {
     ).join('')}</nav>
     <div class="sp-panes">
       <section class="sp-pane active" data-pane="connect">
-        <form id="host-form" class="host-form">
+        <form id="host-form" class="host-form" novalidate>
       <div class="hf-row">
         <label>名称 <input name="name" required maxlength="64" placeholder="例如：生产服务器" value="${isEdit ? escapeHtml(host.name) : ''}" /></label>
         <label>用户名 <input name="username" required placeholder="root" value="${isEdit ? escapeHtml(host.username) : ''}" /></label>
@@ -368,7 +344,6 @@ export async function openHostFormModal(host, onSaved) {
           <select name="connectVia">
             <option value="direct" ${!isEdit || (host.connectVia ?? 'direct') === 'direct' ? 'selected' : ''}>直连（默认）</option>
             <option value="jump" ${isEdit && host.connectVia === 'jump' ? 'selected' : ''}>跳板机</option>
-            <option value="tunnel" disabled>隧道（后续加入）</option>
             <option value="socks" disabled>SOCKS（后续加入）</option>
             <option value="http" disabled>HTTP 代理（后续加入）</option>
           </select>
@@ -423,7 +398,7 @@ export async function openHostFormModal(host, onSaved) {
           <button type="button" class="icon-btn danger" id="key-remove" title="移除">${icon('trash', 13)}</button>
         </div>
         <input type="file" id="key-file" hidden />
-        <p class="form-note" style="margin-top:6px">私钥有口令时无需在此填写，连接时会提示输入。</p>
+        <p class="form-note" style="margin-top:4px">私钥有口令时无需在此填写，连接时会提示输入。</p>
       </div>
       <p class="form-note" data-cred="none" hidden>不记录密码：每次连接时都会弹出密码输入框，凭据不落地保存。</p>
       <p class="form-note" id="hf-cred-note">${isEdit ? '凭据留空表示保持原凭据不变。' : '凭据将以 AES-256-GCM 加密保存，不会明文显示。'}</p>
@@ -469,6 +444,21 @@ export async function openHostFormModal(host, onSaved) {
               </div>
             </div>
           </div>
+          <div class="form-actions">
+            <button type="button" class="btn" id="mcp-form-cancel">取消</button>
+            <button type="button" class="btn primary" id="mcp-form-submit">${isEdit ? '保存' : '创建'}</button>
+          </div>
+        </form>
+      </section>
+      <section class="sp-pane" data-pane="scripts">
+        <form class="host-form" id="scripts-form">
+          <p class="form-note" style="margin-top:0">登录成功后按顺序自动执行以下命令（最多 20 条，单条 500 字符以内）。命令在你的终端会话中执行，过程与输出直接可见并照常审计；每次连接（含断线重连）都会执行。</p>
+          <div id="hf-scripts-list"></div>
+          <div class="qc-add-box" id="hf-script-add" title="添加一条命令">${icon('plus', 12)} 添加命令</div>
+          <div class="form-actions">
+            <button type="button" class="btn" id="scripts-form-cancel">取消</button>
+            <button type="button" class="btn primary" id="scripts-form-submit">${isEdit ? '保存' : '创建'}</button>
+          </div>
         </form>
       </section>
       ${NAV.filter((n) => n.soon)
@@ -488,11 +478,14 @@ export async function openHostFormModal(host, onSaved) {
   m.setTitle(isEdit ? `编辑：${host.name}` : '新建会话连接');
 
   // 菜单切换：右侧面板淡入滑移
+  const switchPane = (key) => {
+    m.root.querySelectorAll('.sp-nav-item').forEach((b) => b.classList.toggle('active', b.dataset.pane === key));
+    m.root.querySelectorAll('.sp-pane').forEach((p) => p.classList.toggle('active', p.dataset.pane === key));
+  };
   m.root.querySelectorAll('.sp-nav-item').forEach((btn) =>
     btn.addEventListener('click', () => {
       if (btn.classList.contains('active')) return;
-      m.root.querySelectorAll('.sp-nav-item').forEach((b) => b.classList.toggle('active', b === btn));
-      m.root.querySelectorAll('.sp-pane').forEach((p) => p.classList.toggle('active', p.dataset.pane === btn.dataset.pane));
+      switchPane(btn.dataset.pane);
     })
   );
 
@@ -701,6 +694,77 @@ export async function openHostFormModal(host, onSaved) {
   form.querySelector('[name=name]').focus(); // 打开即聚焦首个字段
 
   m.root.querySelector('#host-form-cancel').addEventListener('click', () => m.close());
+  // MCP 授权页底部操作：取消 = 关弹窗；创建/保存与「连接」页同一套提交流程，
+  // 但连接必填项未完成时不提交——切回「连接」页签并提示具体缺什么
+  m.root.querySelector('#mcp-form-cancel').addEventListener('click', () => m.close());
+  m.root.querySelector('#mcp-form-submit').addEventListener('click', () => {
+    // 连接页未完成（必填/密钥/地址/端口/跳板）：切回连接页，自定义气泡指到具体字段
+    const v = validateConnectFields();
+    if (v) {
+      switchPane('connect');
+      showFieldBubble(v.field, v.err);
+      errEl.textContent = v.err;
+      return;
+    }
+    form.requestSubmit(); // 复用连接页提交（含保存状态与成功关弹窗）
+  });
+  // —— 脚本页：登录后自动执行的命令列表（序号 = 执行顺序，上到下）——
+  const scriptsList = m.root.querySelector('#hf-scripts-list');
+  const SCRIPT_MAX = 500;
+  const renumberScripts = () => {
+    scriptsList.querySelectorAll('.hf-script-idx').forEach((el, i) => (el.textContent = i + 1));
+  };
+  const appendScriptRow = (cmd = '', delaySec = 0) => {
+    const row = document.createElement('div');
+    row.className = 'hf-script-row';
+    row.innerHTML = `
+      <span class="hf-script-idx"></span>
+      <label class="hf-script-delay${Number(delaySec) > 0 ? ' has-delay' : ''}" title="执行本条命令前等待的秒数（0–60，0 = 立即）">
+        ${icon('clock', 13)}<input type="number" class="hf-script-delay-input" min="0" max="60" step="1" value="${Number(delaySec) || 0}" />
+        <span>秒后执行</span>
+      </label>
+      <input type="text" class="pref-input hf-script-cmd" maxlength="${SCRIPT_MAX}" placeholder="例如：df -h" value="${escapeHtml(cmd)}" spellcheck="false" />
+      <button type="button" class="icon-btn danger" title="删除本条">${icon('trash', 13)}</button>`;
+    // 延迟非 0 时胶囊转主题色强调：一眼看出这条命令会等待
+    const delayInput = row.querySelector('.hf-script-delay-input');
+    delayInput.addEventListener('input', () => {
+      row.querySelector('.hf-script-delay').classList.toggle('has-delay', Number(delayInput.value) > 0);
+    });
+    row.querySelector('.icon-btn').addEventListener('click', () => {
+      row.remove();
+      renumberScripts();
+    });
+    scriptsList.appendChild(row);
+    renumberScripts();
+    return row;
+  };
+  m.root.querySelector('#hf-script-add').addEventListener('click', () => {
+    appendScriptRow().querySelector('.hf-script-cmd').focus();
+  });
+  (isEdit && Array.isArray(host.scripts) ? host.scripts : []).forEach((s) =>
+    appendScriptRow(typeof s === 'string' ? s : s.command, typeof s === 'string' ? 0 : s.delaySec ?? 0)
+  );
+  /** 收集脚本：trim + 去空（顺序 = 列表顺序）；每条带执行前延迟秒数 */
+  const collectScripts = () => ({
+    scripts: [...scriptsList.querySelectorAll('.hf-script-row')]
+      .map((row) => ({
+        command: row.querySelector('.hf-script-cmd').value.trim(),
+        delaySec: Math.max(0, Math.min(60, Math.floor(Number(row.querySelector('.hf-script-delay-input').value) || 0))),
+      }))
+      .filter((s) => s.command),
+  });
+  m.root.querySelector('#scripts-form-cancel').addEventListener('click', () => m.close());
+  m.root.querySelector('#scripts-form-submit').addEventListener('click', () => {
+    // 与 MCP 页一致：连接页未完成时切回并提示具体缺什么
+    const v = validateConnectFields();
+    if (v) {
+      switchPane('connect');
+      showFieldBubble(v.field, v.err);
+      errEl.textContent = v.err;
+      return;
+    }
+    form.requestSubmit();
+  });
   const submitBtn = form.querySelector('[type=submit]');
   const errEl = form.querySelector('.hf-error');
 
@@ -764,15 +828,19 @@ export async function openHostFormModal(host, onSaved) {
     btn.addEventListener('click', () => openNasKeyPicker((name, pem) => setKey(name, pem)));
   });
 
-  form.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    errEl.textContent = '';
+  /** 连接页字段校验（含必填）：返回 {err, field} 或 null。
+   *  连接页与 MCP 授权页共用——MCP 页提交前先跑同一套校验，未完成时切回连接页提示 */
+  const validateConnectFields = () => {
+    // 必填：名称 / 用户名 / 地址（form 已 novalidate，原生气泡由自定义气泡替代）
+    for (const [n, label] of [['name', '名称'], ['username', '用户名'], ['host', '地址']]) {
+      const el = form.querySelector(`[name=${n}]`);
+      if (!el.value.trim()) return { err: `请填写${label}`, field: el };
+    }
     // 新建密钥认证必须先导入私钥（编辑态不导入 = 保持原私钥）
     if (authInput.value === 'privateKey' && !keyPem && !isEdit) {
-      errEl.textContent = '请导入私钥文件（本地或从飞牛）';
-      return;
+      return { err: '请导入私钥文件（本地或从飞牛）', field: keyDrop };
     }
-    // —— 地址校验：合法 IPv4 / IPv6 / 域名（原生 required 之外的前端即时校验） ——
+    // —— 地址校验：合法 IPv4 / IPv6 / 域名 ——
     const rawHost = form.querySelector('[name=host]').value.trim();
     {
       // 纯数字四段 = 用户意图是 IPv4：强制逐段校验 0–255，不再落入域名分支放行（如 256.1.1.1）
@@ -789,21 +857,39 @@ export async function openHostFormModal(host, onSaved) {
             !/^\d+$/.test(segs[segs.length - 1]) &&
             segs.every((s) => !s.startsWith('-') && !s.endsWith('-'))));
       if (!rawHost || (!isV4 && !isV6 && !isDomain)) {
-        errEl.textContent = looksLikeIp
-          ? 'IP 地址格式不正确（每段必须为 0–255）'
-          : '地址必须是合法的 IP 或域名（如 192.168.1.1、example.com）';
-        form.querySelector('[name=host]').focus();
-        return;
+        return {
+          err: looksLikeIp
+            ? 'IP 地址格式不正确（每段必须为 0–255）'
+            : '地址必须是合法的 IP 或域名（如 192.168.1.1、example.com）',
+          field: form.querySelector('[name=host]'),
+        };
       }
     }
     // —— 端口校验：1–65535 整数（number input 的 min/max 在 preventDefault 提交下不生效） ——
     const rawPort = String(form.querySelector('[name=port]').value ?? '').trim();
     const port = rawPort === '' ? 22 : Number(rawPort);
     if (!Number.isInteger(port) || port < 1 || port > 65535) {
-      errEl.textContent = '端口必须为 1–65535 的整数';
-      form.querySelector('[name=port]').focus();
+      return { err: '端口必须为 1–65535 的整数', field: form.querySelector('[name=port]') };
+    }
+    // —— 跳板机模式必须选定跳板主机 ——
+    if (viaInput.value === 'jump' && !jumpSelect.value) {
+      return { err: '请选择作为跳板的主机', field: jumpSelect };
+    }
+    return null;
+  };
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    errEl.textContent = '';
+    const v = validateConnectFields();
+    if (v) {
+      showFieldBubble(v.field, v.err);
+      errEl.textContent = v.err;
       return;
     }
+    const rawHost = form.querySelector('[name=host]').value.trim();
+    const rawPort = String(form.querySelector('[name=port]').value ?? '').trim();
+    const port = rawPort === '' ? 22 : Number(rawPort);
     submitBtn.disabled = true;
     submitBtn.textContent = isEdit ? '保存中…' : '创建中…';
     const fd = new FormData(form);
@@ -815,6 +901,8 @@ export async function openHostFormModal(host, onSaved) {
       group: fd.get('group'),
       authType: fd.get('authType'),
       connectVia: fd.get('connectVia'),
+      // 登录后自动执行脚本（脚本页收集，顺序 = 列表顺序；空数组 = 清空）
+      scripts: collectScripts().scripts,
       // 授权范围（全选/终端/MCP）+ MCP 终端提示词（终端范围不携带）
       scope: normalizeScope(fd.get('scope')),
       mcpPrompt:
@@ -826,17 +914,8 @@ export async function openHostFormModal(host, onSaved) {
               requireConsent: mcpConsent.checked,
             },
     };
-    // 跳板机模式必须选定跳板主机
-    if (body.connectVia === 'jump') {
-      const jumpId = fd.get('jumpHostId');
-      if (!jumpId) {
-        errEl.textContent = '请选择作为跳板的主机';
-        submitBtn.disabled = false;
-        submitBtn.textContent = isEdit ? '保存' : '创建';
-        return;
-      }
-      body.jumpHostId = jumpId;
-    }
+    // 跳板机模式必须选定跳板主机（校验已在 validateConnectFields 完成）
+    if (body.connectVia === 'jump') body.jumpHostId = fd.get('jumpHostId');
     const pw = fd.get('password');
     if (body.authType === 'password' && pw) body.password = pw;
     if (body.authType === 'privateKey' && keyPem) body.privateKey = keyPem;
@@ -862,6 +941,7 @@ export async function openHostFormModal(host, onSaved) {
       onSaved?.();
     } else {
       const err = await res.json().catch(() => ({ error: { message: res.statusText } }));
+      switchPane('connect'); // 从 MCP 页提交时错误显示在连接页操作栏，切回保证可见
       errEl.textContent = `保存失败：${err.error?.message ?? '未知错误'}`;
       submitBtn.disabled = false;
       submitBtn.textContent = isEdit ? '保存' : '创建';
@@ -959,6 +1039,39 @@ function openNasKeyPicker(onPick) {
     }
   });
   load();
+}
+
+/** 字段校验气泡（替代浏览器原生「请填写此字段」）：红色描边 + 浮泡，
+ *  fixed 定位挂 body（面板 overflow 不裁剪）；上方放不下自动翻到字段下方；
+ *  输入即消 / 3.5s 自动消；同一时间只保留一个气泡 */
+function showFieldBubble(field, msg) {
+  document.querySelectorAll('.field-bubble').forEach((b) => b.remove());
+  document.querySelectorAll('.field-invalid').forEach((el) => el.classList.remove('field-invalid'));
+  if (!field) return;
+  field.classList.add('field-invalid');
+  field.focus(); // 先聚焦（可能触发面板滚动），再按最终位置测量
+  const bubble = document.createElement('div');
+  bubble.className = 'field-bubble';
+  bubble.textContent = msg;
+  document.body.appendChild(bubble);
+  const r = field.getBoundingClientRect();
+  bubble.style.left = `${Math.min(r.left + 12, window.innerWidth - bubble.offsetWidth - 8)}px`;
+  const top = r.top - bubble.offsetHeight - 8;
+  if (top < 8) {
+    bubble.style.top = `${r.bottom + 8}px`;
+    bubble.classList.add('below');
+  } else {
+    bubble.style.top = `${top}px`;
+  }
+  const clear = () => {
+    bubble.remove();
+    field.classList.remove('field-invalid');
+    field.removeEventListener('input', clear);
+    field.removeEventListener('change', clear);
+  };
+  field.addEventListener('input', clear);
+  field.addEventListener('change', clear); // select 无 input 事件
+  setTimeout(clear, 3500);
 }
 
 function escapeHtml(s) {

@@ -415,7 +415,8 @@ async function connectWs(tab) {
       jump_fingerprint_changed: '跳板机指纹已变化，请先直连重新确认',
       jump_passphrase_required: '跳板机私钥需要口令，请先连接一次跳板机并勾选记住口令',
       jump_connect_failed: '无法连接跳板机（地址/端口/凭据）',
-      jump_forward_failed: '跳板机转发失败（目标地址从跳板机侧不可达？）',
+      jump_forward_failed: '跳板机转发失败：目标地址从跳板机侧不可达（检查目标地址/端口，以及从跳板机能否连通目标）',
+      jump_forward_denied: '跳板机拒绝 TCP 转发：sshd 配置禁止（AllowTcpForwarding no 或 PermitOpen 限制），需在跳板机上开启转发',
       passphrase_required: '私钥需要口令',
       passphrase_invalid: '私钥口令错误',
     };

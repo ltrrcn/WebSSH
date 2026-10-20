@@ -1,5 +1,5 @@
 appname=webssh-docker
-version=0.6.14
+version=0.6.15
 display_name=WebSSH Docker 版
 desc=网页端 SSH 终端（Docker 版）：容器化运行零运行时依赖，支持多会话、审计留痕与 MCP 令牌接入
 source=thirdparty
