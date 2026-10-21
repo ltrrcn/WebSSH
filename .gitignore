@@ -29,6 +29,12 @@ Thumbs.db
 .vscode/
 .idea/
 
+# AI 工程化本地目录（个人开发环境配置，不随仓库分发）
+.codebuddy/
+.specify/
+.claude/
+.cursor/
+
 # macOS
 .DS_Store
 
