@@ -1,0 +1,3 @@
+#!/bin/bash
+# uninstall_callback：后置钩子（幂等空实现；数据目录由系统按 TRIM_* 创建）
+exit 0
