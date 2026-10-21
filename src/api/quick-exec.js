@@ -4,6 +4,7 @@
 import { sendJson, sendError, readJsonBody } from '../net/router.js';
 import { resolveIdentity } from '../net/auth.js';
 import { withSsh, execCommand } from '../ssh/exec.js';
+import { checkHostBlocklist } from '../ssh/policy.js';
 import { redact, truncateDigest } from '../crypto/redact.js';
 
 /**
@@ -35,6 +36,34 @@ export function quickExecRoutes(deps) {
         // 主机归属校验：只允许对本人主机执行
         const host = (await store.listHosts(identity.id)).find((h) => h.id === hostId);
         if (!host) return sendError(res, 404, 'not_found', '主机不存在');
+
+        // 主机级二次认证：开启且未完成验证 → 拒绝（与终端/MCP 同一门禁；
+        // 完成方式：在 Web 终端连接一次该主机，验证一次永久生效）
+        if (host.requireTwofa === true && host.twofaVerified !== true) {
+          audit.log({
+            event: 'quick-exec',
+            actor: identity.id,
+            actorType: 'user',
+            hostId,
+            result: 'denied',
+            reason: 'host_twofa_required',
+          });
+          return sendError(res, 403, 'host_twofa_required', '该连接已开启二次认证（2FA）：请先在终端连接一次该主机完成验证（一次验证永久生效）');
+        }
+
+        // 连接级命令黑名单（高级页）：快捷命令同样受限
+        const blockedHit = checkHostBlocklist(command, host.session?.blockedCommands);
+        if (blockedHit) {
+          audit.log({
+            event: 'quick-exec',
+            actor: identity.id,
+            actorType: 'user',
+            hostId,
+            result: 'denied',
+            reason: `command_blocked_by_host:${blockedHit}`,
+          });
+          return sendError(res, 403, 'command_blocked', `命令被拒绝：该连接的黑名单禁用了「${blockedHit}」`);
+        }
 
         const t0 = Date.now();
         try {

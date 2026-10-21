@@ -90,9 +90,29 @@ export function createSessionManager({ config, store, audit, masterKey, runtime 
    * @param {object} opts
    * @param {string} [opts.passphrase] 连接时临时输入的私钥口令（口令票据换出，优先级高于已保存口令）
    * @param {string} [opts.password] none（不记录凭据）主机连接时手动输入的密码（口令票据换出）
+   * @param {{cols: number, rows: number}} [opts.earlyResize] 建连期间暂存的窗口尺寸
+   *   （upgrade 层挂的暂存监听捕获；shell 就绪后补投，避免 pty 停留在默认 80×24）
+   * @param {Function} [opts.onEarlyMessage] upgrade 层的暂存监听（bridgeSession 接管前移除）
    */
-  async function createSession({ ws, host, identity, passphrase, password }) {
+  async function createSession({ ws, host, identity, passphrase, password, earlyResize, onEarlyMessage }) {
     const now = new Date().toISOString();
+    // 连接级会话参数（高级页）：按连接覆盖全局默认；0 = 永不断开
+    const sessionCfg = host.session ?? {};
+    const connTimeoutMs =
+      Number.isInteger(sessionCfg.connectTimeoutMs) && sessionCfg.connectTimeoutMs >= 3000
+        ? sessionCfg.connectTimeoutMs
+        : connectTimeoutMs;
+    const sessionIdleMs =
+      sessionCfg.idleTimeoutMs === 0
+        ? 0 // 显式永不断开
+        : Number.isInteger(sessionCfg.idleTimeoutMs) && sessionCfg.idleTimeoutMs >= 60000
+          ? sessionCfg.idleTimeoutMs
+          : idleTimeoutMs;
+    // 会话保活（断开后服务端 detach 保留期）：按连接覆盖
+    const sessionDetachMs =
+      Number.isInteger(sessionCfg.detachedTtlMs) && sessionCfg.detachedTtlMs >= 60000
+        ? sessionCfg.detachedTtlMs
+        : detachedTtlMs;
     const session = {
       id: newSessionId(),
       ownerId: identity.id,
@@ -141,7 +161,9 @@ export function createSessionManager({ config, store, audit, masterKey, runtime 
         port: host.port,
         username: host.username,
         secret,
-        connectTimeoutMs,
+        connectTimeoutMs: connTimeoutMs,
+        // 终端类型（TERM 变量）按连接覆盖（高级页），undefined = 默认 xterm-256color
+        termType: typeof sessionCfg.termType === 'string' ? sessionCfg.termType : undefined,
         expectedFingerprint: host.fingerprint,
         onHostKeyVerified,
       };
@@ -162,7 +184,7 @@ export function createSessionManager({ config, store, audit, masterKey, runtime 
             port: jump.port,
             username: jump.username,
             secret: decryptSecret(masterKey, jump.secret),
-            connectTimeoutMs,
+            connectTimeoutMs: connTimeoutMs,
             expectedFingerprint: jump.fingerprint,
           },
           target: targetOpts,
@@ -175,6 +197,8 @@ export function createSessionManager({ config, store, audit, masterKey, runtime 
       session.conn = conn;
       session.stream = stream;
       session.state = 'ready';
+      // 记录最近连接时间（空态「快速连接」面板按此排序）；失败不影响会话
+      store.touchHost(host.id, { lastConnectedAt: Date.now() }).catch(() => {});
       audit.log(auditBase(session, { event: 'connect-success', result: 'success' }));
     } catch (err) {
       session.state = 'failed';
@@ -187,6 +211,7 @@ export function createSessionManager({ config, store, audit, masterKey, runtime 
     } finally {
       ws.removeListener('close', onEarlyClose);
       ws.removeListener('error', onEarlyClose);
+      if (onEarlyMessage) ws.removeListener('message', onEarlyMessage);
     }
 
     // 建连期间客户端已断开：立即回收，避免会话与远程连接泄漏
@@ -195,32 +220,68 @@ export function createSessionManager({ config, store, audit, masterKey, runtime 
       return session;
     }
 
+    // shell 就绪：补投建连期间暂存的窗口尺寸（upgrade 层在握手后即捕获）。
+    // 远端 shell 首个提示符按真实尺寸绘制，不会停留在默认 80×24——
+    // 该缺陷曾导致长命令换行错位、zle 重绘内容重叠到上一行
+    if (earlyResize && earlyResize.cols > 0 && earlyResize.rows > 0) {
+      try {
+        stream.setWindow(earlyResize.rows, earlyResize.cols, 0, 0);
+      } catch {
+        /* 通道刚建立，极少失败；失败则等待客户端下一次 resize 帧 */
+      }
+    }
+
     session.bridge = bridgeSession({
       ws,
       stream,
       session,
-      idleTimeoutMs,
-      detachedTtlMs,
+      idleTimeoutMs: sessionIdleMs,
+      detachedTtlMs: sessionDetachMs,
+      // 审计输出摘要按连接覆盖（'on'/'off'），null = 跟随全局设置
+      auditOutputOverride: typeof sessionCfg.auditOutput === 'string' ? sessionCfg.auditOutput : null,
+      // 命令黑名单（高级页）：终端输入侧拦截（尽力而为；MCP/快捷命令为服务端硬边界）
+      blockedCommands: Array.isArray(sessionCfg.blockedCommands) ? sessionCfg.blockedCommands : null,
       audit,
       config,
       onDetach: () => detachSession(session),
       onSessionEnd: (endReason, closeCode) => closeSession(session, endReason, closeCode),
     });
 
-    // 登录后自动执行脚本：shell 就绪后按序写入（每条可配置执行前延迟秒数；
-    // 条间留基础间隔保证输出归属清晰）。写入走用户自己的终端会话，
-    // 命令与输出由 bridge 的命令记录器照常审计。
-    const scripts = (Array.isArray(host.scripts) ? host.scripts : [])
-      .map((s) => (typeof s === 'string' ? { command: s, delaySec: 0 } : s))
-      .filter((s) => s && typeof s.command === 'string' && s.command.trim());
-    if (scripts.length) {
+    // 初始化命令：启动目录（高级页）优先，登录后自动执行脚本（脚本页）紧随其后。
+    // shell 就绪后按序写入（每条可配置执行前延迟秒数；条间留基础间隔保证输出归属清晰）。
+    // 写入走用户自己的终端会话，命令与输出由 bridge 的命令记录器照常审计。
+    const initCmds = [];
+    // 环境变量（KEY=VALUE 每行一条）：export 注入（不依赖 sshd AcceptEnv，始终生效），
+    // 值单引号包裹转义防注入；顺序：环境变量 → 启动目录 → 脚本
+    const envLines =
+      typeof sessionCfg.env === 'string'
+        ? sessionCfg.env.split('\n').map((l) => l.trim()).filter(Boolean)
+        : [];
+    for (const line of envLines) {
+      const eq = line.indexOf('=');
+      const k = line.slice(0, eq);
+      const v = line.slice(eq + 1);
+      initCmds.push({ command: `export ${k}='${v.replace(/'/g, `'\\''`)}'`, delaySec: 0 });
+    }
+    const startDir = typeof sessionCfg.startDirectory === 'string' ? sessionCfg.startDirectory.trim() : '';
+    if (startDir) {
+      // ~ 开头不引号（保留波浪号展开），其余单引号包裹并转义，杜绝路径注入命令
+      const safe = startDir.startsWith('~') ? startDir : `'${startDir.replace(/'/g, `'\\''`)}'`;
+      initCmds.push({ command: `cd ${safe}`, delaySec: 0 });
+    }
+    initCmds.push(
+      ...(Array.isArray(host.scripts) ? host.scripts : [])
+        .map((s) => (typeof s === 'string' ? { command: s, delaySec: 0 } : s))
+        .filter((s) => s && typeof s.command === 'string' && s.command.trim())
+    );
+    if (initCmds.length) {
       // 执行前延迟：0–60s 钳制 + 基础间隔（首条 250ms 等提示符，后续 300ms 分隔输出）
       const delayOf = (item) => Math.max(0, Math.min(60, Number(item.delaySec) || 0)) * 1000;
       let i = 0;
       const step = () => {
         // 会话已关闭/挂起：停止注入（用户断开或空闲回收）
         if (session.state !== 'ready') return;
-        const item = scripts[i++];
+        const item = initCmds[i++];
         if (item == null) return;
         try {
           stream.write(`${item.command}\n`);
@@ -228,13 +289,13 @@ export function createSessionManager({ config, store, audit, masterKey, runtime 
           /* 远端已断开：交由 bridge 的关闭流程收尾 */
           return;
         }
-        const next = scripts[i];
+        const next = initCmds[i];
         if (next) {
           const t = setTimeout(step, delayOf(next) + 300);
           t.unref?.();
         }
       };
-      const t = setTimeout(step, delayOf(scripts[0]) + 250);
+      const t = setTimeout(step, delayOf(initCmds[0]) + 250);
       t.unref?.();
     }
 

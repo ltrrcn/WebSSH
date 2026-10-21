@@ -111,6 +111,120 @@ function validateMcpPrompt(raw, scope) {
   return { preferHostId, scenario, requireConsent: raw.requireConsent === true };
 }
 
+/** 高级页允许的终端类型（TERM 变量）：白名单防任意注入 */
+const SESSION_TERM_TYPES = ['xterm-256color', 'xterm', 'xterm-color', 'vt220', 'vt100', 'linux'];
+
+/** 连接级会话参数（「高级」页）：仅对该连接生效，覆盖全局默认。
+ *  整体替换语义：出现即全量校验，未携带字段归 null（= 跟随全局）。全空归 null。 */
+function validateSessionConfig(raw) {
+  if (raw === null || raw === undefined) return null;
+  if (typeof raw !== 'object' || Array.isArray(raw)) {
+    throw invalid('session 必须为对象或 null');
+  }
+  const out = {
+    idleTimeoutMs: null,
+    connectTimeoutMs: null,
+    startDirectory: null,
+    detachedTtlMs: null,
+    termType: null,
+    autoReconnect: null,
+    env: null,
+    auditOutput: null,
+    blockedCommands: null,
+  };
+  // 空闲断开：null = 跟随全局；0 = 永不断开；否则 1 分钟 – 24 小时
+  if (raw.idleTimeoutMs !== undefined && raw.idleTimeoutMs !== null) {
+    const v = raw.idleTimeoutMs;
+    if (!Number.isInteger(v) || (v !== 0 && (v < 60000 || v > 86400000))) {
+      throw invalid('session.idleTimeoutMs 必须为 0（永不断开）或 60000–86400000 毫秒');
+    }
+    out.idleTimeoutMs = v;
+  }
+  // 连接超时：null = 跟随全局；3 秒 – 120 秒
+  if (raw.connectTimeoutMs !== undefined && raw.connectTimeoutMs !== null) {
+    const v = raw.connectTimeoutMs;
+    if (!Number.isInteger(v) || v < 3000 || v > 120000) {
+      throw invalid('session.connectTimeoutMs 必须为 3000–120000 毫秒');
+    }
+    out.connectTimeoutMs = v;
+  }
+  // 启动目录：登录成功后自动 cd（在脚本之前执行）；空白 = 未设置
+  if (raw.startDirectory !== undefined && raw.startDirectory !== null) {
+    const v = String(raw.startDirectory).trim();
+    if (v) {
+      if (v.length > 200 || /[\r\n\0]/.test(v)) {
+        throw invalid('session.startDirectory 必须为 1–200 字符的合法路径（不含换行）');
+      }
+      out.startDirectory = v;
+    }
+  }
+  // 会话保活：断开后服务端 detach 保留期；1 分钟 – 4 小时
+  if (raw.detachedTtlMs !== undefined && raw.detachedTtlMs !== null) {
+    const v = raw.detachedTtlMs;
+    if (!Number.isInteger(v) || v < 60000 || v > 14400000) {
+      throw invalid('session.detachedTtlMs 必须为 60000–14400000 毫秒');
+    }
+    out.detachedTtlMs = v;
+  }
+  // 终端类型（TERM 变量）：白名单
+  if (raw.termType !== undefined && raw.termType !== null && raw.termType !== '') {
+    if (!SESSION_TERM_TYPES.includes(raw.termType)) {
+      throw invalid(`session.termType 必须为以下之一：${SESSION_TERM_TYPES.join(' / ')}`);
+    }
+    out.termType = raw.termType;
+  }
+  // 断线自动重连：布尔
+  if (raw.autoReconnect !== undefined && raw.autoReconnect !== null) {
+    if (typeof raw.autoReconnect !== 'boolean') {
+      throw invalid('session.autoReconnect 必须为布尔值');
+    }
+    out.autoReconnect = raw.autoReconnect;
+  }
+  // 环境变量：KEY=VALUE 每行一条（≤ 20 行，单行 ≤ 200 字符），登录后 export 注入
+  if (raw.env !== undefined && raw.env !== null && raw.env !== '') {
+    const lines = String(raw.env)
+      .split('\n')
+      .map((l) => l.trim())
+      .filter(Boolean);
+    if (lines.length > 20) {
+      throw invalid('session.env 最多 20 行（每行一条 KEY=VALUE）');
+    }
+    for (const line of lines) {
+      if (line.length > 200 || !/^[A-Za-z_][A-Za-z0-9_]*=/.test(line)) {
+        throw invalid('session.env 每行必须为 KEY=VALUE（键为字母数字下划线，≤200 字符）');
+      }
+    }
+    if (lines.length) out.env = lines.join('\n');
+  }
+  // 审计输出摘要：'on'/'off' 覆盖全局，null = 跟随全局
+  if (raw.auditOutput !== undefined && raw.auditOutput !== null) {
+    if (raw.auditOutput !== 'on' && raw.auditOutput !== 'off') {
+      throw invalid("session.auditOutput 必须为 'on' 或 'off'");
+    }
+    out.auditOutput = raw.auditOutput;
+  }
+  // 命令黑名单：MCP 与快捷命令执行拒绝匹配的命令（首个命令词匹配，≤ 50 条）
+  if (raw.blockedCommands !== undefined && raw.blockedCommands !== null) {
+    const list = Array.isArray(raw.blockedCommands)
+      ? raw.blockedCommands.map((s) => String(s).trim())
+      : String(raw.blockedCommands)
+          .split('\n')
+          .map((l) => l.trim());
+    const cleaned = list.filter(Boolean);
+    if (cleaned.length > 50) {
+      throw invalid('session.blockedCommands 最多 50 条');
+    }
+    for (const item of cleaned) {
+      if (item.length > 100 || /[\r\n\0]/.test(item) || /\s/.test(item)) {
+        throw invalid('session.blockedCommands 每条必须为单个命令词（≤100 字符，不含空格）');
+      }
+    }
+    if (cleaned.length) out.blockedCommands = cleaned;
+  }
+  const hasAny = Object.values(out).some((v) => v !== null);
+  return hasAny ? out : null;
+}
+
 /**
  * 校验「优先使用」指向：必须是同一分组内、对 MCP 可见的其他会话连接，且不得形成循环。
  * 顺序语义：被指向的连接排在前面，本连接顺延一位（默认 1 → 指定后为 2；前面已是 2 则为 3）。
@@ -224,7 +338,7 @@ function validateScripts(raw) {
  * @returns {{value: object}} 规范化后的载荷（仅白名单字段）
  * @throws message 指明非法字段名（供 422 响应与测试断言）
  */
-export function validateHostPayload(body, { partial = false, current = null } = {}) {
+export function validateHostPayload(body, { partial = false, current = null, twofaEnabled = false } = {}) {
   if (!body || typeof body !== 'object' || Array.isArray(body)) {
     throw invalid('请求体必须为 JSON 对象');
   }
@@ -306,6 +420,20 @@ export function validateHostPayload(body, { partial = false, current = null } = 
   if (body.scripts !== undefined) {
     value.scripts = validateScripts(body.scripts);
   }
+  // 主机级二次认证开关：布尔值；开启前提是全局 2FA验证 已绑定
+  if (body.requireTwofa !== undefined) {
+    if (typeof body.requireTwofa !== 'boolean') {
+      throw invalid('requireTwofa 必须为布尔值');
+    }
+    if (body.requireTwofa === true && twofaEnabled !== true) {
+      throw invalid('开启连接二次认证前，需先在「设置 → 2FA验证」中完成绑定');
+    }
+    value.requireTwofa = body.requireTwofa;
+  }
+  // 连接级会话参数（高级页）：整体替换，null = 清空（全部跟随全局）
+  if (body.session !== undefined) {
+    value.session = validateSessionConfig(body.session);
+  }
 
   // 凭据：出现即校验形态
   const hasPw = body.password !== undefined && body.password !== null;
@@ -374,6 +502,26 @@ function publicView(h, mcpOrder = MCP_ORDER_BASE) {
             // 「需经用户同意」默认关闭（仅显式开启即为 true）
             requireConsent: h.mcpPrompt?.requireConsent === true,
           },
+    // 最近连接时间（空态「快速连接」按此排序；未连接过为 null）
+    lastConnectedAt: h.lastConnectedAt ?? null,
+    // 主机级二次认证：开启后终端/MCP 首次使用需 2FA 验证；twofaVerified = 已完成（永久生效）
+    requireTwofa: h.requireTwofa === true,
+    twofaVerified: h.twofaVerified === true,
+    // 连接级会话参数（高级页）：null = 全部跟随全局
+    session:
+      h.session && typeof h.session === 'object'
+        ? {
+            idleTimeoutMs: h.session.idleTimeoutMs ?? null,
+            connectTimeoutMs: h.session.connectTimeoutMs ?? null,
+            startDirectory: h.session.startDirectory ?? null,
+            detachedTtlMs: h.session.detachedTtlMs ?? null,
+            termType: h.session.termType ?? null,
+            autoReconnect: h.session.autoReconnect ?? null,
+            env: h.session.env ?? null,
+            auditOutput: h.session.auditOutput ?? null,
+            blockedCommands: Array.isArray(h.session.blockedCommands) ? h.session.blockedCommands : null,
+          }
+        : null,
     // 登录后自动执行脚本（历史记录无该字段时为空数组；字符串条目归一为延迟 0 的对象）
     scripts: Array.isArray(h.scripts)
       ? h.scripts.map((s) =>
@@ -420,7 +568,7 @@ async function repairPreferRefs(store, ownerId, targetId, { requireSameGroup = f
  * @param {{runtime: object, store: object, masterKey: Buffer}} deps
  */
 export function hostsRoutes(deps) {
-  const { runtime, store, masterKey, audit } = deps;
+  const { runtime, store, masterKey, audit, config } = deps;
 
   /** 越权返回 403 且不暴露资源存在性；不存在返回 404 */
   async function requireHost(id, ownerId) {
@@ -466,7 +614,7 @@ export function hostsRoutes(deps) {
         }
         let value;
         try {
-          ({ value } = validateHostPayload(body, { partial: false }));
+          ({ value } = validateHostPayload(body, { partial: false, twofaEnabled: config?.twofa?.enabled === true }));
         } catch (e) {
           return sendError(res, 422, e.code ?? 'invalid_field', e.message);
         }
@@ -500,6 +648,11 @@ export function hostsRoutes(deps) {
           mcpPrompt: value.mcpPrompt ?? null,
           // 登录后自动执行脚本（不携带 = 空）
           scripts: value.scripts ?? [],
+          // 主机级二次认证：开启后终端/MCP 首次使用需 2FA 验证（一次验证永久生效）
+          requireTwofa: value.requireTwofa === true,
+          twofaVerified: false,
+          // 连接级会话参数（高级页：空闲断开/连接超时/启动目录；不携带 = 跟随全局）
+          session: value.session ?? null,
           ownerId: identity.id,
           fingerprint: null,
           pendingFingerprint: null,
@@ -554,7 +707,7 @@ export function hostsRoutes(deps) {
         }
         let value;
         try {
-          ({ value } = validateHostPayload(body, { partial: true, current: host }));
+          ({ value } = validateHostPayload(body, { partial: true, current: host, twofaEnabled: config?.twofa?.enabled === true }));
         } catch (e) {
           return sendError(res, 422, e.code ?? 'invalid_field', e.message);
         }
@@ -602,6 +755,16 @@ export function hostsRoutes(deps) {
           ...(value.mcpPrompt !== undefined ? { mcpPrompt: value.mcpPrompt } : {}),
           // 登录后自动执行脚本：提交即整体替换（空数组 = 清空）
           ...(value.scripts !== undefined ? { scripts: value.scripts } : {}),
+          // 主机级二次认证：状态翻转（开→关 / 关→开）时重置验证状态；
+          // 开着不变（仅编辑其他字段）保持已验证，避免反复弹码
+          ...(value.requireTwofa !== undefined
+            ? {
+                requireTwofa: value.requireTwofa,
+                ...(value.requireTwofa !== (host.requireTwofa === true) ? { twofaVerified: false } : {}),
+              }
+            : {}),
+          // 连接级会话参数：整体替换（null = 清空，全部跟随全局）
+          ...(value.session !== undefined ? { session: value.session } : {}),
           ...(value.connectVia !== undefined ? { connectVia: value.connectVia } : {}),
           // 直连时清空跳板引用；未提交 connectVia 时保持原值
           ...(value.connectVia === 'jump'

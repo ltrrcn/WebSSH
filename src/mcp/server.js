@@ -3,7 +3,7 @@
 // 不引入 SDK 的会话传输层——服务端保持无状态，会话 ID 仅按 Streamable HTTP 规范在
 // initialize 时生成并经 Mcp-Session-Id 响应头返回，由客户端后续请求回传后透传进审计。
 import { randomUUID } from 'node:crypto';
-import { checkPathAccess, checkCommand } from '../ssh/policy.js';
+import { checkPathAccess, checkCommand, checkHostBlocklist } from '../ssh/policy.js';
 import { withSsh, execCommand } from '../ssh/exec.js';
 import { redact, truncateDigest } from '../crypto/redact.js';
 import { checkRateLimit } from './rate-limit.js';
@@ -220,6 +220,15 @@ async function dispatchTool(name, args, ctx) {
     throw Object.assign(new Error('目标主机不在令牌授权范围'), { code: 'host_not_allowed' });
   }
 
+  // 主机级二次认证：开启且未完成过验证 → 拒绝执行。
+  // 验证入口在 Web 终端（连接时弹 2FA 验证码），一次验证永久生效，终端与 MCP 共享授权
+  if (host.requireTwofa === true && host.twofaVerified !== true) {
+    throw Object.assign(
+      new Error('该连接已开启二次认证（2FA）：请先在 Web 终端连接一次该主机完成验证（验证一次永久生效），之后 MCP 即可使用'),
+      { code: 'host_twofa_required' }
+    );
+  }
+
   // 连接策略：优先走连接池（同主机复用，空闲断开，见 ssh/pool.js）；未注入时退回一次性连接
   const withConn = (fn) =>
     ctx.sshPool
@@ -227,6 +236,14 @@ async function dispatchTool(name, args, ctx) {
       : withSsh({ host, masterKey, config }, fn);
 
   if (name === 'run_command') {
+    // 连接级命令黑名单（高级页）优先于全局命令策略
+    const blockedHit = checkHostBlocklist(args.command, host.session?.blockedCommands);
+    if (blockedHit) {
+      throw Object.assign(
+        new Error(`命令被拒绝：该连接的黑名单禁用了「${blockedHit}」`),
+        { code: 'command_blocked_by_host' }
+      );
+    }
     const verdict = checkCommand(args.command, config.security, { level: token.level });
     if (!verdict.allowed) {
       throw Object.assign(new Error(`命令被拒绝（${verdict.reason}）`), { code: 'command_denied' });

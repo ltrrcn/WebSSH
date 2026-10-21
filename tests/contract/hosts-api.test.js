@@ -600,6 +600,7 @@ test('scripts 字段：创建保存 → GET 回读 → PUT 整体替换与清空
     assert.equal(res.status, 201);
     const created = await res.json();
     assert.deepEqual(created.scripts, [{ command: 'df -h', delaySec: 0 }, { command: 'uptime', delaySec: 0 }], '脚本应 trim 后按序返回（字符串简写归一为对象）');
+    assert.equal(created.lastConnectedAt, null, '未连接过的主机最近连接时间应为 null');
     const id = created.id;
 
     // 不携带 scripts 的 GET 同样可见
@@ -632,6 +633,57 @@ test('scripts 字段：创建保存 → GET 回读 → PUT 整体替换与清空
     });
     assert.equal(bad.status, 422);
     assert.match((await bad.json()).error.message, /换行/);
+  } finally {
+    await app.close();
+    await cleanup();
+  }
+});
+
+// —— 连接级会话参数（高级页）：创建回读 / 整体替换 / 清空 ——
+test('session 字段：创建保存 → GET 回读 → PUT 替换与清空', async () => {
+  const { app, cleanup, base } = await setup();
+  try {
+    const res = await fetch(`${base}/api/hosts`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(createBody({ session: { idleTimeoutMs: 0, connectTimeoutMs: 30000, startDirectory: '~/projects' } })),
+    });
+    assert.equal(res.status, 201);
+    const created = await res.json();
+    assert.equal(created.session.idleTimeoutMs, 0);
+    assert.equal(created.session.connectTimeoutMs, 30000);
+    assert.equal(created.session.startDirectory, '~/projects');
+    assert.equal(created.session.blockedCommands, null);
+    const id = created.id;
+
+    // PUT 整体替换（未携带字段 = 跟随全局）
+    const put = await fetch(`${base}/api/hosts/${id}`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ session: { idleTimeoutMs: 300000 } }),
+    });
+    assert.equal(put.status, 200);
+    const putBody = (await put.json()).session;
+    assert.equal(putBody.idleTimeoutMs, 300000);
+    assert.equal(putBody.connectTimeoutMs, null);
+    assert.equal(putBody.startDirectory, null);
+
+    // null 清空
+    const clear = await fetch(`${base}/api/hosts/${id}`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ session: null }),
+    });
+    assert.equal(clear.status, 200);
+    assert.equal((await clear.json()).session, null);
+
+    // 非法值 → 422
+    const bad = await fetch(`${base}/api/hosts`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(createBody({ session: { idleTimeoutMs: 5 } })),
+    });
+    assert.equal(bad.status, 422);
   } finally {
     await app.close();
     await cleanup();

@@ -6,8 +6,8 @@ import { resolveIdentity } from './auth.js';
 import { captureFingerprint, captureFingerprintViaJump } from '../ssh/client.js';
 import { decryptSecret } from '../crypto/secret.js';
 import { stripGatewayPrefix } from './router.js';
-import { consumeWsTicket, consumePassTicket } from './tickets.js';
-import { PROTOCOL_VERSION } from '../../web/src/protocol/frames.js';
+import { consumeWsTicket, consumePassTicket, consume2faTicket } from './tickets.js';
+import { PROTOCOL_VERSION, parseClientFrame } from '../../web/src/protocol/frames.js';
 
 /**
  * Origin 校验（FR-008：拒绝未授权来源）。
@@ -66,10 +66,10 @@ export function attachUpgrade(httpServer, deps) {
       return rejectHandshake(socket, 400, 'Bad Request', req);
     }
 
-    // 契约：查询参数只允许 hostId / version / ticket / sessionId / pt（不接受客户端指定 host/port/凭据）
-    // pt = 私钥口令一次性票据 ID（口令明文永不进 URL）
+    // 契约：查询参数只允许 hostId / version / ticket / sessionId / pt / twofa（不接受客户端指定 host/port/凭据）
+    // pt = 私钥口令一次性票据 ID（口令明文永不进 URL）；twofa = 2FA验证票据（主机级二次认证）
     const extra = [...url.searchParams.keys()].filter(
-      (k) => k !== 'hostId' && k !== 'version' && k !== 'ticket' && k !== 'sessionId' && k !== 'pt'
+      (k) => k !== 'hostId' && k !== 'version' && k !== 'ticket' && k !== 'sessionId' && k !== 'pt' && k !== 'twofa'
     );
     if (extra.length > 0) {
       return rejectHandshake(socket, 400, 'Bad Request', req);
@@ -118,8 +118,26 @@ async function handleTerminal(ws, identity, url, deps) {
   const hostId = url.searchParams.get('hostId');
   const sessionId = url.searchParams.get('sessionId');
 
+  // 暂存握手完成后立即到达的 RESIZE 帧：客户端 onopen 即上报终端尺寸，而服务端
+  // 要等 SSH shell 就绪（bridgeSession 绑定消息监听）才能处理，期间到达的帧
+  // 会被静默丢弃——远端 pty 停留在默认 80×24，长命令换行即错位、内容上叠。
+  // 必须在任何 await 之前挂上（下方 store.getHost 等异步期间帧就到了）。
+  const earlyResize = { cols: 0, rows: 0 };
+  const onEarlyMessage = (data, isBinary) => {
+    if (!isBinary) return;
+    const frame = parseClientFrame(data);
+    if (frame?.type === 'resize') {
+      earlyResize.cols = frame.cols;
+      earlyResize.rows = frame.rows;
+    }
+  };
+  ws.on('message', onEarlyMessage);
+  ws.once('close', () => ws.removeListener('message', onEarlyMessage));
+
   // FR-059 重新接管挂起的会话：会话已存在（不占新的并发名额），归属由 attachSession 校验
   if (sessionId) {
+    // 接管路径同步绑定 bridge 监听，暂存监听立即让位（避免双重消费）
+    ws.removeListener('message', onEarlyMessage);
     const ok = sessionManager.attachSession({ sessionId, ownerId: identity.id, ws });
     if (!ok) {
       auditDenied(audit, identity, hostId, 'session_not_attachable');
@@ -149,6 +167,26 @@ async function handleTerminal(ws, identity, url, deps) {
     sessionManager.releaseReservation(identity.id);
     auditDenied(audit, identity, hostId, 'terminal_not_allowed');
     return ws.close(4003, 'terminal_not_allowed');
+  }
+
+  // 主机级二次认证：开启且尚未完成过验证 → 必须携带有效 2FA 票据（网页端首次连接时弹码获取）。
+  // 验证通过即永久授权（twofaVerified 落盘），此后终端与 MCP 均不再要求。
+  if (host.requireTwofa === true && host.twofaVerified !== true) {
+    if (!consume2faTicket(url.searchParams.get('twofa'), identity.id)) {
+      sessionManager.releaseReservation(identity.id);
+      auditDenied(audit, identity, hostId, 'host_twofa_required');
+      return ws.close(4012, 'host_twofa_required');
+    }
+    await store.touchHost(host.id, { twofaVerified: true });
+    audit.log({
+      actor: identity.id,
+      actorType: 'user',
+      hostId: host.id,
+      hostAddress: `${host.host}:${host.port}`,
+      authType: host.authType,
+      event: 'host_twofa_verified',
+      result: 'success',
+    });
   }
 
   // 指纹未确认：捕获当前指纹供使用者显式确认，禁止静默接受（FR-007）
@@ -217,7 +255,7 @@ async function handleTerminal(ws, identity, url, deps) {
     return ws.close(4006, 'password_required');
   }
 
-  await sessionManager.createSession({ ws, host, identity, passphrase, password });
+  await sessionManager.createSession({ ws, host, identity, passphrase, password, earlyResize, onEarlyMessage });
 }
 
 function auditDenied(audit, identity, hostId, reason) {

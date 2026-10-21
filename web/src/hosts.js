@@ -175,31 +175,7 @@ export async function renderHostList(container, { onConnect, connectedIds = [], 
     item.addEventListener('contextmenu', (e) => {
       e.preventDefault();
       e.stopPropagation();
-      showContextMenu(e.clientX, e.clientY, {
-        meta: `${host.name}`,
-        items: [
-          { label: '连接', disabled: isMcpOnly(host), onClick: () => onConnect(host) },
-          {
-            label: '复制会话',
-            onClick: async () => {
-              // FR-056：服务端复制完整记录（含凭据密文）
-              await fetch(apiUrl(`hosts/${encodeURIComponent(host.id)}/duplicate`), { method: 'POST' });
-              onChanged();
-            },
-          },
-          { label: '编辑', onClick: () => openHostFormModal(host, onChanged) },
-          'sep',
-          {
-            label: '删除',
-            danger: true,
-            onClick: async () => {
-              if (!confirm(`确定删除「${host.name}」？其凭据将一并删除。`)) return;
-              await fetch(apiUrl(`hosts/${encodeURIComponent(host.id)}`), { method: 'DELETE' });
-              onChanged();
-            },
-          },
-        ],
-      });
+      showHostMenu(host, e.clientX, e.clientY, { onConnect, onChanged });
     });
   });
 
@@ -212,6 +188,35 @@ export async function renderHostList(container, { onConnect, connectedIds = [], 
         { label: '新建会话连接', onClick: () => openHostFormModal(null, onChanged) },
       ],
     });
+  });
+}
+
+/** FR-055：会话连接右键菜单（侧栏列表与空态「快速连接」卡片共用） */
+export function showHostMenu(host, x, y, { onConnect, onChanged }) {
+  showContextMenu(x, y, {
+    meta: `${host.name}`,
+    items: [
+      { label: '连接', disabled: isMcpOnly(host), onClick: () => onConnect(host) },
+      {
+        label: '复制会话',
+        onClick: async () => {
+          // FR-056：服务端复制完整记录（含凭据密文）
+          await fetch(apiUrl(`hosts/${encodeURIComponent(host.id)}/duplicate`), { method: 'POST' });
+          onChanged();
+        },
+      },
+      { label: '编辑', onClick: () => openHostFormModal(host, onChanged) },
+      'sep',
+      {
+        label: '删除',
+        danger: true,
+        onClick: async () => {
+          if (!confirm(`确定删除「${host.name}」？其凭据将一并删除。`)) return;
+          await fetch(apiUrl(`hosts/${encodeURIComponent(host.id)}`), { method: 'DELETE' });
+          onChanged();
+        },
+      },
+    ],
   });
 }
 
@@ -326,7 +331,7 @@ export async function openHostFormModal(host, onSaved) {
     { key: 'connect', label: '连接', icon: 'terminal' },
     { key: 'mcp', label: 'MCP 授权', icon: 'plug' },
     { key: 'scripts', label: '脚本', icon: 'code' },
-    { key: 'advanced', label: '高级', icon: 'sliders', soon: '连接参数与高级选项' },
+    { key: 'advanced', label: '高级', icon: 'sliders' },
   ];
   const m = openModal(
     `<nav class="sp-nav">${NAV.map(
@@ -357,13 +362,24 @@ export async function openHostFormModal(host, onSaved) {
         </label>
         <p class="form-note" style="margin-top:-6px">以选中的已有主机作为 SSH 跳板（ProxyJump，单级）；跳板机需已保存凭据并完成指纹确认。</p>
       </div>
-      <label>分组
-        <select name="group">
-          ${groupOptions
-            .map((g) => `<option value="${escapeHtml(g)}" ${g === currentGroup ? 'selected' : ''}>${escapeHtml(g)}</option>`)
-            .join('')}
-        </select>
-      </label>
+      <div class="hf-row">
+        <label style="flex:1">分组
+          <select name="group">
+            ${groupOptions
+              .map((g) => `<option value="${escapeHtml(g)}" ${g === currentGroup ? 'selected' : ''}>${escapeHtml(g)}</option>`)
+              .join('')}
+          </select>
+        </label>
+        <div class="hf-twofa-toggle" id="hf-twofa-toggle"
+             title="开启后：终端与 MCP 首次使用该连接需完成一次 2FA 验证，验证一次永久有效">
+          <span class="hf-twofa-toggle-label">二次认证</span>
+          <label class="switch">
+            <input type="checkbox" id="hf-require-twofa" ${host?.requireTwofa === true ? 'checked' : ''} disabled />
+            <span></span>
+          </label>
+          <span class="hf-twofa-toggle-note" id="hf-twofa-note" hidden>需先在设置中启用 2FA验证</span>
+        </div>
+      </div>
       <label>范围
         <div class="seg" role="radiogroup">
           <button type="button" class="seg-btn" data-scope="all">${icon('check', 13)} 全选</button>
@@ -461,6 +477,84 @@ export async function openHostFormModal(host, onSaved) {
           </div>
         </form>
       </section>
+      <section class="sp-pane" data-pane="advanced">
+        <form class="host-form" id="advanced-form">
+          <p class="form-note" style="margin-top:0">仅对当前连接生效的会话参数；「跟随全局」使用通用设置中的默认值。</p>
+          <div class="hf-row">
+            <label>空闲断开
+              <select id="hf-idle-timeout">
+                <option value="">跟随全局</option>
+                <option value="300000">5 分钟</option>
+                <option value="600000">10 分钟</option>
+                <option value="1800000">30 分钟</option>
+                <option value="3600000">1 小时</option>
+                <option value="14400000">4 小时</option>
+                <option value="0">永不断开</option>
+              </select>
+            </label>
+            <label>连接超时
+              <select id="hf-conn-timeout">
+                <option value="">跟随全局</option>
+                <option value="5000">5 秒</option>
+                <option value="15000">15 秒</option>
+                <option value="30000">30 秒</option>
+                <option value="60000">60 秒</option>
+              </select>
+            </label>
+          </div>
+          <div class="hf-row">
+            <label>会话保活
+              <select id="hf-detach-ttl">
+                <option value="">跟随全局</option>
+                <option value="300000">5 分钟</option>
+                <option value="1800000">30 分钟</option>
+                <option value="3600000">1 小时</option>
+                <option value="14400000">4 小时</option>
+              </select>
+            </label>
+            <label>终端类型
+              <select id="hf-term-type">
+                <option value="">默认（xterm-256color）</option>
+                <option value="xterm-256color">xterm-256color</option>
+                <option value="xterm">xterm</option>
+                <option value="xterm-color">xterm-color</option>
+                <option value="vt220">vt220</option>
+                <option value="vt100">vt100</option>
+                <option value="linux">linux</option>
+              </select>
+            </label>
+          </div>
+          <p class="form-note" style="margin-top:-8px">空闲断开：终端无输入输出超过该时长自动断开。连接超时：建立 SSH 连接的最长等待（慢设备可放宽）。会话保活：断开后服务端保留会话可随时接管的时长。终端类型：老设备乱码时可降级（如 vt100）。</p>
+          <label>断线自动重连
+            <div class="hf-switch-row">
+              <label class="switch"><input type="checkbox" id="hf-auto-reconnect" /><span></span></label>
+              <span class="hf-switch-desc">网络瞬断时自动重试（1/2/4 秒退避，共 3 次）；需输入凭据或指纹确认的断开不会自动重试</span>
+            </div>
+          </label>
+          <label>启动目录
+            <input type="text" id="hf-start-dir" maxlength="200" placeholder="例如 ~/projects 或 /var/www（留空 = 不切换）" spellcheck="false" />
+          </label>
+          <label>环境变量
+            <textarea id="hf-env" rows="3" maxlength="2000" placeholder="每行一条 KEY=VALUE，例如：&#10;LANG=zh_CN.UTF-8&#10;EDITOR=vim" spellcheck="false"></textarea>
+          </label>
+          <p class="form-note" style="margin-top:-8px">登录成功后 export 注入（始终生效，不依赖服务器 AcceptEnv）；顺序：环境变量 → 启动目录 → 脚本。</p>
+          <label>审计输出摘要
+            <select id="hf-audit-output">
+              <option value="">跟随全局设置</option>
+              <option value="on">开启（该连接记录命令输出摘要）</option>
+              <option value="off">关闭（该连接不记录输出摘要）</option>
+            </select>
+          </label>
+          <label>命令黑名单
+            <textarea id="hf-blocked-cmds" rows="3" maxlength="1000" placeholder="每行一个命令词，例如：&#10;rm&#10;shutdown&#10;mkfs" spellcheck="false"></textarea>
+          </label>
+          <p class="form-note" style="margin-top:-8px">MCP 与快捷命令执行时按首个命令词精确匹配拒绝（服务端硬边界，≤50 条）；网页终端输入同样拦截（Enter 被替换为取消并提示；历史回溯/粘贴等场景为尽力而为）。</p>
+          <div class="form-actions">
+            <button type="button" class="btn" id="advanced-form-cancel">取消</button>
+            <button type="button" class="btn primary" id="advanced-form-submit">${isEdit ? '保存' : '创建'}</button>
+          </div>
+        </form>
+      </section>
       ${NAV.filter((n) => n.soon)
         .map(
           (n) => `<section class="sp-pane" data-pane="${n.key}">
@@ -488,6 +582,24 @@ export async function openHostFormModal(host, onSaved) {
       switchPane(btn.dataset.pane);
     })
   );
+
+  // —— 主机级二次认证开关 ——
+  // 能否开启取决于全局 2FA验证 是否已绑定：status 403 = 已绑定未验证（也算已启用）；
+  // 未绑定时开关保持置灰并提示。默认置灰，检测到已绑定才放开（防误触先开后关）。
+  const twofaSwitch = m.root.querySelector('#hf-require-twofa');
+  const twofaNote = m.root.querySelector('#hf-twofa-note');
+  apiFetch('2fa/status')
+    .then((r) => {
+      if (r.status === 403) return true; // 已绑定（面板受保护）
+      if (r.ok) return r.json().then((s) => s.enabled === true);
+      return false;
+    })
+    .catch(() => false)
+    .then((enabled) => {
+      if (!m.root.isConnected) return; // 弹窗已关闭
+      twofaSwitch.disabled = !enabled;
+      twofaNote.hidden = enabled;
+    });
 
   const form = m.root.querySelector('#host-form');
   const authInput = form.querySelector('[name=authType]');
@@ -765,6 +877,65 @@ export async function openHostFormModal(host, onSaved) {
     }
     form.requestSubmit();
   });
+  // —— 高级页：连接级会话参数 ——
+  const idleSel = m.root.querySelector('#hf-idle-timeout');
+  const connSel = m.root.querySelector('#hf-conn-timeout');
+  const detachSel = m.root.querySelector('#hf-detach-ttl');
+  const termSel = m.root.querySelector('#hf-term-type');
+  const autoReconnectEl = m.root.querySelector('#hf-auto-reconnect');
+  const startDirInput = m.root.querySelector('#hf-start-dir');
+  const envInput = m.root.querySelector('#hf-env');
+  const auditOutputSel = m.root.querySelector('#hf-audit-output');
+  const blockedInput = m.root.querySelector('#hf-blocked-cmds');
+  if (isEdit && host.session) {
+    idleSel.value = String(host.session.idleTimeoutMs ?? '');
+    connSel.value = String(host.session.connectTimeoutMs ?? '');
+    detachSel.value = String(host.session.detachedTtlMs ?? '');
+    termSel.value = host.session.termType ?? '';
+    autoReconnectEl.checked = host.session.autoReconnect === true;
+    startDirInput.value = host.session.startDirectory ?? '';
+    envInput.value = host.session.env ?? '';
+    auditOutputSel.value = host.session.auditOutput ?? '';
+    blockedInput.value = Array.isArray(host.session.blockedCommands) ? host.session.blockedCommands.join('\n') : '';
+  }
+  /** 收集高级页配置：null 字段 = 跟随全局；全空整体为 null */
+  const collectSessionCfg = () => {
+    const idle = idleSel.value ? Number(idleSel.value) : null;
+    const conn = connSel.value ? Number(connSel.value) : null;
+    const detach = detachSel.value ? Number(detachSel.value) : null;
+    const term = termSel.value || null;
+    const auto = autoReconnectEl.checked || null;
+    const dir = startDirInput.value.trim() || null;
+    const env = envInput.value.trim() || null;
+    const auditOut = auditOutputSel.value || null;
+    const blocked = blockedInput.value
+      .split('\n')
+      .map((l) => l.trim())
+      .filter(Boolean);
+    const cfg = {
+      idleTimeoutMs: idle,
+      connectTimeoutMs: conn,
+      detachedTtlMs: detach,
+      termType: term,
+      autoReconnect: auto,
+      startDirectory: dir,
+      env,
+      auditOutput: auditOut,
+      blockedCommands: blocked.length ? blocked : null,
+    };
+    return Object.values(cfg).every((v) => v == null) ? null : cfg;
+  };
+  m.root.querySelector('#advanced-form-cancel').addEventListener('click', () => m.close());
+  m.root.querySelector('#advanced-form-submit').addEventListener('click', () => {
+    const v = validateConnectFields();
+    if (v) {
+      switchPane('connect');
+      showFieldBubble(v.field, v.err);
+      errEl.textContent = v.err;
+      return;
+    }
+    form.requestSubmit();
+  });
   const submitBtn = form.querySelector('[type=submit]');
   const errEl = form.querySelector('.hf-error');
 
@@ -901,8 +1072,12 @@ export async function openHostFormModal(host, onSaved) {
       group: fd.get('group'),
       authType: fd.get('authType'),
       connectVia: fd.get('connectVia'),
+      // 主机级二次认证：开关状态（开启前提：全局 2FA验证 已绑定，服务端同样强制）
+      requireTwofa: twofaSwitch.checked,
       // 登录后自动执行脚本（脚本页收集，顺序 = 列表顺序；空数组 = 清空）
       scripts: collectScripts().scripts,
+      // 连接级会话参数（高级页收集；null = 全部跟随全局）
+      session: collectSessionCfg(),
       // 授权范围（全选/终端/MCP）+ MCP 终端提示词（终端范围不携带）
       scope: normalizeScope(fd.get('scope')),
       mcpPrompt:
@@ -929,7 +1104,10 @@ export async function openHostFormModal(host, onSaved) {
     };
     const res = body.scope === 'mcp'
       ? await apiFetch(path, { ...req, forcePrompt: true })
-      : await fetch(apiUrl(path), req);
+      : (body.requireTwofa === true && (isEdit ? host.requireTwofa !== true : true))
+        // 开启「连接二次认证」属安全敏感变更（新建即开/存量打开）：同样走 2FA 保护请求
+        ? await apiFetch(path, { ...req, forcePrompt: true })
+        : await fetch(apiUrl(path), req);
     if (res._twofaCancelled) {
       // 用户取消验证：静默放弃（不弹「保存失败」）
       submitBtn.disabled = false;
@@ -1074,7 +1252,7 @@ function showFieldBubble(field, msg) {
   setTimeout(clear, 3500);
 }
 
-function escapeHtml(s) {
+export function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({
     '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
   })[c]);

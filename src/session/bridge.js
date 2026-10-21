@@ -5,11 +5,82 @@
 // 可选输出摘要：按提示符或 shell 标记结束命令，排除输入回显并按提交顺序归属输出
 import { encodeDataFrame, encodeMetaFrame, parseClientFrame } from '../../web/src/protocol/frames.js';
 import { createCommandRecorder } from './command-recorder.js';
+import { checkHostBlocklist } from '../ssh/policy.js';
 
 /** WS 就绪态常量（避免依赖实例属性） */
 const WS_OPEN = 1;
 /** detached 期间的输出缓冲上限（超出丢弃最旧，防内存膨胀） */
 const MAX_BUFFER_BYTES = 256 * 1024;
+
+/**
+ * 命令黑名单输入闸门（高级页 blockedCommands 的终端侧执行点）：
+ * 字符级跟踪当前输入行（与审计记录器同源的解析语义），Enter 提交时若
+ * 首词命中黑名单 → 剥掉该次 Enter、注入 Ctrl+C 取消远端行，由调用方回执提示。
+ * 尽力而为语义：方向键/历史回溯/括号粘贴等逃逸序列会让行跟踪失步，
+ * 该行保守放行（防误拦正常操作），下一行恢复跟踪。
+ * 硬边界仍在 MCP run_command 与 quick-exec（服务端精确校验）。
+ * @param {string[]} blocked 黑名单（单个命令词）
+ * @param {(hit: string, line: string) => void} onBlocked 命中回调（用于回执与审计）
+ */
+export function createInputGate(blocked, onBlocked) {
+  let line = '';
+  let desynced = false;
+  let esc = 'text'; // text | esc | csi | ss3
+  return {
+    /** 过滤一段输入：返回应发往远端的文本（命中的 Enter 被替换为 Ctrl+C） */
+    filter(text) {
+      let out = '';
+      for (const ch of text) {
+        if (esc === 'esc') {
+          esc = ch === '[' ? 'csi' : ch === 'O' ? 'ss3' : 'text';
+          out += ch;
+          continue;
+        }
+        if (esc === 'csi' || esc === 'ss3') {
+          if (ch >= '@' && ch <= '~') esc = 'text';
+          out += ch;
+          continue;
+        }
+        if (ch === '\x1b') {
+          esc = 'esc';
+          desynced = true; // 方向键/历史回溯/编辑序列：本行放弃跟踪
+          out += ch;
+          continue;
+        }
+        if (ch === '\r' || ch === '\n') {
+          const submitted = desynced ? '' : line;
+          line = '';
+          desynced = false;
+          const hit = submitted ? checkHostBlocklist(submitted, blocked) : null;
+          if (hit) {
+            out += '\x03'; // 取消远端待执行行
+            onBlocked(hit, submitted);
+          } else {
+            out += ch;
+          }
+          continue;
+        }
+        if (ch === '\x7f' || ch === '\b') {
+          line = Array.from(line).slice(0, -1).join('');
+          out += ch;
+          continue;
+        }
+        if (ch === '\x03' || ch === '\x15') {
+          line = '';
+          out += ch;
+          continue;
+        }
+        if (ch.codePointAt(0) >= 0x20 && ch.codePointAt(0) !== 0x7f) {
+          if (line.length < 8192) line += ch;
+          out += ch;
+          continue;
+        }
+        out += ch; // Tab / 其他控制字符透传（Tab 补全造成的行偏差由词级匹配容忍）
+      }
+      return out;
+    },
+  };
+}
 
 /**
  * @param {{ws: import('ws').WebSocket, stream: import('ssh2').Channel,
@@ -18,7 +89,7 @@ const MAX_BUFFER_BYTES = 256 * 1024;
  *   onDetach?: () => void}} opts
  * @returns {{attach: (ws: import('ws').WebSocket) => boolean, detach: () => void}}
  */
-export function bridgeSession({ ws, stream, session, idleTimeoutMs, detachedTtlMs = 0, audit, config, onSessionEnd, onDetach }) {
+export function bridgeSession({ ws, stream, session, idleTimeoutMs, detachedTtlMs = 0, audit, config, onSessionEnd, onDetach, auditOutputOverride = null, blockedCommands = null }) {
   let ended = false;
   let detached = false;
   let idleTimer = null;
@@ -26,12 +97,44 @@ export function bridgeSession({ ws, stream, session, idleTimeoutMs, detachedTtlM
   // detached 期间远端输出先入缓冲，重新接管时回放
   let buffer = [];
   let bufferedBytes = 0;
-  // 开关运行时读取：设置页热改 config 后即刻生效，无需重开会话
+  // 开关运行时读取：设置页热改 config 后即刻生效，无需重开会话；
+  // 连接级覆盖（高级页 auditOutput 'on'/'off'）优先于全局
   const getOutputCfg = () => ({
-    enabled: config?.audit?.recordTerminalOutput === true,
+    enabled:
+      auditOutputOverride === 'on'
+        ? true
+        : auditOutputOverride === 'off'
+          ? false
+          : config?.audit?.recordTerminalOutput === true,
     digestBytes: config?.limits?.outputDigestBytes ?? 2048,
   });
   const recorder = createCommandRecorder(session, audit, getOutputCfg);
+  // 命令黑名单闸门：命中 → 终端回执红字提示 + 审计留痕（denied）
+  const gate = Array.isArray(blockedCommands) && blockedCommands.length
+    ? createInputGate(blockedCommands, (hit, cmdLine) => {
+        try {
+          if (currentWs && currentWs.readyState === WS_OPEN) {
+            currentWs.send(encodeDataFrame(`\r\n\x1b[31m—— 命令被拒绝：该连接的黑名单禁用了「${hit}」——\x1b[0m\r\n`), { binary: true });
+          }
+        } catch {
+          /* 回执失败不影响拦截 */
+        }
+        try {
+          audit.log({
+            actor: session.ownerId,
+            actorType: 'user',
+            hostId: session.hostId,
+            sessionId: session.id,
+            event: 'command',
+            result: 'denied',
+            reason: `command_blocked_by_host:${hit}`,
+            command: cmdLine.slice(0, 2000),
+          });
+        } catch {
+          /* 审计失败不影响拦截 */
+        }
+      })
+    : null;
 
   // 会话元信息下发（FR-058）：前端据此把本地会话卡与审计里的服务端会话 ID 对应，
   // 便于在「命令审计」中定位后台运行/已断开的会话并继续连接
@@ -48,6 +151,8 @@ export function bridgeSession({ ws, stream, session, idleTimeoutMs, detachedTtlM
 
   const touchIdle = () => {
     if (idleTimer) clearTimeout(idleTimer);
+    // 0 = 永不断开（连接级覆盖，见「高级」页空闲断开设置）
+    if (!idleTimeoutMs) return;
     idleTimer = setTimeout(() => {
       // 空闲超时：断开会话并告知原因（关闭码 4010）
       finalize('idle-timeout', 4010);
@@ -141,7 +246,14 @@ export function bridgeSession({ ws, stream, session, idleTimeoutMs, detachedTtlM
         } catch {
           /* 审计失败不阻断透传 */
         }
-        stream.write(frame.payload);
+        // 命令黑名单（高级页）：终端输入侧尽力拦截；命中时替换 Enter 为 Ctrl+C 并回执
+        if (gate) {
+          const raw = typeof frame.payload === 'string' ? frame.payload : Buffer.from(frame.payload).toString('utf8');
+          const filtered = gate.filter(raw);
+          stream.write(Buffer.from(filtered, 'utf8'));
+        } else {
+          stream.write(frame.payload);
+        }
         break;
       case 'resize':
         touchIdle();

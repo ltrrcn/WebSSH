@@ -100,6 +100,20 @@ export function assertMatrixTightened(matrix, globalDefaults) {
  * @param {{level?: 'readonly'|'writable'}} [opts]
  * @returns {{allowed: boolean, reason: 'ok'|'syntax_rejected'|'not_in_readonly_whitelist'|'dangerous_command'}}
  */
+/**
+ * 连接级命令黑名单（高级页 blockedCommands）：命中即拒绝 MCP 与快捷命令执行。
+ * 匹配语义：命令的首个命令词与黑名单条目完全一致（如条目 rm 拦截 `rm -rf /`，不拦截 `rrm`）。
+ * @param {string} command 命令原文
+ * @param {string[]|null} blocked 黑名单条目（单个命令词）
+ * @returns {string|null} 命中的条目；未命中返回 null
+ */
+export function checkHostBlocklist(command, blocked) {
+  if (!Array.isArray(blocked) || blocked.length === 0) return null;
+  const first = String(command ?? '').trim().split(/\s+/)[0] ?? '';
+  if (!first) return null;
+  return blocked.find((b) => b === first) ?? null;
+}
+
 export function checkCommand(command, rules = {}, opts = {}) {
   const cmd = String(command ?? '');
   if (cmd.length === 0 || cmd.length > 4096) {

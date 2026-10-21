@@ -270,3 +270,93 @@ test('scripts 校验：对象/字符串条目规范化，延迟/条数/长度/�
   // 条数上限边界 → 通过
   assert.equal(validateHostPayload({ ...base, scripts: Array.from({ length: 20 }, () => 'ls') }).value.scripts.length, 20);
 });
+
+test('requireTwofa 校验：布尔值 + 开启前提（全局 2FA 已绑定）', () => {
+  const base = { name: 'n', host: '1.2.3.4', username: 'u', authType: 'none' };
+  // 不携带 → 不出现（PUT 保持原值）
+  assert.equal('requireTwofa' in validateHostPayload({ ...base }).value, false);
+  // 2FA 未启用时开启 → 拒绝
+  assert.throws(() => validateHostPayload({ ...base, requireTwofa: true }), /2FA验证/);
+  // 2FA 已启用：true/false 均通过
+  assert.equal(validateHostPayload({ ...base, requireTwofa: true }, { twofaEnabled: true }).value.requireTwofa, true);
+  assert.equal(validateHostPayload({ ...base, requireTwofa: false }, { twofaEnabled: true }).value.requireTwofa, false);
+  // 非布尔 → 拒绝
+  assert.throws(() => validateHostPayload({ ...base, requireTwofa: 'yes' }, { twofaEnabled: true }), /布尔/);
+});
+
+test('session 连接级会话参数校验：范围限制与归一化', () => {
+  const base = { name: 'n', host: '1.2.3.4', username: 'u', authType: 'none' };
+  const call = (session) => validateHostPayload({ ...base, session }).value.session;
+  // 不携带 → 不出现（PUT 保持原值）
+  assert.equal('session' in validateHostPayload({ ...base }).value, false);
+  // 完整配置归一：未携带字段补 null（第二三梯队字段一并归 null）
+  {
+    const r = call({ idleTimeoutMs: 0, connectTimeoutMs: 30000, startDirectory: ' /var/www ' });
+    assert.equal(r.idleTimeoutMs, 0);
+    assert.equal(r.connectTimeoutMs, 30000);
+    assert.equal(r.startDirectory, '/var/www');
+    assert.equal(r.detachedTtlMs, null);
+    assert.equal(r.termType, null);
+    assert.equal(r.autoReconnect, null);
+    assert.equal(r.env, null);
+    assert.equal(r.auditOutput, null);
+    assert.equal(r.blockedCommands, null);
+  }
+  // 空对象 / null → 整体清空
+  assert.equal(call({}), null);
+  assert.equal(call(null), null);
+  // 全字段 null → null
+  assert.equal(call({ idleTimeoutMs: null, connectTimeoutMs: null, startDirectory: null }), null);
+  // 空闲断开：0（永不断开）与 1 分钟–24 小时合法；越界拒绝
+  assert.equal(call({ idleTimeoutMs: 0 }).idleTimeoutMs, 0);
+  assert.equal(call({ idleTimeoutMs: 60000 }).idleTimeoutMs, 60000);
+  assert.equal(call({ idleTimeoutMs: 86400000 }).idleTimeoutMs, 86400000);
+  assert.throws(() => call({ idleTimeoutMs: 1 }), /idleTimeoutMs/);
+  assert.throws(() => call({ idleTimeoutMs: 90000000 }), /idleTimeoutMs/);
+  // 连接超时：3–120 秒
+  assert.equal(call({ connectTimeoutMs: 3000 }).connectTimeoutMs, 3000);
+  assert.throws(() => call({ connectTimeoutMs: 1000 }), /connectTimeoutMs/);
+  assert.throws(() => call({ connectTimeoutMs: 180000 }), /connectTimeoutMs/);
+  // 启动目录：换行拒绝、超长拒绝、空白条目归 null
+  assert.throws(() => call({ startDirectory: 'a\nb' }), /startDirectory/);
+  assert.throws(() => call({ startDirectory: 'x'.repeat(201) }), /startDirectory/);
+  assert.equal(call({ startDirectory: '   ' }), null);
+});
+
+test('session 第二三梯队字段：保活/终端类型/自动重连/环境变量/审计/黑名单', () => {
+  const base = { name: 'n', host: '1.2.3.4', username: 'u', authType: 'none' };
+  const call = (session) => validateHostPayload({ ...base, session }).value.session;
+  // 会话保活：1 分钟 – 4 小时
+  assert.equal(call({ detachedTtlMs: 3600000 }).detachedTtlMs, 3600000);
+  assert.throws(() => call({ detachedTtlMs: 30000 }), /detachedTtlMs/);
+  assert.throws(() => call({ detachedTtlMs: 20000000 }), /detachedTtlMs/);
+  // 终端类型：白名单
+  assert.equal(call({ termType: 'vt100' }).termType, 'vt100');
+  assert.throws(() => call({ termType: 'custom-term' }), /termType/);
+  // 自动重连：布尔
+  assert.equal(call({ autoReconnect: true }).autoReconnect, true);
+  assert.throws(() => call({ autoReconnect: 'yes' }), /autoReconnect/);
+  // 环境变量：KEY=VALUE 行归一（trim + 过滤空行）
+  assert.equal(call({ env: 'LANG=zh_CN.UTF-8\n\nEDITOR=vim\n' }).env, 'LANG=zh_CN.UTF-8\nEDITOR=vim');
+  assert.throws(() => call({ env: '9BAD=x' }), /env/);
+  assert.throws(() => call({ env: 'no-equals-sign' }), /env/);
+  assert.throws(() => call({ env: Array.from({ length: 21 }, (_, i) => `K${i}=v`).join('\n') }), /20 行/);
+  // 审计输出：on/off
+  assert.equal(call({ auditOutput: 'off' }).auditOutput, 'off');
+  assert.throws(() => call({ auditOutput: 'maybe' }), /auditOutput/);
+  // 命令黑名单：数组或换行文本皆可，归一为词数组
+  assert.deepEqual(call({ blockedCommands: 'rm\n\nshutdown\n' }).blockedCommands, ['rm', 'shutdown']);
+  assert.deepEqual(call({ blockedCommands: ['rm'] }).blockedCommands, ['rm']);
+  assert.throws(() => call({ blockedCommands: ['rm -rf'] }), /命令词/); // 含空格（非单命令词）
+  assert.throws(() => call({ blockedCommands: Array.from({ length: 51 }, () => 'x') }), /50 条/);
+});
+
+test('checkHostBlocklist：按首个命令词精确匹配', async () => {
+  const { checkHostBlocklist } = await import('../../src/ssh/policy.js');
+  assert.equal(checkHostBlocklist('rm -rf /', ['rm', 'shutdown']), 'rm');
+  assert.equal(checkHostBlocklist('  shutdown -h now', ['rm', 'shutdown']), 'shutdown');
+  assert.equal(checkHostBlocklist('rrm file', ['rm']), null); // 前缀相同不算
+  assert.equal(checkHostBlocklist('ls', null), null);
+  assert.equal(checkHostBlocklist('', ['rm']), null);
+  assert.equal(checkHostBlocklist('rm -rf /', []), null);
+});

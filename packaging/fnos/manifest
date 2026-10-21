@@ -1,5 +1,5 @@
 appname=webssh
-version=0.6.15
+version=0.7.0
 display_name=WebSSH
 desc=网页端 SSH 终端：浏览器内连接已授权主机，支持多会话、审计留痕与 MCP 令牌接入
 source=thirdparty

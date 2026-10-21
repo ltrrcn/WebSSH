@@ -81,11 +81,12 @@ function openConn(opts) {
 }
 
 /** 在已就绪的连接上申请交互式 shell */
-function openShell(conn, { cols = 80, rows = 24 }) {
+function openShell(conn, { cols = 80, rows = 24, termType, env }) {
   return new Promise((resolve, reject) => {
     conn.shell(
       {
-        term: 'xterm-256color',
+        // 终端类型可按连接覆盖（高级页），默认 xterm-256color
+        term: termType || 'xterm-256color',
         cols,
         rows,
         // 中文输入乱码修复：不带 env 时 sshd 会话以 C/POSIX locale 启动，
@@ -93,7 +94,8 @@ function openShell(conn, { cols = 80, rows = 24 }) {
         // LC_CTYPE=UTF-8 为 macOS 原生形式且 glibc 系（Debian/Ubuntu）内置接受，
         // 双平台保底字符集；LANG 让界面消息保持中文。
         // sshd 需 AcceptEnv LANG LC_*（OpenSSH 默认开启），被拒绝也不影响 shell 建立。
-        env: { LANG: 'zh_CN.UTF-8', LC_CTYPE: 'UTF-8' },
+        // 连接级环境变量（高级页 KEY=VALUE）在此叠加注入（sshd 拒绝时不影响 shell 建立）。
+        env: { LANG: 'zh_CN.UTF-8', LC_CTYPE: 'UTF-8', ...(env ?? {}) },
       },
       (err, stream) => {
         if (err) {

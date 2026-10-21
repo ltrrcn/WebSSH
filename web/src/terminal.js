@@ -11,6 +11,7 @@ import { icon } from './icons.js';
 import { getPrefs, setPref, onPrefsChange } from './prefs.js';
 import { getQuickCommands, addQuickCommand, nextQuickCommandName, onQuickCommandsChange, removeQuickCommand } from './quick-commands.js';
 import { openQuickCommandNamer } from './quick-commands-ui.js';
+import { promptTwofaVerify, getTwofaTicket } from './twofa.js';
 import {
   sanitizeTmuxSessionName,
   buildTmuxProbeCommand,
@@ -276,6 +277,10 @@ async function createTab(host, { tmux = false, attachId = '' } = {}) {
     }
   });
 
+  // 本地尺寸任何变化（fit/激活/字号等路径）实时同步远端；WS 未就绪时跳过，
+  // 由 onopen 的 sendResize 补报当前值——不再依赖 fitAndReport 的调用点覆盖
+  term.onResize(() => sendResize(tab));
+
   await connectWs(tab);
   activateTab(id);
   return tab;
@@ -308,6 +313,20 @@ async function connectWs(tab) {
   } catch {
     /* 票据为可选回退，失败不阻断 */
   }
+  // 主机级二次认证：开启且未完成过验证 → 弹 2FA 验证码（一次验证永久生效，此后不再提示）；
+  // 取消验证则中止本次连接，终端留痕可按 Enter 重试
+  let twofaTicket = '';
+  if (host.requireTwofa && !host.twofaVerified) {
+    const ok = await promptTwofaVerify();
+    if (!ok) {
+      tab.connecting = false;
+      term.write('\r\n\x1b[31m—— 已取消 2FA 验证，连接中止（按 Enter 重试） ——\x1b[0m\r\n');
+      tab.setStatus?.('已取消');
+      return;
+    }
+    twofaTicket = getTwofaTicket() ?? '';
+    host.twofaVerified = true; // 服务端已落盘授权；本地同步避免重连再弹码
+  }
   // FR-059：带 sessionId 时服务端把本连接接到已挂起的会话上（而非新建）
   // pt：私钥口令一次性票据（口令明文不进 URL/日志）；取出即清，保证一次性
   const passTicket = tab.passTicket;
@@ -317,6 +336,7 @@ async function connectWs(tab) {
     `?hostId=${encodeURIComponent(host.id)}&version=${PROTOCOL_VERSION}` +
     (tab.attachSessionId ? `&sessionId=${encodeURIComponent(tab.attachSessionId)}` : '') +
     (passTicket ? `&pt=${encodeURIComponent(passTicket)}` : '') +
+    (twofaTicket ? `&twofa=${encodeURIComponent(twofaTicket)}` : '') +
     (ticket ? `&ticket=${encodeURIComponent(ticket)}` : '');
   const ws = new WebSocket(url);
   ws.binaryType = 'arraybuffer';
@@ -357,12 +377,17 @@ async function connectWs(tab) {
   ws.onopen = () => {
     tab.connecting = false;
     tab.setStatus?.('');
+    // 尺寸同步第一帧：WS 打开即上报当前行列，不依赖后续 fit 定时器链。
+    // 服务端会暂存建连期间（SSH shell 尚未就绪）到达的 RESIZE 并在就绪后补投，
+    // 保证远端 pty 不会停留在默认 80×24（长命令换行错位/内容上叠的根因）
+    sendResize(tab);
     // FR-059 接管会话：重设窗口尺寸，让远端按当前终端大小重绘
     if (tab.attachSessionId) setTimeout(() => fitAndReport(tab), 60);
     // 断线重连（按 Enter / 网络恢复）也须重新 fit：断开期间窗口尺寸或样式可能已变，
     // 旧 cols/rows 会让 canvas 溢出容器（命令蔓延到边缘），远端也无法对齐
     else if (tab.everConnected) setTimeout(() => fitAndReport(tab), 60);
     tab.everConnected = true;
+    tab.autoRetries = 0; // 连接成功：重置自动重连计数
     // R001 tmux 模式：首连与断线重连统一在此启动探测（重连后自动 attach 恢复现场）
     if (tab.tmux) startTmuxProbe(tab);
     renderTabbar();
@@ -428,6 +453,7 @@ async function connectWs(tab) {
       4009: '口令票据无效或已过期，请重新连接',
       4010: '会话空闲超时，已自动断开',
       4011: '执行超时，已终止',
+      4012: '该连接需先完成 2FA 验证（重新连接将弹出验证码）',
     };
     const msg = fpMissMsg ?? map[e.code] ?? `连接已关闭（${e.reason || e.code}）`;
     // 断开原因只写入终端回滚区，底部状态行不显示
@@ -435,7 +461,36 @@ async function connectWs(tab) {
     term.write('\x1b[90m按 Enter 重新连接\x1b[0m\r\n');
     renderTabbar();
     notifyTabsChange();
+    // 高级页「断线自动重连」：异常断开（1006）/连接失败（4006）自动重试；
+    // 需用户输入的关闭（凭据/指纹弹窗已提前 return）与认证失败不重试
+    if (
+      tab.host?.session?.autoReconnect === true &&
+      !tab.userClosed &&
+      (e.code === 1006 || (e.code === 4006 && e.reason !== 'auth_failed'))
+    ) {
+      scheduleAutoReconnect(tab);
+    }
   };
+}
+
+/** 高级页「断线自动重连」：指数退避自动重试（1s/2s/4s，共 3 次），
+ *  连接成功由 SESSION 帧回调重置计数；用户关闭会话即停止 */
+function scheduleAutoReconnect(tab) {
+  if (tab.autoRetryTimer) return;
+  tab.autoRetries = (tab.autoRetries ?? 0) + 1;
+  if (tab.autoRetries > 3) {
+    tab.term.write('\x1b[90m—— 自动重连已放弃（3 次未成功），按 Enter 手动重试 ——\x1b[0m\r\n');
+    tab.autoRetries = 0;
+    return;
+  }
+  const delaySec = 2 ** (tab.autoRetries - 1); // 1s / 2s / 4s
+  tab.term.write(`\x1b[90m—— ${delaySec} 秒后自动重连（第 ${tab.autoRetries}/3 次）——\x1b[0m\r\n`);
+  tab.autoRetryTimer = setTimeout(() => {
+    tab.autoRetryTimer = null;
+    if (tab.userClosed || !tabs.has(tab.id)) return;
+    if (tab.ws?.readyState === WebSocket.OPEN || tab.ws?.readyState === WebSocket.CONNECTING) return;
+    reconnectTab(tab);
+  }, delaySec * 1000);
 }
 
 /** R001 tmux 探测：发送探测命令 + 4s 超时兜底（超时按乐观处理直接 attach，错误自然显示） */
@@ -661,6 +716,11 @@ function fitAndReport(tab) {
   } catch {
     return;
   }
+  sendResize(tab);
+}
+
+/** 把本地终端当前尺寸同步给远端 pty（0x01 RESIZE 帧）；WS 未就绪时静默跳过 */
+function sendResize(tab) {
   const { ws, term } = tab;
   if (ws?.readyState === WebSocket.OPEN && term.cols > 0 && term.rows > 0) {
     const payload = new TextEncoder().encode(
@@ -888,6 +948,9 @@ function destroyTab(id) {
     /* 忽略 */
   }
   tab.el.remove();
+  // 用户主动关闭：停止自动重连（标记 + 清定时器）
+  tab.userClosed = true;
+  if (tab.autoRetryTimer) clearTimeout(tab.autoRetryTimer);
   tabs.delete(id);
   if (activeTabId === id) {
     const next = visibleTabs().pop();
@@ -909,13 +972,10 @@ function renderTabbar() {
   const visible = visibleTabs(); // 后台会话不占会话条（FR-058）
   const bgCount = tabs.size - visible.length;
   ui.emptyState.style.display = visible.length ? 'none' : 'flex';
-  const hint = ui.emptyState.querySelector('div:last-child');
+  // 空态提示位（显式按 ID 查找——快速连接面板内的 div:last-child 会抢匹配，导致副标题被清空）
+  const hint = ui.emptyState.querySelector('#empty-hint');
   if (hint) {
-    hint.textContent = visible.length
-      ? ''
-      : bgCount
-        ? `${bgCount} 个会话在后台运行`
-        : '在左侧选择主机开始连接';
+    hint.textContent = !visible.length && bgCount ? `${bgCount} 个会话在后台运行` : '';
   }
   ui.tabbar.classList.toggle('has-bg', bgCount > 0);
   ui.tabbar.classList.toggle('has-detached', detachedSessions.length > 0);

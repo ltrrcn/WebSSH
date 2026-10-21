@@ -135,7 +135,7 @@
     }
     .group-chevron .icon { transition: transform .22s ease; transform-origin: center; transform: rotate(90deg); }
     .side-group.collapsed .group-chevron .icon { transform: rotate(0deg); }
-    .side-group-head .group-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-transform: uppercase; }
+    .side-group-head .group-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .group-count {
       font-size: 10px; color: var(--text-faint);
       background: var(--tag-bg); border-radius: 8px; padding: 1px 7px;
@@ -643,6 +643,7 @@
     #empty-state {
       position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
       color: var(--text-faint); font-size: 14px; flex-direction: column; gap: 14px;
+      padding: 24px; overflow-y: auto;
       animation: fadeIn .3s ease;
     }
     #empty-state .big {
@@ -650,6 +651,42 @@
       border-radius: 50%; background: var(--bg-panel); border: 1px solid var(--border);
       box-shadow: var(--shadow-sm);
     }
+    /* 空态快速连接面板：按最近连接排序的主机卡片（单击连接，右键管理）。
+       类名用 qcc- 前缀，避免与设置页快捷命令表格的 qc-* 撞名。
+       卡片不用硬边框：柔和 box-shadow 描边 + 图标色块，悬浮时描边转主题色并轻微浮起 */
+    /* 宽度固定取 min(480px, 92%)——92% 相对 #empty-state（绝对定位有确定宽度），
+       不再因 flex 居中收缩到内容而随列表内容抖动 */
+    #quick-connect { display: flex; flex-direction: column; align-items: center; gap: 18px; width: min(480px, 92%); }
+    .qcc-head { text-align: center; }
+    .qcc-title {
+      display: flex; align-items: center; justify-content: center; gap: 6px;
+      font-size: 16px; font-weight: 600; color: var(--text); letter-spacing: .02em;
+    }
+    .qcc-title .icon { color: var(--accent); }
+    .qcc-sub { font-size: 12px; color: var(--text-faint); margin-top: 5px; }
+    /* 上下纵向列表：单行卡片，名称+元信息居左，最近连接时间居右 */
+    .qcc-grid { display: flex; flex-direction: column; gap: 6px; width: 100%; }
+    .qcc-card {
+      display: flex; align-items: center; gap: 12px; padding: 10px 14px; text-align: left;
+      background: var(--bg-panel); border: none; border-radius: var(--radius-md);
+      box-shadow: 0 0 0 1px var(--border);
+      color: var(--text); cursor: pointer; font-size: 13px;
+      transition: box-shadow .15s ease, background .15s ease;
+      animation: qcc-card-in .3s ease both;
+    }
+    .qcc-card:hover {
+      background: var(--bg-elevated);
+      box-shadow: 0 0 0 1.5px var(--accent), var(--shadow-sm);
+    }
+    .qcc-card-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+    .qcc-card-name { font-weight: 500; font-size: 13.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .qcc-card-meta { font-size: 11px; color: var(--text-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    /* 时间列固定宽度右对齐：无论「1 秒前」还是「2026/10/12」，列宽恒定不抖动 */
+    .qcc-card-time {
+      flex: none; width: 78px; text-align: right; white-space: nowrap; overflow: hidden;
+      font-size: 10.5px; color: var(--text-faint); font-variant-numeric: tabular-nums;
+    }
+    @keyframes qcc-card-in { from { opacity: 0; transform: translateY(6px); } }
     @keyframes fadeIn { from { opacity: 0; } }
 
     /* ===== 弹窗（入场动画 + 毛玻璃） ===== */
@@ -707,6 +744,25 @@
     form.host-form .hf-row > label.hf-via { flex: none; width: 168px; }
     /* 跳板机字段随连接方式切换淡入 */
     form.host-form [data-via]:not([hidden]) { animation: hf-field-in .22s ease; }
+    /* 高级页「断线自动重连」开关行 */
+    form.host-form .hf-switch-row { display: flex; align-items: center; gap: 10px; margin-top: 6px; }
+    form.host-form .hf-switch-row .switch { margin: 0; }
+    form.host-form .hf-switch-desc { font-size: 11px; color: var(--text-faint); line-height: 1.5; }
+    form.host-form textarea {
+      display: block; width: 100%; margin-top: 6px; padding: 8px 12px; resize: vertical;
+      background: var(--bg-input); color: var(--text); font-size: 12.5px;
+      border: 1px solid var(--border); border-radius: var(--radius-md);
+      font-family: Menlo, monospace; line-height: 1.6;
+    }
+    /* 「二次认证」开关：与分组同排的无框字段——小标题在上、开关在下，
+       垂直节奏对齐分组下拉（select 约 33px，开关行用同样上间距） */
+    form.host-form .hf-twofa-toggle {
+      flex: none; display: flex; flex-direction: column; align-items: flex-start; gap: 9px;
+      margin-bottom: 16px; padding: 0;
+    }
+    form.host-form .hf-twofa-toggle-label { font-size: 12px; font-weight: 500; color: var(--text-dim); white-space: nowrap; }
+    form.host-form .hf-twofa-toggle-note { font-size: 10px; color: var(--text-faint); white-space: nowrap; }
+    form.host-form .hf-twofa-toggle .switch { margin: 0; }
     form.host-form input, form.host-form select, form.host-form textarea {
       display: block; width: 100%; margin-top: 6px;
       background: var(--bg-input); color: var(--text);
@@ -1640,8 +1696,8 @@
       <div id="tabbar"></div>
       <div id="terminals"></div>
       <div id="empty-state">
-        <div class="big">⌨</div>
-        <div>在左侧选择主机开始连接</div>
+        <div id="quick-connect"></div>
+        <div id="empty-hint"></div>
       </div>
     </main>
   </div>

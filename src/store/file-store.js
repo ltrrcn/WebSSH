@@ -120,6 +120,24 @@ export function createFileStore({ configDir, now = () => new Date().toISOString(
     ) {
       throw new Error('scripts 必须为数组（字符串或 {command, delaySec} 条目）');
     }
+    // 主机级二次认证：可选布尔字段
+    if (
+      (host.requireTwofa !== undefined && typeof host.requireTwofa !== 'boolean') ||
+      (host.twofaVerified !== undefined && typeof host.twofaVerified !== 'boolean')
+    ) {
+      throw new Error('requireTwofa/twofaVerified 必须为布尔值');
+    }
+    // 连接级会话参数（高级页）：可选对象；字段为 null 或合法标量
+    if (host.session !== undefined && host.session !== null) {
+      const s = host.session;
+      if (typeof s !== 'object' || Array.isArray(s)) throw new Error('session 必须为对象或 null');
+      for (const k of ['idleTimeoutMs', 'connectTimeoutMs', 'startDirectory']) {
+        const v = s[k];
+        if (v !== null && v !== undefined && typeof v !== 'number' && typeof v !== 'string') {
+          throw new Error(`session.${k} 必须为数值、字符串或 null`);
+        }
+      }
+    }
     return host;
   }
 

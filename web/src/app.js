@@ -1,7 +1,7 @@
 // 应用外壳（FR-044）：左侧主机栏 + 右侧多 tab 终端区 + 左下角设置 + beforeunload 会话保护
 import { initTheme, currentThemeMode, setTheme } from './theme.js';
 import { icon } from './icons.js';
-import { renderHostList } from './hosts.js';
+import { renderHostList, openHostFormModal, showHostMenu, fetchHosts, escapeHtml } from './hosts.js';
 import { openSettingsModal, openProfileModal, openDocsModal } from './settings.js';
 import { isModalOpen, closeModal } from './modal.js';
 import { renderAudit } from './audit.js';
@@ -31,7 +31,77 @@ function refreshHostList() {
     connectedIds: terminal.connectedHostIds(),
     onChanged: refreshHostList,
   });
+  renderQuickConnect(); // 空态面板联动刷新（异步自守卫，空态不可见时直接丢弃）
 }
+
+/** 相对时间：1 分钟内 N 秒前 / 1 小时内 N 分钟前 / 1 天内 N 小时前 / 7 天内 N 天前 / 更早显示具体日期 */
+function fmtAgo(ts) {
+  const s = Math.max(0, Math.floor((Date.now() - ts) / 1000));
+  if (s < 60) return `${s} 秒前`;
+  if (s < 3600) return `${Math.floor(s / 60)} 分钟前`;
+  if (s < 86400) return `${Math.floor(s / 3600)} 小时前`;
+  if (s < 86400 * 7) return `${Math.floor(s / 86400)} 天前`;
+  return new Date(ts).toLocaleDateString();
+}
+
+/** 空态「快速连接」面板：按最近连接排序的主机卡片（最多 12 个）。
+ *  单击直连，右键出与侧栏一致的管理菜单；仅 MCP 授权的连接不展示（无终端）。 */
+let qcRenderSeq = 0;
+async function renderQuickConnect() {
+  const box = document.getElementById('quick-connect');
+  if (!box) return;
+  const seq = ++qcRenderSeq;
+  const hosts = await fetchHosts().catch(() => []);
+  if (seq !== qcRenderSeq || emptyState.style.display === 'none') return; // 过期/空态不可见：丢弃
+  const usable = hosts
+    .filter((h) => (h.scope ?? 'all') !== 'mcp')
+    .sort((a, b) => (b.lastConnectedAt ?? 0) - (a.lastConnectedAt ?? 0) || a.name.localeCompare(b.name));
+  if (!usable.length) {
+    box.innerHTML = `<div class="big">⌨</div>
+      <div>在左侧选择主机开始连接</div>
+      <button class="btn primary" id="qc-new">新建会话连接</button>`;
+    box.querySelector('#qc-new').addEventListener('click', () => openHostFormModal(null, refreshHostList));
+    return;
+  }
+  box.innerHTML = `
+    <div class="qcc-head">
+      <div class="qcc-title">${icon('zap', 15)} 快速连接</div>
+      <div class="qcc-sub">按最近连接排序 · 单击连接 · 右键管理 · 空白处右键新建</div>
+    </div>
+    <div class="qcc-grid">${usable.slice(0, 5).map((h, i) => `
+      <button class="qcc-card" data-id="${escapeHtml(h.id)}" style="animation-delay: ${i * 40}ms">
+        <span class="qcc-card-main">
+          <span class="qcc-card-name">${escapeHtml(h.name)}</span>
+          <span class="qcc-card-meta">${escapeHtml(h.username)}@${escapeHtml(h.host)}:${h.port}</span>
+        </span>
+        ${h.lastConnectedAt ? `<span class="qcc-card-time" title="上次连接：${escapeHtml(new Date(h.lastConnectedAt).toLocaleString())}">${fmtAgo(h.lastConnectedAt)}</span>` : ''}
+      </button>`).join('')}
+    </div>`;
+  box.querySelectorAll('.qcc-card').forEach((card) => {
+    const host = usable.find((h) => h.id === card.dataset.id);
+    if (!host) return;
+    card.addEventListener('click', () => terminal.connectHost(host));
+    card.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      showHostMenu(host, e.clientX, e.clientY, {
+        onConnect: (h) => terminal.connectHost(h),
+        onChanged: refreshHostList,
+      });
+    });
+  });
+}
+
+// 空态空白处右键 → 新建会话连接（与侧栏空白右键一致）
+emptyState.addEventListener('contextmenu', (e) => {
+  if (e.target.closest('.qcc-card')) return;
+  e.preventDefault();
+  showContextMenu(e.clientX, e.clientY, {
+    items: [{ label: '新建会话连接', onClick: () => openHostFormModal(null, refreshHostList) }],
+  });
+});
+
+// 初次渲染（须在 quick-connect 相关声明之后，避免 TDZ）
 refreshHostList();
 
 // 用户入口（FR-047）：左下角头像+用户名；standalone 灰色头像区分本地单用户

@@ -140,6 +140,11 @@ export function promptTwofaVerify() {
   return codePromptOverlay({ submit: postVerify });
 }
 
+/** 当前 2FA 票据（未验证为 null）：供 WS 连接等非 REST 通道携带 */
+export function getTwofaTicket() {
+  return ticketCache;
+}
+
 /**
  * 受保护请求封装：自动携带 X-2FA-Ticket；403 twofa_required 时弹码验证并重试一次。
  * 参数与 fetch 相同（path 为相对 api 路径，不含 /api/ 前缀）。
