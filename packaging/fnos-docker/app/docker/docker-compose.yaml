@@ -3,7 +3,7 @@
 # 否则按包内构建上下文（./app）现场构建；基础镜像 node:22-alpine 走 fnnas 镜像源
 services:
   webssh:
-    image: webssh:0.6.15
+    image: webssh:0.7.0
     build:
       context: ./app
       dockerfile: Dockerfile
