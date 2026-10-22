@@ -1,9 +1,9 @@
 # 飞牛 Docker 版编排（fnOS docker-project 资源规范）
-# image + build 并存：NAS 上已有 webssh:<版本> 镜像（docker load 导入）则直接复用，
-# 否则按包内构建上下文（./app）现场构建；基础镜像 node:22-alpine 走 fnnas 镜像源
+# image 优先从 CNB 制品库拉取（公开仓库匿名可拉，国内网络直连，无需现场构建）；
+# 拉取失败时按包内构建上下文（./app）现场构建（基础镜像 node:22-alpine 走 fnnas 镜像源）
 services:
   webssh:
-    image: webssh:0.7.0
+    image: docker.cnb.cool/ltrr/webssh:0.7.0
     build:
       context: ./app
       dockerfile: Dockerfile

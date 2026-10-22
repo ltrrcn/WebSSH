@@ -12,7 +12,7 @@ BUILD_CTX="$APP_DIR/docker/app"
 # 版本唯一真相源：package.json → manifest + compose 镜像 tag，产物带版本号重命名
 VERSION=$(node -p "require('$ROOT/package.json').version")
 sed -i.bak "s/^version=.*/version=$VERSION/" "$PKG_DIR/manifest" && rm -f "$PKG_DIR/manifest.bak"
-sed -i.bak "s#image: webssh:.*#image: webssh:$VERSION#" "$APP_DIR/docker/docker-compose.yaml" \
+sed -i.bak "s#^image:.*#image: docker.cnb.cool/ltrr/webssh:$VERSION#" "$APP_DIR/docker/docker-compose.yaml" \
   && rm -f "$APP_DIR/docker/docker-compose.yaml.bak"
 echo "  版本：$VERSION"
 
