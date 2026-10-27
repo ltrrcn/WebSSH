@@ -15,7 +15,8 @@
     "test:integration": "node --test \"tests/integration/*.test.js\"",
     "pack:fnos": "bash scripts/build-fnos.sh",
     "pack:fnos:docker": "bash scripts/build-fnos-docker.sh",
-    "docker:build": "bash scripts/build-docker.sh"
+    "docker:build": "bash scripts/build-docker.sh",
+    "sync:github": "bash scripts/sync-github.sh"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",

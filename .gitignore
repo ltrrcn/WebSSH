@@ -29,9 +29,7 @@ Thumbs.db
 .vscode/
 .idea/
 
-# AI 工程化本地目录（个人开发环境配置，不随仓库分发）
-.codebuddy/
-.specify/
+# AI 工程化目录：.codebuddy/.specify 随 CNB 内部仓分发（推 GitHub 前由 sync-github.sh 剔除）
 .claude/
 .cursor/
 
