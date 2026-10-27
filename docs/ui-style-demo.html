@@ -1,0 +1,751 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>WebSSH UI 风格演示 · Style Demo</title>
+<style>
+  /* ============================================================
+     WebSSH UI 风格静态演示页
+     - 所有令牌与组件样式提取自 web/index.html，二者保持同步
+     - 配套文档：docs/ui-style-guide.md
+     ============================================================ */
+  :root, [data-theme="light"] {
+    --bg: #f4f6f9; --bg-panel: #ffffff; --bg-elevated: #ffffff;
+    --bg-hover: #eef1f6; --bg-active: #e3e9f5; --bg-input: #ffffff; --term-bg: #fcfdff;
+    --border: #e3e7ed; --border-strong: #ccd3dd;
+    --text: #22272f; --text-dim: #57606f; --text-faint: #8a94a4;
+    --accent: #2f6fed; --accent-soft: rgba(47, 111, 237, .10); --accent-text: #ffffff;
+    --ok: #0a8a5f; --ok-soft: rgba(10, 138, 95, .10);
+    --warn: #b26b00; --warn-soft: rgba(178, 107, 0, .10);
+    --danger: #d1242f; --danger-soft: rgba(209, 36, 47, .08);
+    --tag-bg: #eef1f6;
+    --shadow-sm: 0 1px 2px rgba(31,42,66,.06);
+    --shadow-md: 0 4px 16px rgba(31,42,66,.08);
+    --shadow-lg: 0 16px 48px rgba(31,42,66,.14);
+    --radius-sm: 6px; --radius-md: 8px; --radius-lg: 12px;
+    --code-bg: #f6f8fa; --code-bar-bg: #eceef2; --code-border: #d5dbe3;
+    --code-title: #57606f; --code-text: #24292f; --code-key: #0451a5; --code-str: #a31515;
+    --code-btn-bg: #ffffff; --code-btn-text: #24292f; --code-btn-border: #d5dbe3; --code-btn-hover: #eef1f4;
+  }
+  :root[data-theme="dark"] {
+    --bg: #0e1116; --bg-panel: #151922; --bg-elevated: #1b2029;
+    --bg-hover: #20262f; --bg-active: #2a3140; --bg-input: #0e1116; --term-bg: #0a0c10;
+    --border: #262c38; --border-strong: #343c4c;
+    --text: #e8eaf0; --text-dim: #9aa3b2; --text-faint: #626c7d;
+    --accent: #4f8dff; --accent-soft: rgba(79, 141, 255, .14); --accent-text: #ffffff;
+    --ok: #3ecf8e; --ok-soft: rgba(62, 207, 142, .12);
+    --warn: #f2b04d; --warn-soft: rgba(242, 176, 77, .12);
+    --danger: #f87171; --danger-soft: rgba(248, 113, 113, .12);
+    --tag-bg: #20262f;
+    --shadow-sm: 0 1px 2px rgba(0,0,0,.3);
+    --shadow-md: 0 4px 16px rgba(0,0,0,.35);
+    --shadow-lg: 0 16px 48px rgba(0,0,0,.5);
+    --code-bg: #0d1117; --code-bar-bg: #161b22; --code-border: #2b3240;
+    --code-title: #8b949e; --code-text: #c9d1d9; --code-key: #79c0ff; --code-str: #7ee787;
+    --code-btn-bg: #21262d; --code-btn-text: #c9d1d9; --code-btn-border: #30363d; --code-btn-hover: #30363d;
+  }
+  :root { color-scheme: light; }
+  :root[data-theme="dark"] { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; font-size: 13px;
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Segoe UI", sans-serif;
+    -webkit-font-smoothing: antialiased;
+    background: var(--bg); color: var(--text);
+  }
+  button { font-family: inherit; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  button, input, select, .seg-btn { transition: background-color .15s ease, color .15s ease, border-color .15s ease, box-shadow .15s ease, transform .1s ease; }
+  button:active { transform: scale(.97); }
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--border-strong); }
+  ::-webkit-scrollbar-track { background: transparent; }
+
+  /* ===== 页面骨架 ===== */
+  .demo-topbar {
+    position: sticky; top: 0; z-index: 50;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 12px 28px; background: var(--bg-panel); border-bottom: 1px solid var(--border);
+  }
+  .brand { display: flex; align-items: center; gap: 9px; }
+  .logo {
+    width: 28px; height: 28px; border-radius: 8px; flex: none;
+    background: linear-gradient(135deg, var(--accent), #7c5cff);
+    display: inline-flex; align-items: center; justify-content: center;
+    color: #fff; font-weight: 700; font-size: 13px;
+    filter: drop-shadow(0 2px 6px var(--accent-soft));
+  }
+  .brand-text { display: flex; flex-direction: column; line-height: 1.15; }
+  .brand-text .name { font-size: 14px; font-weight: 700; }
+  .brand-text .sub { font-size: 9.5px; font-weight: 500; color: var(--text-faint); letter-spacing: .14em; }
+  .demo-wrap { max-width: 980px; margin: 0 auto; padding: 28px 28px 80px; }
+
+  .demo-sec { margin-bottom: 40px; }
+  .sec-title {
+    font-size: 12px; font-weight: 600; color: var(--text-faint); letter-spacing: .06em;
+    text-transform: uppercase; margin-bottom: 14px; padding-bottom: 6px;
+    border-bottom: 1px solid var(--border);
+  }
+  .row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
+  .demo-note { font-size: 11px; color: var(--text-faint); line-height: 1.7; margin: 6px 0 14px; }
+  code.inline {
+    font-family: Menlo, Monaco, 'Courier New', monospace; font-size: 11.5px;
+    background: var(--bg-hover); border-radius: 4px; padding: 1px 6px; word-break: break-all;
+  }
+
+  /* ===== 色板 ===== */
+  .swatch-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+  .swatch { border: 1px solid var(--border); border-radius: var(--radius-md); overflow: hidden; background: var(--bg-panel); }
+  .swatch .chip { height: 44px; }
+  .swatch .info { padding: 8px 10px; font-size: 11px; }
+  .swatch .info b { display: block; font-size: 11.5px; margin-bottom: 2px; }
+  .swatch .info span { color: var(--text-faint); font-family: Menlo, monospace; font-size: 10px; }
+
+  /* ===== 按钮 ===== */
+  .btn {
+    background: var(--bg-elevated); color: var(--text);
+    border: 1px solid var(--border); border-radius: var(--radius-md);
+    padding: 7px 18px; cursor: pointer; font-size: 13px; font-weight: 500;
+    box-shadow: var(--shadow-sm);
+    transition: background .15s ease, border-color .15s ease, box-shadow .15s ease, filter .15s ease, transform .1s ease, opacity .15s ease;
+  }
+  .btn:hover { background: var(--bg-hover); border-color: var(--border-strong); }
+  .btn:active { transform: scale(.97); }
+  .btn:disabled { opacity: .6; cursor: default; transform: none; }
+  .btn.primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+  .btn.primary:hover { filter: brightness(1.08); box-shadow: 0 4px 14px var(--accent-soft); }
+  .btn.danger-text { color: var(--danger); }
+  .btn.danger-solid { background: var(--danger); color: #fff; border-color: var(--danger); }
+  .btn.danger-solid:hover { filter: brightness(1.08); box-shadow: 0 4px 14px var(--danger-soft); }
+  .icon-btn {
+    border: none; background: transparent; color: var(--text-dim); cursor: pointer;
+    padding: 4px 6px; border-radius: var(--radius-sm); font-size: 12px; line-height: 1;
+  }
+  .icon-btn:hover { background: var(--bg-elevated); color: var(--text); box-shadow: var(--shadow-sm); }
+  .icon-btn.danger:hover { color: var(--danger); background: var(--danger-soft); }
+  .icon-btn:disabled { opacity: .35; cursor: not-allowed; }
+  .icon-btn:disabled:hover { background: transparent; color: var(--text-dim); box-shadow: none; }
+
+  /* ===== 徽章 ===== */
+  .tag {
+    font-size: 10px; padding: 2px 8px; border-radius: 10px;
+    background: var(--tag-bg); color: var(--text-dim);
+  }
+  .tag.ok { color: var(--ok); background: var(--ok-soft); }
+  .tag.warn { color: var(--warn); background: var(--warn-soft); }
+  .tag.danger { color: var(--danger); background: var(--danger-soft); }
+  .tag.pinned { background: var(--accent-soft); color: var(--accent); }
+  .tag.closed { background: var(--bg-hover); color: var(--text-faint); }
+
+  /* ===== 表单 ===== */
+  .form-demo { max-width: 520px; }
+  .form-demo label { display: block; font-size: 12px; color: var(--text-dim); margin-bottom: 12px; font-weight: 500; }
+  .form-demo input, .form-demo select, .form-demo textarea {
+    display: block; width: 100%; margin-top: 6px;
+    background: var(--bg-input); color: var(--text);
+    border: 1px solid var(--border); border-radius: var(--radius-md); padding: 8px 12px; font-size: 13px;
+    caret-color: var(--accent);
+    box-shadow: inset 0 1px 3px rgba(0, 0, 0, .06);
+    background-image: linear-gradient(90deg, var(--accent) 0%, var(--accent) 55%, transparent 100%);
+    background-size: 0% 2px; background-position: 0 100%; background-repeat: no-repeat;
+    transition: border-color .18s ease, box-shadow .18s ease, background-size .26s ease;
+  }
+  .form-demo input:hover, .form-demo select:hover { border-color: var(--border-strong); }
+  .form-demo input:focus, .form-demo select:focus, .form-demo textarea:focus {
+    border-color: var(--accent); outline: none;
+    box-shadow: 0 0 0 3px var(--accent-soft), 0 0 20px var(--accent-soft);
+    background-size: 100% 2px;
+  }
+  .form-demo input::placeholder { color: var(--text-faint); }
+  .form-demo textarea { font-family: Menlo, monospace; font-size: 12px; resize: vertical; }
+  .form-demo select {
+    appearance: none; -webkit-appearance: none; cursor: pointer; padding-right: 34px;
+    background-image:
+      linear-gradient(90deg, var(--accent) 0%, var(--accent) 55%, transparent 100%),
+      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24'%3E%3Cpath d='M6 9l6 6 6-6' stroke='%238a94a4' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round' fill='none'/%3E%3C/svg%3E");
+    background-size: 0% 2px, 12px 12px;
+    background-position: 0 100%, right 12px center;
+    background-repeat: no-repeat, no-repeat;
+  }
+
+  /* ===== 开关 / 分段 / 滑条 ===== */
+  .switch { position: relative; display: inline-block; width: 36px; height: 20px; flex: none; cursor: pointer; }
+  .switch input { opacity: 0; width: 0; height: 0; }
+  .switch span {
+    position: absolute; inset: 0; border-radius: 20px;
+    background: var(--bg-hover); border: 1px solid var(--border); transition: background .15s ease;
+  }
+  .switch span::before {
+    content: ''; position: absolute; left: 2px; top: 2px; width: 14px; height: 14px;
+    border-radius: 50%; background: var(--text-faint); transition: all .15s ease;
+  }
+  .switch input:checked + span { background: var(--accent); border-color: var(--accent); }
+  .switch input:checked + span::before { transform: translateX(16px); background: #fff; }
+
+  .seg {
+    display: flex; background: var(--bg-input);
+    border: 1px solid var(--border); border-radius: var(--radius-md); padding: 3px; gap: 3px;
+  }
+  .seg-btn {
+    flex: 1; border: none; background: transparent; color: var(--text-dim);
+    padding: 6px 16px; border-radius: 6px; cursor: pointer; font-size: 13px;
+    transition: color .15s ease, background .18s ease, box-shadow .18s ease, transform .1s ease;
+  }
+  .seg-btn:hover { color: var(--text); }
+  .seg-btn.selected { background: var(--accent); color: var(--accent-text); font-weight: 500; box-shadow: var(--shadow-sm); }
+
+  input[type="range"] {
+    appearance: none; -webkit-appearance: none; width: 150px; height: 4px;
+    border-radius: 2px; background: var(--bg-hover); cursor: pointer; outline: none;
+  }
+  input[type="range"]::-webkit-slider-thumb {
+    appearance: none; -webkit-appearance: none; width: 15px; height: 15px;
+    border-radius: 50%; background: var(--accent); border: 2px solid var(--bg-elevated);
+    box-shadow: 0 1px 4px rgba(0,0,0,.28); cursor: pointer;
+  }
+  .pref-inline { display: flex; align-items: center; gap: 12px; }
+  .pref-inline code { font-family: Menlo, monospace; font-size: 12px; color: var(--text-dim); min-width: 42px; text-align: right; }
+
+  /* ===== 树形分组列表（侧栏范式） ===== */
+  .side-demo { width: 300px; background: var(--bg-panel); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 10px; }
+  .side-group-head {
+    display: flex; align-items: center; gap: 6px; width: 100%;
+    padding: 7px 8px 7px 6px; border: none; border-radius: var(--radius-sm);
+    background: transparent; color: var(--text-faint); cursor: pointer; user-select: none;
+    font-size: 11px; font-weight: 600; letter-spacing: .06em; text-align: left;
+  }
+  .side-group-head:hover { color: var(--text); background: var(--bg-hover); }
+  .group-chevron { display: inline-flex; width: 14px; height: 14px; color: var(--text-faint); }
+  .group-chevron svg { transition: transform .22s ease; transform: rotate(90deg); }
+  .side-group.collapsed .group-chevron svg { transform: rotate(0deg); }
+  .side-group-head .group-name { flex: 1; }
+  .group-count { font-size: 10px; color: var(--text-faint); background: var(--tag-bg); border-radius: 8px; padding: 1px 7px; }
+  .group-items { display: grid; grid-template-rows: 1fr; transition: grid-template-rows .22s ease; }
+  .side-group.collapsed .group-items { grid-template-rows: 0fr; }
+  .group-items-inner { overflow: hidden; min-height: 0; position: relative; padding-left: 10px; }
+  .group-items-inner::before {
+    content: ''; position: absolute; left: 3px; top: 6px; bottom: 6px;
+    width: 1.5px; border-radius: 1px; background: var(--border);
+  }
+  .host-item {
+    display: flex; align-items: center; gap: 10px; width: 100%;
+    padding: 9px 10px; margin-bottom: 2px; border-radius: var(--radius-md); border: none;
+    background: transparent; color: var(--text); cursor: pointer; text-align: left;
+    font-size: 13px; position: relative;
+  }
+  .host-item::before {
+    content: ''; position: absolute; left: 0; top: 50%; transform: translateY(-50%);
+    width: 3px; height: 0; border-radius: 2px; background: var(--ok);
+    transition: height .2s ease;
+  }
+  .host-item.connected::before { height: 60%; }
+  .host-item:hover { background: var(--bg-hover); }
+  .host-item .host-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+  .host-item .host-name { font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .host-item .host-meta {
+    font-size: 11px; color: var(--text-dim); font-family: Menlo, monospace;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+
+  /* ===== 会话标签 ===== */
+  .tab-demo { display: flex; background: var(--bg-panel); border: 1px solid var(--border); border-bottom: none; border-radius: var(--radius-md) var(--radius-md) 0 0; padding: 0 4px; }
+  .tab {
+    display: flex; align-items: center; gap: 8px; padding: 0 6px 0 12px; margin: 6px 2px 0;
+    border-radius: var(--radius-md) var(--radius-md) 0 0; cursor: pointer; font-size: 13px;
+    color: var(--text-dim); position: relative; white-space: nowrap; user-select: none;
+    border: 1px solid transparent; border-bottom: none;
+  }
+  .tab:hover { color: var(--text); background: var(--bg-hover); }
+  .tab.active { color: var(--text); background: var(--term-bg); border-color: var(--border); }
+  .tab.active::after {
+    content: ''; position: absolute; left: 8px; right: 8px; top: -1px; height: 2px;
+    border-radius: 2px; background: var(--accent);
+  }
+  .tab .tab-status { width: 7px; height: 7px; border-radius: 50%; background: var(--warn); }
+  .tab .tab-status.open { background: var(--ok); }
+  .tab:not(.active) .tab-status:not(.open) { animation: pulse 1.4s ease-in-out infinite; }
+  @keyframes pulse { 50% { opacity: .35; } }
+  .tab .tab-close {
+    border: none; background: transparent; color: var(--text-faint); cursor: pointer;
+    padding: 3px 5px; border-radius: var(--radius-sm); font-size: 12px; line-height: 1;
+  }
+  .tab .tab-close:hover { background: var(--danger-soft); color: var(--danger); }
+  .term-body { background: var(--term-bg); border: 1px solid var(--border); border-radius: 0 0 var(--radius-md) var(--radius-md); padding: 14px 16px; font-family: Menlo, monospace; font-size: 12px; color: var(--text-dim); min-height: 64px; }
+
+  /* ===== 表格（审计范式） ===== */
+  .audit-list { border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--bg-input); overflow: hidden; }
+  .audit-head, .audit-row {
+    display: grid; grid-template-columns: 150px 1fr 90px 90px 70px; gap: 12px; align-items: center;
+  }
+  .audit-head {
+    padding: 8px 16px; font-size: 11px; color: var(--text-faint); letter-spacing: .05em;
+    border-bottom: 1px solid var(--border); background: var(--bg-hover);
+  }
+  .audit-row { padding: 10px 16px; border-bottom: 1px solid var(--border); font-size: 12px; }
+  .audit-row:last-child { border-bottom: none; }
+  .audit-row:hover { background: var(--bg-hover); }
+  .audit-time { color: var(--text-faint); font-family: Menlo, monospace; font-size: 11px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .audit-event { font-weight: 500; white-space: nowrap; }
+  .audit-cmd { font-family: Menlo, monospace; font-size: 11px; color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .audit-view { border: none; background: none; color: var(--accent); font-size: 12px; cursor: pointer; padding: 2px 6px; border-radius: 4px; }
+  .audit-view:hover { background: var(--accent-soft); }
+
+  /* ===== 快捷命令胶囊 ===== */
+  .quick-cmd {
+    border: 1px solid var(--border); background: var(--bg-input); color: var(--text-dim);
+    border-radius: 999px; padding: 3px 12px; font-size: 12px; cursor: pointer;
+    transition: all .12s ease;
+  }
+  .quick-cmd:hover { color: var(--text); border-color: var(--accent); background: var(--accent-soft); }
+
+  /* ===== 代码窗口（Mac 风） ===== */
+  .tc-code-win {
+    border: 1px solid var(--code-border); border-radius: var(--radius-md); overflow: hidden;
+    background: var(--code-bg); box-shadow: 0 2px 10px rgba(0, 0, 0, .06);
+    max-width: 560px;
+  }
+  :root[data-theme="dark"] .tc-code-win { box-shadow: 0 2px 10px rgba(0, 0, 0, .18); }
+  .tc-code-bar {
+    display: flex; align-items: center; gap: 10px; padding: 8px 12px;
+    background: var(--code-bar-bg); border-bottom: 1px solid var(--code-border);
+  }
+  .tc-dots { display: inline-flex; gap: 6px; }
+  .tc-dots i { width: 10px; height: 10px; border-radius: 50%; }
+  .tc-dots .red { background: #ff5f57; }
+  .tc-dots .yellow { background: #febc2e; }
+  .tc-dots .green { background: #28c840; }
+  .tc-code-title { font-family: Menlo, Monaco, 'Courier New', monospace; font-size: 11.5px; color: var(--code-title); }
+  .tc-bar-btn {
+    background: var(--code-btn-bg); color: var(--code-btn-text); border: 1px solid var(--code-btn-border); border-radius: var(--radius-sm);
+    padding: 4px 12px; font-size: 11.5px; font-weight: 500; cursor: pointer; transition: background .12s ease;
+  }
+  .tc-bar-btn:hover { background: var(--code-btn-hover); }
+  .tc-conf {
+    margin: 0; padding: 12px 14px; font-family: Menlo, Monaco, 'Courier New', monospace;
+    font-size: 12px; line-height: 1.7; white-space: pre; color: var(--code-text);
+  }
+  .tc-conf .j-key { color: var(--code-key); }
+  .tc-conf .j-str { color: var(--code-str); }
+
+  /* ===== 上下文菜单（静态展示） ===== */
+  .ctx-demo-host { position: relative; height: 210px; background: var(--bg-panel); border: 1px dashed var(--border); border-radius: var(--radius-lg); }
+  .ctx-menu {
+    position: absolute; top: 40px; left: 50%; transform: translateX(-50%);
+    min-width: 168px; background: var(--bg-elevated); border: 1px solid var(--border);
+    border-radius: 10px; padding: 5px; box-shadow: var(--shadow-lg);
+  }
+  .ctx-menu .ctx-meta { font-size: 10px; color: var(--text-faint); padding: 6px 12px 5px; font-family: Menlo, monospace; }
+  .ctx-menu .ctx-item {
+    display: block; width: 100%; text-align: left; padding: 8px 12px; border: none;
+    background: transparent; color: var(--text); font-size: 13px; border-radius: 7px; cursor: pointer;
+  }
+  .ctx-menu .ctx-item:hover { background: var(--bg-hover); }
+  .ctx-menu .ctx-item.danger { color: var(--danger); }
+  .ctx-menu .ctx-item.danger:hover { background: var(--danger-soft); }
+  .ctx-sep { height: 1px; background: var(--border); margin: 5px 8px; }
+
+  /* ===== 弹窗 ===== */
+  #modal-root { position: fixed; inset: 0; z-index: 100; display: none; }
+  #modal-root.show { display: block; }
+  .modal-mask {
+    position: absolute; inset: 0; background: rgba(6,8,12,.55);
+    backdrop-filter: blur(5px); -webkit-backdrop-filter: blur(5px);
+    animation: fadeIn .15s ease;
+  }
+  .modal {
+    position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+    background: var(--bg-panel); border: 1px solid var(--border); border-radius: 14px;
+    width: 400px; max-width: 92vw; box-shadow: var(--shadow-lg);
+    animation: modalIn .18s cubic-bezier(.2, .9, .3, 1.2);
+  }
+  @keyframes modalIn { from { opacity: 0; transform: translate(-50%, -48%) scale(.96); } }
+  @keyframes fadeIn { from { opacity: 0; } }
+  .modal-head { display: flex; justify-content: space-between; align-items: center; padding: 16px 20px 2px; font-size: 15px; font-weight: 600; }
+  .modal-body { padding: 12px 20px 20px; }
+  .confirm-head { display: flex; gap: 12px; align-items: flex-start; }
+  .confirm-badge {
+    width: 32px; height: 32px; flex: none; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    background: var(--accent-soft); color: var(--accent); font-size: 15px;
+  }
+  .confirm-badge.danger { background: var(--danger-soft); color: var(--danger); }
+  .confirm-text { margin: 0; font-size: 13px; line-height: 1.7; }
+  .confirm-note { margin: 10px 0 0; font-size: 12px; color: var(--text-dim); line-height: 1.6; }
+  .confirm-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
+
+  /* ===== Toast ===== */
+  .tc-toast-host { position: fixed; right: 20px; bottom: 20px; display: flex; flex-direction: column; gap: 8px; z-index: 9999; pointer-events: none; }
+  .tc-toast {
+    display: flex; align-items: center; gap: 8px; font-size: 12.5px; padding: 9px 14px;
+    border-radius: var(--radius-md); background: var(--bg-elevated);
+    border: 1px solid var(--border-strong); box-shadow: var(--shadow-sm);
+    opacity: 0; transform: translateY(6px); transition: opacity .2s ease, transform .2s ease;
+    max-width: 340px;
+  }
+  .tc-toast.show { opacity: 1; transform: none; }
+  .tc-toast .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; background: var(--accent); }
+  .tc-toast.ok .dot { background: var(--ok); }
+  .tc-toast.err { border-color: var(--danger); }
+  .tc-toast.err .dot { background: var(--danger); }
+
+  /* ===== 主题切换条（分段滑动指示块） ===== */
+  .ctx-theme-switch {
+    position: relative; display: flex; gap: 3px; padding: 3px;
+    background: var(--bg-input); border: 1px solid var(--border); border-radius: var(--radius-md);
+  }
+  .ctx-theme-thumb {
+    position: absolute; top: 3px; bottom: 3px; left: 3px; width: 0;
+    background: var(--accent); border-radius: 5px; box-shadow: var(--shadow-sm);
+    pointer-events: none;
+    transition: transform .28s cubic-bezier(.4, 0, .2, 1), width .28s cubic-bezier(.4, 0, .2, 1);
+  }
+  .ctx-theme-switch button {
+    position: relative; z-index: 1;
+    flex: 1; display: flex; align-items: center; justify-content: center; gap: 4px;
+    padding: 6px 14px; border: none; border-radius: 5px;
+    background: transparent; color: var(--text-dim); font-size: 12px; cursor: pointer;
+    transition: color .18s ease;
+  }
+  .ctx-theme-switch button:hover { color: var(--text); }
+  .ctx-theme-switch button.active { color: var(--accent-text); font-weight: 500; }
+</style>
+</head>
+<body>
+
+<header class="demo-topbar">
+  <span class="brand">
+    <span class="logo">W</span>
+    <span class="brand-text">
+      <span class="name">WebSSH</span>
+      <span class="sub">STYLE DEMO</span>
+    </span>
+  </span>
+  <div class="ctx-theme-switch" id="theme-switch">
+    <span class="ctx-theme-thumb" id="theme-thumb"></span>
+    <button data-mode="light">浅色</button>
+    <button data-mode="dark">深色</button>
+  </div>
+</header>
+
+<div class="demo-wrap">
+
+  <!-- 1. 色彩 -->
+  <section class="demo-sec">
+    <h2 class="sec-title">01 · 色彩令牌</h2>
+    <div class="swatch-grid" id="swatches"></div>
+    <p class="demo-note">三级文字层级 <code class="inline">text → text-dim → text-faint</code>；语义色永远成对使用（实色 + soft 底）。切换右上角主题可验证双主题表现。</p>
+  </section>
+
+  <!-- 2. 按钮 -->
+  <section class="demo-sec">
+    <h2 class="sec-title">02 · 按钮</h2>
+    <div class="row">
+      <button class="btn">默认按钮</button>
+      <button class="btn primary">主按钮</button>
+      <button class="btn danger-text">危险文字</button>
+      <button class="btn danger-solid">危险实底</button>
+      <button class="btn" disabled>禁用</button>
+    </div>
+    <div class="row">
+      <button class="icon-btn">✎ 编辑</button>
+      <button class="icon-btn danger">✕ 删除</button>
+      <button class="icon-btn" disabled>⊘ 禁用</button>
+      <button class="audit-view">查看详情</button>
+    </div>
+    <p class="demo-note">按下统一 <code class="inline">scale(.97)</code>；primary hover 为 brightness 提亮 + accent-soft 投影。</p>
+  </section>
+
+  <!-- 3. 徽章 -->
+  <section class="demo-sec">
+    <h2 class="sec-title">03 · 徽章</h2>
+    <div class="row">
+      <span class="tag">默认</span>
+      <span class="tag ok">在线</span>
+      <span class="tag warn">连接中</span>
+      <span class="tag danger">失败</span>
+      <span class="tag pinned">置顶</span>
+      <span class="tag closed">已结束</span>
+    </div>
+  </section>
+
+  <!-- 4. 表单 -->
+  <section class="demo-sec">
+    <h2 class="sec-title">04 · 表单（聚焦扫描线）</h2>
+    <div class="form-demo">
+      <label>主机地址
+        <input type="text" placeholder="192.168.1.100 或 nas.example.com" />
+      </label>
+      <label>认证方式
+        <select>
+          <option>密码</option>
+          <option>私钥</option>
+          <option>SSH Agent</option>
+        </select>
+      </label>
+      <label>登录后脚本
+        <textarea rows="3" placeholder="cd /var/log&#10;tail -f app.log"></textarea>
+      </label>
+    </div>
+    <p class="demo-note">聚焦 = 双层光晕（内环 3px + 外圈 20px accent-soft）+ 底部扫描线从左向右铺满；光标颜色跟随主题色。</p>
+  </section>
+
+  <!-- 5. 开关 / 分段 / 滑条 -->
+  <section class="demo-sec">
+    <h2 class="sec-title">05 · 开关 · 分段选择器 · 滑条</h2>
+    <div class="row">
+      <label class="switch"><input type="checkbox" checked /><span></span></label>
+      <span style="font-size:12.5px">断线自动重连</span>
+      <label class="switch"><input type="checkbox" /><span></span></label>
+      <span style="font-size:12.5px;color:var(--text-dim)">记住口令</span>
+    </div>
+    <div class="row">
+      <div class="seg">
+        <button class="seg-btn selected">密码</button>
+        <button class="seg-btn">私钥</button>
+        <button class="seg-btn">Agent</button>
+      </div>
+    </div>
+    <div class="row">
+      <div class="pref-inline">
+        <input type="range" min="10" max="20" value="13" oninput="this.nextElementSibling.textContent=this.value+'px'" />
+        <code>13px</code>
+      </div>
+    </div>
+  </section>
+
+  <!-- 6. 树形分组 -->
+  <section class="demo-sec">
+    <h2 class="sec-title">06 · 树形分组列表（侧栏范式）</h2>
+    <div class="side-demo">
+      <div class="side-group">
+        <button class="side-group-head" onclick="this.parentElement.classList.toggle('collapsed')">
+          <span class="group-chevron"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg></span>
+          <span class="group-name">生产环境</span>
+          <span class="group-count">3</span>
+        </button>
+        <div class="group-items"><div class="group-items-inner">
+          <button class="host-item connected">
+            <span class="host-main">
+              <span class="host-name">nas-main</span>
+              <span class="host-meta">root@10.165.2.6:36000</span>
+            </span>
+            <span class="tag ok">在线</span>
+          </button>
+          <button class="host-item">
+            <span class="host-main">
+              <span class="host-name">db-cluster</span>
+              <span class="host-meta">admin@172.16.0.21:22</span>
+            </span>
+            <span class="tag">MCP</span>
+          </button>
+        </div></div>
+      </div>
+      <div class="side-group collapsed">
+        <button class="side-group-head" onclick="this.parentElement.classList.toggle('collapsed')">
+          <span class="group-chevron"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg></span>
+          <span class="group-name">开发环境</span>
+          <span class="group-count">2</span>
+        </button>
+        <div class="group-items"><div class="group-items-inner">
+          <button class="host-item">
+            <span class="host-main">
+              <span class="host-name">dev-box</span>
+              <span class="host-meta">dev@192.168.31.10:22</span>
+            </span>
+          </button>
+        </div></div>
+      </div>
+    </div>
+    <p class="demo-note">折叠动画用 <code class="inline">grid-template-rows: 1fr → 0fr</code>（不依赖 max-height）；连接行左缘 3px 绿色竖条高度 0 → 60% 展开。</p>
+  </section>
+
+  <!-- 7. 会话标签 -->
+  <section class="demo-sec">
+    <h2 class="sec-title">07 · 会话标签 · 终端区</h2>
+    <div class="tab-demo">
+      <div class="tab active"><span class="tab-status open"></span><span>nas-main</span><button class="tab-close">✕</button></div>
+      <div class="tab"><span class="tab-status"></span><span>db-cluster</span><button class="tab-close">✕</button></div>
+      <div class="tab"><span class="tab-status open"></span><span>dev-box</span><button class="tab-close">✕</button></div>
+    </div>
+    <div class="term-body">root@nas-main:~# uptime<br>&nbsp;21:47&nbsp; up 32 days, load avg: 0.42 0.35 0.31</div>
+    <p class="demo-note">激活 tab 底色 = <code class="inline">--term-bg</code> 与终端融合成一体；连接中（黄色圆点）有 1.4s 呼吸动画。</p>
+  </section>
+
+  <!-- 8. 快捷命令 -->
+  <section class="demo-sec">
+    <h2 class="sec-title">08 · 快捷命令胶囊</h2>
+    <div class="row">
+      <button class="quick-cmd">df -h</button>
+      <button class="quick-cmd">docker ps -a</button>
+      <button class="quick-cmd">tail -100f /var/log/syslog</button>
+      <button class="quick-cmd">systemctl status nas-pulse</button>
+    </div>
+  </section>
+
+  <!-- 9. 表格 -->
+  <section class="demo-sec">
+    <h2 class="sec-title">09 · 数据表格（grid 对齐范式）</h2>
+    <div class="audit-list">
+      <div class="audit-head"><span>时间</span><span>命令</span><span>主机</span><span>结果</span><span>操作</span></div>
+      <div class="audit-row">
+        <span class="audit-time">10-25 21:32:08</span>
+        <span class="audit-cmd">rsync -av --delete /vol1/ /vol2/backup/</span>
+        <span class="audit-cmd">nas-main</span>
+        <span><span class="tag ok">成功</span></span>
+        <button class="audit-view">详情</button>
+      </div>
+      <div class="audit-row">
+        <span class="audit-time">10-25 21:30:51</span>
+        <span class="audit-cmd">systemctl restart nas-pulse</span>
+        <span class="audit-cmd">nas-main</span>
+        <span><span class="tag ok">成功</span></span>
+        <button class="audit-view">详情</button>
+      </div>
+      <div class="audit-row">
+        <span class="audit-time">10-25 21:28:14</span>
+        <span class="audit-cmd">ssh admin@172.16.0.99</span>
+        <span class="audit-cmd">db-cluster</span>
+        <span><span class="tag danger">失败</span></span>
+        <button class="audit-view">详情</button>
+      </div>
+    </div>
+    <p class="demo-note">表头与数据行共用同一 <code class="inline">grid-template-columns</code>；表头 sticky + 灰底 + 11px faint 字；时间列等宽字体 + tabular-nums。</p>
+  </section>
+
+  <!-- 10. 代码窗口 -->
+  <section class="demo-sec">
+    <h2 class="sec-title">10 · 代码窗口（Mac 风 · 独立配色子系统）</h2>
+    <div class="tc-code-win">
+      <div class="tc-code-bar">
+        <span class="tc-dots"><i class="red"></i><i class="yellow"></i><i class="green"></i></span>
+        <span class="tc-code-title">mcp.json</span>
+        <button class="tc-bar-btn" style="margin-left:auto" onclick="toast('已复制到剪贴板', 'ok')">复制</button>
+      </div>
+      <pre class="tc-conf">{
+  <span class="j-key">"mcpServers"</span>: {
+    <span class="j-key">"webssh"</span>: {
+      <span class="j-key">"url"</span>: <span class="j-str">"http://nas.local:8080/mcp"</span>,
+      <span class="j-key">"token"</span>: <span class="j-str">"wssh-2f8d...c91a"</span>
+    }
+  }
+}</pre>
+    </div>
+    <p class="demo-note">浅色 = VS Code Light 语法配色，深色 = GitHub Dark（交通灯三色不随主题变化）。</p>
+  </section>
+
+  <!-- 11. 上下文菜单 -->
+  <section class="demo-sec">
+    <h2 class="sec-title">11 · 上下文菜单（静态展示）</h2>
+    <div class="ctx-demo-host">
+      <div class="ctx-menu">
+        <div class="ctx-meta">nas-main · sid:a3f9c2</div>
+        <button class="ctx-item">重命名会话</button>
+        <button class="ctx-item">复制会话</button>
+        <div class="ctx-sep"></div>
+        <button class="ctx-item danger">断开连接</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- 12. 弹窗与 Toast -->
+  <section class="demo-sec">
+    <h2 class="sec-title">12 · 弹窗 · 确认弹窗 · Toast</h2>
+    <div class="row">
+      <button class="btn primary" onclick="openModal()">打开确认弹窗</button>
+      <button class="btn" onclick="toast('会话已恢复', 'ok')">成功 Toast</button>
+      <button class="btn" onclick="toast('连接超时，请检查网络', 'err')">错误 Toast</button>
+    </div>
+    <p class="demo-note">弹窗遮罩 <code class="inline">rgba(6,8,12,.55)</code> + 5px 毛玻璃；入场 .18s 回弹曲线；Toast 右下角浮出。</p>
+  </section>
+
+</div>
+
+<!-- 弹窗 -->
+<div id="modal-root">
+  <div class="modal-mask" onclick="closeModal()"></div>
+  <div class="modal">
+    <div class="modal-head">断开连接<button class="icon-btn" onclick="closeModal()">✕</button></div>
+    <div class="modal-body">
+      <div class="confirm-head">
+        <span class="confirm-badge danger">⚠</span>
+        <div>
+          <p class="confirm-text">确定断开与 <b>nas-main</b> 的连接吗？</p>
+          <p class="confirm-note">该会话下运行的 tmux 进程会转入后台，可通过「后台会话」恢复。</p>
+        </div>
+      </div>
+      <div class="confirm-actions">
+        <button class="btn" onclick="closeModal()">取消</button>
+        <button class="btn danger-solid" onclick="closeModal();toast('已断开连接','err')">断开</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="tc-toast-host" id="toast-host"></div>
+
+<script>
+  // ===== 主题切换（复刻 theme.js 的 data-theme 机制） =====
+  var root = document.documentElement;
+  var sw = document.getElementById('theme-switch');
+  var thumb = document.getElementById('theme-thumb');
+  function layoutThumb() {
+    var active = sw.querySelector('button.active');
+    thumb.style.width = active.offsetWidth + 'px';
+    thumb.style.transform = 'translateX(' + (active.offsetLeft - 3) + 'px)';
+  }
+  function setTheme(mode) {
+    root.dataset.theme = mode;
+    sw.querySelectorAll('button').forEach(function (b) {
+      b.classList.toggle('active', b.dataset.mode === mode);
+    });
+    layoutThumb();
+  }
+  sw.querySelectorAll('button').forEach(function (b) {
+    b.addEventListener('click', function () { setTheme(b.dataset.mode); });
+  });
+  window.addEventListener('resize', layoutThumb);
+  setTheme('light');
+  // 字体加载完成后重新定位指示块
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(layoutThumb);
+
+  // ===== 色板渲染 =====
+  var tokens = [
+    ['--bg', '页面底色'], ['--bg-panel', '面板'], ['--bg-elevated', '浮起层'],
+    ['--bg-hover', 'hover 底'], ['--bg-input', '输入框'], ['--term-bg', '终端底'],
+    ['--border', '边框'], ['--border-strong', '强边框'],
+    ['--accent', '强调色'], ['--accent-soft', '强调柔和底'],
+    ['--ok', '成功'], ['--warn', '警告'], ['--danger', '危险'],
+    ['--text', '主文字'], ['--text-dim', '次要文字'], ['--text-faint', '弱化文字']
+  ];
+  var host = document.getElementById('swatches');
+  function renderSwatches() {
+    var cs = getComputedStyle(root);
+    host.innerHTML = tokens.map(function (t) {
+      return '<div class="swatch"><div class="chip" style="background:var(' + t[0] + ')"></div>' +
+        '<div class="info"><b>' + t[1] + '</b><span>' + t[0] + ' · ' + cs.getPropertyValue(t[0]).trim() + '</span></div></div>';
+    }).join('');
+  }
+  renderSwatches();
+
+  // ===== Toast =====
+  function toast(msg, type) {
+    var el = document.createElement('div');
+    el.className = 'tc-toast' + (type ? ' ' + type : '');
+    el.innerHTML = '<span class="dot"></span><span>' + msg + '</span>';
+    document.getElementById('toast-host').appendChild(el);
+    requestAnimationFrame(function () { el.classList.add('show'); });
+    setTimeout(function () {
+      el.classList.remove('show');
+      setTimeout(function () { el.remove(); }, 250);
+    }, 2600);
+  }
+
+  // ===== 弹窗 =====
+  function openModal() { document.getElementById('modal-root').classList.add('show'); }
+  function closeModal() { document.getElementById('modal-root').classList.remove('show'); }
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closeModal(); });
+</script>
+</body>
+</html>
