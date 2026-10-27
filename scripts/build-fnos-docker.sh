@@ -1,7 +1,8 @@
 #!/bin/bash
 # 构建飞牛 Docker 版 fpk（docker-project 形态，与 native 版 webssh 共存）
-# 用法：npm run pack:fnos:docker [-- --image]
-#   --image  额外在本地构建 x86_64 镜像并导出 tar.gz（NAS Docker Hub 不通时离线导入用）
+# 用法：npm run pack:fnos:docker [-- --image | --clean]
+#   --image  额外在本地构建双架构镜像并导出 tar.gz（NAS Docker Hub 不通时离线导入用）
+#   --clean  打包前清理历史构建缓存（旧版本 fpk、构建上下文、离线镜像导出）
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -15,6 +16,16 @@ sed -i.bak "s/^version=.*/version=$VERSION/" "$PKG_DIR/manifest" && rm -f "$PKG_
 sed -i.bak "s#^image:.*#image: docker.cnb.cool/ltrr/webssh:$VERSION#" "$APP_DIR/docker/docker-compose.yaml" \
   && rm -f "$APP_DIR/docker/docker-compose.yaml.bak"
 echo "  版本：$VERSION"
+
+if [ "${1:-}" = "--clean" ]; then
+  echo "[0/6] 清理历史构建缓存…"
+  # 历代 fpk 产物（清理后由本次构建重新生成当前版本）
+  find "$PKG_DIR" -maxdepth 1 -name "webssh-docker-*.fpk" -delete
+  # rsync 构建上下文 + 复制的图标暂存 + 离线镜像导出（均由后续步骤重建）
+  rm -rf "$BUILD_CTX" "$APP_DIR/ui/images"
+  rm -f "$PKG_DIR"/webssh-*-image-*.tar.gz
+  echo "  已清理历史 fpk、构建上下文与离线镜像导出"
+fi
 
 echo "[1/6] 同步构建上下文（源码 + Dockerfile + 入口脚本）…"
 # 容器内 npm ci 由 Dockerfile 完成，上下文不带 node_modules → fpk 体积最小
@@ -41,11 +52,15 @@ echo "[4/6] 产物带版本号重命名…"
 mv -f webssh-docker.fpk "webssh-docker-$VERSION.fpk"
 
 if [ "${1:-}" = "--image" ]; then
-  echo "[5/6] 构建并导出离线镜像（x86_64）…"
-  docker build --platform linux/amd64 -t "webssh:$VERSION" "$BUILD_CTX"
-  docker save "webssh:$VERSION" | gzip > "$PKG_DIR/webssh-$VERSION-image.tar.gz"
-  echo "  离线镜像：$PKG_DIR/webssh-$VERSION-image.tar.gz"
-  echo "  NAS 导入：gunzip -c webssh-$VERSION-image.tar.gz | docker load"
+  echo "[5/6] 构建并导出离线镜像（amd64 + arm64）…"
+  # 双架构分别构建导出：docker save 只能存单架构镜像，arm/x86 NAS 各导入对应文件
+  for ARCH in amd64 arm64; do
+    docker build --platform "linux/$ARCH" -t "webssh:$VERSION-$ARCH" "$BUILD_CTX"
+    docker save "webssh:$VERSION-$ARCH" | gzip > "$PKG_DIR/webssh-$VERSION-image-$ARCH.tar.gz"
+    echo "  离线镜像（$ARCH）：$PKG_DIR/webssh-$VERSION-image-$ARCH.tar.gz"
+  done
+  echo "  NAS 导入（按架构选文件）：gunzip -c webssh-$VERSION-image-<amd64|arm64>.tar.gz | docker load"
+  echo "  导入后需重打 tag：docker tag webssh:$VERSION-<arch> docker.cnb.cool/ltrr/webssh:$VERSION"
 fi
 
 echo "[6/6] 完成：$PKG_DIR/webssh-docker-$VERSION.fpk"
